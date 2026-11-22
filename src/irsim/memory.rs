@@ -24,7 +24,12 @@ const GLOBALS: [Global; 8] = [
 fn global_size(g: Global) -> u64 {
     match g {
         Global::OutBuf | Global::InBuf => 4096,
-        _ => 8,
+        Global::HeapNext
+        | Global::HeapEnd
+        | Global::StackLimit
+        | Global::OutLen
+        | Global::InLen
+        | Global::InPos => 8,
     }
 }
 

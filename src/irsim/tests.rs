@@ -484,3 +484,73 @@ fn and_or_and_stack_memory_work() {
     ]);
     assert_eq!(call(&stack, "f", &[]), 0x1234);
 }
+
+#[test]
+#[should_panic(expected = "M2-R7")]
+fn dividing_by_zero_panics() {
+    call(
+        &single(vec![Const(A, 1), Const(B, 0), Int(IntOp::Div), Return]),
+        "f",
+        &[],
+    );
+}
+
+#[test]
+#[should_panic(expected = "M2-R7")]
+fn a_negative_divisor_panics_for_rem() {
+    call(
+        &single(vec![Const(A, 7), Const(B, -2), Int(IntOp::Rem), Return]),
+        "f",
+        &[],
+    );
+}
+
+#[test]
+fn a_line_marker_may_come_between_compare_and_its_user() {
+    let m = single(vec![
+        Const(A, 1),
+        Const(B, 2),
+        Compare,
+        Line(3),
+        SetIf(Cond::Lt),
+        Return,
+    ]);
+    assert_eq!(call(&m, "f", &[]), 1);
+}
+
+#[test]
+#[should_panic(expected = "directly follow Compare")]
+fn another_instruction_between_compare_and_set_if_panics() {
+    let m = single(vec![
+        Const(A, 1),
+        Compare,
+        Const(B, 2),
+        SetIf(Cond::Lt),
+        Return,
+    ]);
+    call(&m, "f", &[]);
+}
+
+#[test]
+#[should_panic(expected = "directly follow Compare")]
+fn one_compare_serves_only_one_instruction() {
+    let taken = Label(0);
+    let m = single(vec![
+        Compare,
+        JumpIf(Cond::Ne, taken),
+        SetIf(Cond::Eq),
+        Mark(taken),
+        Return,
+    ]);
+    call(&m, "f", &[]);
+}
+
+#[test]
+#[should_panic(expected = "directly follow Compare")]
+fn jump_if_without_a_compare_panics() {
+    call(
+        &single(vec![JumpIf(Cond::Eq, Label(0)), Mark(Label(0)), Return]),
+        "f",
+        &[],
+    );
+}
