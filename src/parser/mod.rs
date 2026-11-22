@@ -1,3 +1,4 @@
+mod ambiguity;
 mod block;
 pub mod expr;
 mod stmt;
@@ -25,6 +26,9 @@ pub struct Parser<'a> {
     next_id: u32,
     depth: u32,
     block_depth: u32,
+    /// How many expression parses are open; the outermost one reports an ambiguity.
+    scope: u32,
+    ambiguity: Option<ambiguity::Ambiguity>,
 }
 
 impl<'a> Parser<'a> {
@@ -36,6 +40,8 @@ impl<'a> Parser<'a> {
             next_id: 0,
             depth: 0,
             block_depth: 0,
+            scope: 0,
+            ambiguity: None,
         }
     }
 
