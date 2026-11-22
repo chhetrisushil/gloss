@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use super::Ctx;
+use super::{Ctx, similar};
+use crate::ast::{ItemType, Type};
 use crate::diag::Diagnostic;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -25,6 +26,7 @@ pub fn check_program(ctx: &mut Ctx) {
     program_names(ctx);
     fields(ctx);
     test_titles(ctx);
+    unknown_records(ctx);
 }
 
 fn start_rules(ctx: &mut Ctx) {
@@ -109,6 +111,31 @@ fn test_titles(ctx: &mut Ctx) {
     }
 }
 
+fn unknown_records(ctx: &mut Ctx) {
+    let used = ctx.program.tables().map(|t| (t.line, &t.record)).chain(
+        ctx.program
+            .features()
+            .flat_map(|f| &f.needs)
+            .filter_map(|n| match &n.ty {
+                Type::Item(ItemType::Record(r)) | Type::List(ItemType::Record(r)) => {
+                    Some((n.line, r))
+                }
+                _ => None,
+            }),
+    );
+    let known: Vec<&str> = ctx.program.records().map(|r| r.name.as_str()).collect();
+    for (line, name) in used {
+        if known.iter().any(|k| k == name) {
+            continue;
+        }
+        let mut d = Diagnostic::error(ctx.src, line, format!("There is no record named {name}"));
+        if let Some(s) = similar::nearest(name, known.iter().copied()) {
+            d = d.suggest(s);
+        }
+        ctx.diags.push(d);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     fn diags(s: &str) -> Vec<String> {
@@ -155,6 +182,17 @@ mod tests {
     }
 
     #[test]
+    fn unknown_records_suggest() {
+        let p = format!("{START}record Expense\n  a as text\ntable t of Expens in \"x.csv\"\n");
+        assert_eq!(
+            diags(&p),
+            [
+                r#"line 5: table t of Expens in "x.csv". There is no record named Expens. Did you mean Expense?"#
+            ]
+        );
+    }
+
+    #[test]
     fn collides_exemption_and_cross_kind() {
         let p = format!("{START}record Expense\n  a as text\nfeature expense\n  show 1\n");
         assert!(diags(&p).is_empty());
@@ -169,6 +207,19 @@ mod tests {
         assert_eq!(
             diags(&p),
             ["line 6: feature report. report is already used on line 5 for a table."]
+        );
+    }
+
+    #[test]
+    fn unknown_list_input_suggests() {
+        let p = format!(
+            "{START}record Expense\n  a as text\nfeature f\n  needs x as list of Expens\n  show 1\n"
+        );
+        assert_eq!(
+            diags(&p),
+            [
+                "line 6: needs x as list of Expens. There is no record named Expens. Did you mean Expense?"
+            ]
         );
     }
 }
