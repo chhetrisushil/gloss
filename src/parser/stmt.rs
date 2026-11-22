@@ -235,6 +235,10 @@ mod tests {
         parse_stmts_str(t).unwrap().iter().map(stmt).collect()
     }
 
+    fn perr(t: &str) -> String {
+        parse_stmts_str(t).unwrap_err().render()
+    }
+
     #[test]
     fn simple_statements() {
         assert_eq!(
@@ -298,5 +302,32 @@ note hi there"#),
             error.render(),
             "line 1: add (f with a, b) total. add needs to, as in add (f with a, b) to total."
         );
+    }
+
+    #[test]
+    fn keyword_is_not_a_variable() {
+        assert_eq!(
+            perr("set add to 1"),
+            "line 1: set add to 1. set needs a name after it."
+        );
+    }
+
+    #[test]
+    fn missing_words_and_names() {
+        let rows = [
+            ("add 1 into total", "add needs to, as in add 1 to total"),
+            ("add 1 total", "add needs to, as in add 1 to total"),
+            ("add x x", "add needs to, as in add x to x"),
+            (
+                "multiply total 2",
+                "multiply needs by, as in multiply total by 2",
+            ),
+            ("add 1 to", "add needs a name after it"),
+            ("subtract 5 from", "subtract needs a name after it"),
+            ("show 1 2", "Unexpected 2 after the statement"),
+        ];
+        for (text, problem) in rows {
+            assert_eq!(perr(text), format!("line 1: {text}. {problem}."));
+        }
     }
 }
