@@ -34,6 +34,9 @@ pub struct FeatureInfo {
     pub inputs: Vec<(String, Ty)>,
     pub result: Ty,
     pub gives: Vec<(u32, Ty)>,
+    /// True when every give's type is unknown only because it waits on a feature result
+    /// that is itself unknown (a cycle), with no error of its own.
+    pub cycle: bool,
     pub vars: Vec<(String, Ty, u32)>,
 }
 
@@ -52,6 +55,8 @@ pub struct Ctx<'a> {
     pub program: &'a Program,
     pub src: &'a Source,
     pub diags: Vec<Diagnostic>,
+    /// How many times a feature result that is still unknown was looked up.
+    pub pending: usize,
 }
 
 /// Runs every check pass; `types` is `Some` only when no errors were found.
@@ -60,6 +65,7 @@ pub fn check(program: &Program, src: &Source) -> CheckResult {
         program,
         src,
         diags: Vec::new(),
+        pending: 0,
     };
     names::check_program(&mut ctx);
     let info = check_bodies(&mut ctx);
