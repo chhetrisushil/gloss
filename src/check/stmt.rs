@@ -14,6 +14,8 @@ struct Walk<'a, 'b> {
     types: &'a mut Vec<Option<Ty>>,
     vars: BTreeMap<String, Ty>,
     made: Vec<(String, Ty, u32)>,
+    /// Where each name is in `made`.
+    made_at: BTreeMap<String, usize>,
     gives: Vec<(Line, Ty)>,
     /// Gives whose type is unknown only because of a still-unknown feature result.
     waiting: usize,
@@ -50,6 +52,7 @@ pub fn check_body(
         types,
         vars,
         made: Vec::new(),
+        made_at: BTreeMap::new(),
         gives: Vec::new(),
         waiting: 0,
         in_test,
@@ -467,10 +470,11 @@ impl Walk<'_, '_> {
         if self.ctx.declared_as(name).is_some() {
             return;
         }
-        match self.made.iter_mut().find(|(n, ..)| n == name) {
+        match self.made_at.get(name).map(|&i| &mut self.made[i]) {
             None if self.vars.contains_key(name) => {}
             None => {
                 self.vars.insert(name.into(), ty.clone());
+                self.made_at.insert(name.into(), self.made.len());
                 self.made.push((name.into(), ty, line));
                 self.changed = true;
             }
@@ -505,7 +509,7 @@ impl Walk<'_, '_> {
             return;
         }
         // Inputs and loop variables are reported by the mutation check, once.
-        let Some((.., at)) = self.made.iter().find(|(n, ..)| n == name) else {
+        let Some(&(.., at)) = self.made_at.get(name).map(|&i| &self.made[i]) else {
             return;
         };
         if self.loop_vars.iter().any(|v| v == name) {

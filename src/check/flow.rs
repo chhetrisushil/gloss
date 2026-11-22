@@ -1,8 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use super::similar::distance;
+use super::similar::Neighbours;
 use super::uses::{self, Origin};
 use super::{Ctx, Ty};
+use crate::ast::program::Program;
 use crate::ast::stmt::{Stmt, StmtKind, Target};
 use crate::ast::{Expr, Line};
 use crate::diag::Diagnostic;
@@ -19,7 +20,7 @@ type Defined = BTreeSet<String>;
 
 /// Reports reads of a variable that may not have a value yet, then variables
 /// never read and new names that look like typos or differ only in case.
-pub fn check_flow(ctx: &mut Ctx, inputs: &[(String, Ty)], body: &[Stmt]) {
+pub fn check_flow(ctx: &mut Ctx, base: &Known, inputs: &[(String, Ty)], body: &[Stmt]) {
     let mut found = Vec::new();
     uses::firsts(body, None, &mut found);
     found.retain(|(name, _)| ctx.declared_as(name).is_none());
@@ -33,7 +34,7 @@ pub fn check_flow(ctx: &mut Ctx, inputs: &[(String, Ty)], body: &[Stmt]) {
     flow.stmts(body, &mut defined);
     let mut loops = Vec::new();
     loop_vars(body, &mut loops);
-    flow.names(inputs, &found, &loops);
+    flow.names(base, inputs, &found, &loops);
 }
 
 /// Every loop variable in the body, which the typo warning treats as an existing name.
@@ -63,6 +64,47 @@ fn plural(a: &str, b: &str) -> bool {
     one(a, b) || one(b, a)
 }
 
+/// The names a new name is compared with, in the order they became known.
+#[derive(Default)]
+pub struct Known<'a> {
+    near: Neighbours<'a>,
+    by_lower: HashMap<String, Vec<&'a str>>,
+}
+
+impl<'a> Known<'a> {
+    /// The tables and features of a program, which every body is compared with.
+    pub fn of_program(program: &'a Program) -> Self {
+        let mut known = Known::default();
+        program.tables().for_each(|t| known.add(&t.name));
+        program.features().for_each(|f| known.add(&f.name));
+        known
+    }
+
+    fn add(&mut self, name: &'a str) {
+        self.near.add(name);
+        self.by_lower
+            .entry(name.to_lowercase())
+            .or_default()
+            .push(name);
+    }
+
+    /// The first known name that is `name` in other letter case.
+    fn clash(&self, name: &str) -> Option<&'a str> {
+        let same = self.by_lower.get(&name.to_lowercase())?;
+        same.iter().copied().find(|k| *k != name)
+    }
+
+    /// The first known name one edit from `name`, if `name` is long enough to look like a typo.
+    fn typo(&self, name: &str) -> Option<&'a str> {
+        if name.chars().count() < 4 {
+            return None;
+        }
+        let lower = name.to_lowercase();
+        let mut near = self.near.within_one(name).into_iter();
+        near.find(|k| k.to_lowercase() != lower && !plural(name, k))
+    }
+}
+
 impl Flow<'_, '_> {
     fn read_name(&mut self, line: Line, name: &str, defined: &mut Defined) {
         self.used.insert(name.into());
@@ -84,25 +126,29 @@ impl Flow<'_, '_> {
     }
 
     /// Warns about unused variables and look-alike new names, and rejects case clashes.
-    fn names(&mut self, inputs: &[(String, Ty)], found: &[(String, Origin)], loops: &[&str]) {
-        let program = self.ctx.program;
-        let mut known: Vec<&str> = inputs.iter().map(|(n, _)| n.as_str()).collect();
-        known.extend(program.tables().map(|t| t.name.as_str()));
-        known.extend(program.features().map(|f| f.name.as_str()));
+    fn names(
+        &mut self,
+        base: &Known,
+        inputs: &[(String, Ty)],
+        found: &[(String, Origin)],
+        loops: &[&str],
+    ) {
+        let mut own = Known::default();
+        inputs.iter().for_each(|(n, _)| own.add(n));
+        let mut set = Known::default();
+        let mut loop_names = Known::default();
+        loops.iter().for_each(|n| loop_names.add(n));
+        // The order names became known decides which one a message names.
         for (name, origin) in found {
             let (src, line) = (self.ctx.src, origin.line);
-            let lower = name.to_lowercase();
-            let clash = known
+            let clash = [&own, base, &set].iter().find_map(|k| k.clash(name));
+            let typo = [&own, base, &set, &loop_names]
                 .iter()
-                .find(|k| k.to_lowercase() == lower && *k != name);
-            let typo = known
-                .iter()
-                .chain(loops)
-                .find(|k| distance(name, k) == 1 && k.to_lowercase() != lower && !plural(name, k));
+                .find_map(|k| k.typo(name));
             if let Some(other) = clash {
                 let msg = format!("{name} and {other} differ only in case; rename one");
                 self.ctx.diags.push(Diagnostic::error(src, line, msg));
-            } else if let Some(near) = typo.filter(|_| name.chars().count() >= 4) {
+            } else if let Some(near) = typo {
                 let msg = format!("new name {name}; did you mean {near}?");
                 self.ctx.diags.push(Diagnostic::warning(src, line, msg));
             }
@@ -110,7 +156,7 @@ impl Flow<'_, '_> {
                 let msg = format!("{name} is set but never used");
                 self.ctx.diags.push(Diagnostic::warning(src, line, msg));
             }
-            known.push(name);
+            set.add(name);
         }
     }
 

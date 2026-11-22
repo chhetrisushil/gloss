@@ -27,3 +27,19 @@ fn a_long_chain_of_features_declared_caller_first_checks_quickly() {
     let out = timed("2000 features", &text);
     assert!(out.is_empty(), "{:?}", &out[..out.len().min(3)]);
 }
+
+#[test]
+fn a_long_chain_of_variables_checks_quickly() {
+    let n = 4000;
+    let mut text = String::from("feature start\n  set v0 to 1\n");
+    for i in 1..n {
+        text.push_str(&format!("  set v{i} to v{} + 1\n", i - 1));
+    }
+    text.push_str(&format!("  show v{}\n", n - 1));
+    let out = timed("4000 variables", &text);
+    assert!(
+        out.iter().all(|d| d.contains("warning")),
+        "{:?}",
+        &out[..out.len().min(3)]
+    );
+}
