@@ -44,6 +44,14 @@ impl Diagnostic {
         }
     }
 
+    /// A warning about the program as a whole, with no line.
+    pub fn program_warning(problem: impl Into<String>) -> Self {
+        Diagnostic {
+            severity: Severity::Warning,
+            ..Diagnostic::program(problem)
+        }
+    }
+
     pub fn suggest(mut self, form: impl Into<String>) -> Self {
         self.suggestion = Some(form.into());
         self
@@ -56,19 +64,19 @@ impl Diagnostic {
     pub fn render(&self) -> String {
         // A problem that already ends in a question mark takes no full stop.
         let stop = if self.problem.ends_with('?') { "" } else { "." };
+        let tag = if self.severity == Severity::Warning {
+            "warning: "
+        } else {
+            ""
+        };
         let mut out = match self.line {
             Some(n) => {
-                let tag = if self.severity == Severity::Warning {
-                    "warning: "
-                } else {
-                    ""
-                };
                 format!(
                     "line {n}: {tag}{}. {}{stop}",
                     self.source_line, self.problem
                 )
             }
-            None => format!("{}{stop}", self.problem),
+            None => format!("{tag}{}{stop}", self.problem),
         };
         if let Some(s) = &self.suggestion {
             out.push_str(&format!(" Did you mean {s}?"));
@@ -111,6 +119,13 @@ mod tests {
             p.render(),
             "This program has no feature start, so it has nowhere to begin."
         );
+    }
+
+    #[test]
+    fn renders_a_program_level_warning() {
+        let w = Diagnostic::program_warning("Two files differ only in case");
+        assert_eq!(w.render(), "warning: Two files differ only in case.");
+        assert!(!w.is_error());
     }
 
     #[test]

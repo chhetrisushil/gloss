@@ -3,13 +3,15 @@
 use std::io::Write;
 use std::path::Path;
 
-use crate::{check_source, format_source};
+use crate::diag::Diagnostic;
+use crate::source::Source;
+use crate::{check_source, format_source, parse_source};
 
 const USAGE: &str = "usage: gloss <command> <file.gloss>\ncommands: build, test, format, trace, explain, flowchart\n";
 
 /// Runs one command; returns the exit status (0 success, 3 anything else).
 pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let (Some(command), Some(file)) = (args.first(), args.get(1)) else {
+    let (Some(command), Some(file), None) = (args.first(), args.get(1), args.get(2)) else {
         let _ = err.write_all(USAGE.as_bytes());
         return 3;
     };
@@ -49,7 +51,9 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
 }
 
 fn build(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let diagnostics = check_source(text);
+    let mut diagnostics = check_source(text);
+    diagnostics.extend(executable_clashes(name, text));
+    crate::diag::sort(&mut diagnostics);
     for d in &diagnostics {
         let _ = writeln!(err, "{}", d.render());
     }
@@ -61,6 +65,26 @@ fn build(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i3
         "Checked {name}: no errors (code generation arrives in milestone 2)"
     );
     0
+}
+
+/// A table file named like the program's executable (the source name without `.gloss`)
+/// would be overwritten by the build, so it is refused on the table's line.
+fn executable_clashes(name: &str, text: &str) -> Vec<Diagnostic> {
+    let source = Source::new(text);
+    let Ok(program) = parse_source(&source) else {
+        return Vec::new();
+    };
+    let executable = name.strip_suffix(".gloss").unwrap_or(name);
+    let clashing = program.tables().filter(|t| t.path == executable);
+    clashing
+        .map(|t| {
+            let msg = format!(
+                "{} is the name of this program's executable; choose another file name",
+                t.path
+            );
+            Diagnostic::error(&source, t.line, msg)
+        })
+        .collect()
 }
 
 fn format(path: &str, name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
