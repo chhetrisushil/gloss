@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use super::expr::{self, Env};
-use super::{Ctx, FeatureInfo, Ty};
+use super::{Ctx, FeatureInfo, Ty, similar};
+use crate::ast::print;
 use crate::ast::stmt::{Stmt, StmtKind, Target};
 use crate::ast::{Expr, ExprId, ExprKind, Line};
 use crate::diag::Diagnostic;
@@ -14,6 +15,16 @@ struct Walk<'a, 'b> {
     vars: BTreeMap<String, Ty>,
     made: Vec<(String, Ty, u32)>,
     result: Option<Ty>,
+}
+
+fn target_text(t: &Target) -> String {
+    match t {
+        Target::Var(name) => name.clone(),
+        Target::Field { field, of } => format!("{field} of {}", target_text(of)),
+        Target::Item { position, of } => {
+            format!("item {} of {}", print::expr(position), target_text(of))
+        }
+    }
 }
 
 /// Types every statement of a feature or test body, in source order.
@@ -56,6 +67,109 @@ impl Walk<'_, '_> {
             .push(Diagnostic::error(self.ctx.src, line, problem));
     }
 
+    /// The type a target names, reporting a root, field or position that does not fit.
+    fn target_ty(&mut self, line: Line, target: &Target) -> Ty {
+        let program = self.ctx.program;
+        match target {
+            Target::Var(name) => {
+                if let Some(t) = self.vars.get(name) {
+                    return t.clone();
+                }
+                if let Some(t) = program.tables().find(|t| &t.name == name) {
+                    let (table, record) = (t.name.clone(), t.record.clone());
+                    return Ty::Table { table, record };
+                }
+                let names = self.vars.keys().map(String::as_str);
+                let near = similar::nearest(name, names.chain(program.tables().map(|t| &*t.name)))
+                    .map(str::to_string);
+                self.report(line, format!("{name} has no value"), near.as_deref())
+            }
+            Target::Field { field, of } => match self.target_ty(line, of) {
+                Ty::Record(rec) => {
+                    let decl = program.records().find(|r| r.name == rec);
+                    let fields: Vec<_> = decl.into_iter().flat_map(|r| r.fields()).collect();
+                    if let Some(f) = fields.iter().find(|f| &f.name == field) {
+                        return expr::plain(f.ty);
+                    }
+                    let near = similar::nearest(field, fields.iter().map(|f| f.name.as_str()));
+                    self.report(line, format!("{rec} has no field {field}"), near)
+                }
+                Ty::Error => Ty::Error,
+                other => {
+                    let msg = format!(
+                        "{} is {}, so it has no field {field}",
+                        target_text(of),
+                        other.described()
+                    );
+                    self.report(line, msg, None)
+                }
+            },
+            Target::Item { position, of } => {
+                let p = self.ty(position);
+                if !matches!(p, Ty::Number | Ty::Error) {
+                    let msg = format!(
+                        "The position in item must be a number; {} is {}",
+                        print::expr(position),
+                        p.described()
+                    );
+                    self.report(line, msg, None);
+                }
+                match self.target_ty(line, of) {
+                    Ty::Error => Ty::Error,
+                    t => t.item().unwrap_or_else(|| {
+                        let msg = format!(
+                            "item works on lists and tables; {} is {}",
+                            target_text(of),
+                            t.described()
+                        );
+                        self.report(line, msg, None)
+                    }),
+                }
+            }
+        }
+    }
+
+    fn report(&mut self, line: Line, problem: String, suggest: Option<&str>) -> Ty {
+        let mut d = Diagnostic::error(self.ctx.src, line, problem);
+        if let Some(s) = suggest {
+            d = d.suggest(s);
+        }
+        self.ctx.diags.push(d);
+        Ty::Error
+    }
+
+    /// `add`, `subtract`, `multiply` and `divide`: a number target and a number value.
+    fn arithmetic(&mut self, line: Line, verb: &str, target: &Target, value: &Expr) {
+        let v = self.ty(value);
+        if !matches!(v, Ty::Number | Ty::Error) {
+            let msg = format!(
+                "{verb} works on numbers; {} is {}",
+                print::expr(value),
+                v.described()
+            );
+            self.report(line, msg, None);
+        }
+        let t = self.target_ty(line, target);
+        let name = target_text(target);
+        match (&t, target) {
+            (Ty::Number | Ty::Error, _) => {}
+            (_, Target::Var(_)) if verb == "add" && t.item().is_some() => {
+                let msg = format!(
+                    "add works on numbers; to put an item at the end of {name}, use append"
+                );
+                self.report(
+                    line,
+                    msg,
+                    Some(&format!("append {} to {name}", print::expr(value))),
+                );
+            }
+            _ => {
+                let msg = format!("{verb} works on numbers; {name} is {}", t.described());
+                self.report(line, msg, None);
+            }
+        }
+    }
+
     fn stmts(&mut self, body: &[Stmt]) {
         for stmt in body {
             self.stmt(stmt);
@@ -69,8 +183,27 @@ impl Walk<'_, '_> {
                 if let Target::Var(name) = target {
                     let action = format!("be set to {}", ty.described());
                     self.bind(stmt.line, name, ty, &action);
+                } else {
+                    let have = self.target_ty(stmt.line, target);
+                    if have != Ty::Error && ty != Ty::Error && have != ty {
+                        let msg = format!(
+                            "{} is {}, so it cannot be set to {}",
+                            target_text(target),
+                            have.described(),
+                            ty.described()
+                        );
+                        self.error(stmt.line, msg);
+                    }
                 }
             }
+            StmtKind::Add { value, target } => self.arithmetic(stmt.line, "add", target, value),
+            StmtKind::Subtract { value, target } => {
+                self.arithmetic(stmt.line, "subtract", target, value);
+            }
+            StmtKind::Multiply { target, by } => {
+                self.arithmetic(stmt.line, "multiply", target, by);
+            }
+            StmtKind::Divide { target, by } => self.arithmetic(stmt.line, "divide", target, by),
             StmtKind::Ask { question, into } => {
                 self.ty(question);
                 self.bind(stmt.line, into, Ty::Text, "be asked into, which gives text");
@@ -189,5 +322,26 @@ mod tests {
             ["line 8: run f. f needs 1 input: n; this call gives 0."]
         );
         assert!(at("  if yes\n    set y to 1\n  otherwise\n    set y to 2\n  repeat while no\n    show y\n").is_empty());
+    }
+
+    #[test]
+    fn arithmetic_verbs_and_targets() {
+        assert_eq!(
+            start("  set xs to list of 1\n  add 5 to xs\n  show count of xs\n"),
+            [
+                "line 6: add 5 to xs. add works on numbers; to put an item at the end of xs, use append. Did you mean append 5 to xs?"
+            ]
+        );
+        assert_eq!(
+            start("  set n to 1\n  subtract \"a\" from n\n  multiply n by 2\n  show n\n"),
+            ["line 6: subtract \"a\" from n. subtract works on numbers; \"a\" is text."]
+        );
+        assert_eq!(
+            start("  set amount of item 1 of es to \"a\"\n  divide amout of item 1 of es by 2\n"),
+            [
+                "line 5: set amount of item 1 of es to \"a\". amount of item 1 of es is a number, so it cannot be set to text.",
+                "line 6: divide amout of item 1 of es by 2. E has no field amout. Did you mean amount?"
+            ]
+        );
     }
 }
