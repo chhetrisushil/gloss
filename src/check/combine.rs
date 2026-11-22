@@ -115,7 +115,7 @@ pub fn call_type(
     args: &[(&Expr, Ty)],
 ) -> Ty {
     let program = ctx.program;
-    let Some(decl) = program.features().find(|f| f.name == feature) else {
+    let Some(decl) = ctx.feature(feature) else {
         let near = similar::nearest(feature, program.features().map(|f| f.name.as_str()));
         let msg = format!("There is no feature named {feature}");
         return report_at(ctx, line, msg, near);

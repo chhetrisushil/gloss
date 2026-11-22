@@ -366,7 +366,7 @@ impl Walk<'_, '_> {
 
     /// Walks a loop body with its variable in scope, then puts back what it hid.
     fn looped(&mut self, line: Line, var: &str, ty: Ty, body: &[Stmt]) {
-        let reused = self.ctx.program.declared_as(var);
+        let reused = self.ctx.declared_as(var);
         if let Some(noun) = reused {
             let msg = format!("{var} is {noun}; a variable cannot reuse its name");
             self.error(line, msg);
@@ -464,7 +464,7 @@ impl Walk<'_, '_> {
     /// only by the statement that made the variable.
     fn first(&mut self, line: Line, name: &str, ty: Ty) {
         let ty = ty.norm();
-        if self.ctx.program.declared_as(name).is_some() {
+        if self.ctx.declared_as(name).is_some() {
             return;
         }
         match self.made.iter_mut().find(|(n, ..)| n == name) {
@@ -494,7 +494,7 @@ impl Walk<'_, '_> {
 
     /// Creates `name` at its first `set` or `ask`; later ones must match its type.
     fn bind(&mut self, line: Line, name: &str, ty: Ty, action: &str) {
-        if let Some(noun) = self.ctx.program.declared_as(name) {
+        if let Some(noun) = self.ctx.declared_as(name) {
             let msg = format!("{name} is {noun}; a variable cannot reuse its name");
             return self.error(line, msg);
         }

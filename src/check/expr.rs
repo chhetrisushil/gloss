@@ -249,7 +249,7 @@ fn name_type(ctx: &mut Ctx, env: &Env, e: &Expr, name: &str) -> Ty {
             record: t.record.clone(),
         };
     }
-    if let Some(f) = ctx.program.features().find(|f| f.name == name) {
+    if let Some(f) = ctx.feature(name) {
         if f.needs.is_empty() {
             let ty = env.results.get(&f.name).cloned().unwrap_or(Ty::Error);
             ctx.pending += usize::from(ty == Ty::Error);
