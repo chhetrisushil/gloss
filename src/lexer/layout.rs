@@ -36,21 +36,43 @@ pub fn lex(src: &Source) -> Result<Vec<Token>, Diagnostic> {
             out.push(tok(Tok::Dedent, n));
         }
         level = new;
+        let trimmed = rest.trim_end_matches(' ');
         let mut last = n;
-        let mut line = scan_line(src, n, rest)?;
-        while let Some(&Token {
-            tok: Tok::Sym(Sym::Comma),
-            line: comma,
-            ..
-        }) = line.last()
-        {
-            let cont = (last + 1..=count).find(|&k| !is_blank(k));
-            let Some(k) = cont.filter(|&k| lead(k) == spaces + 2) else {
-                let msg = "This line ends with a comma, so the next line must continue it, indented one level deeper";
-                return Err(Diagnostic::error(src, comma, msg));
-            };
-            line.extend(scan_line(src, k, src.line(k).trim_start_matches(' '))?);
-            last = k;
+        let mut line;
+        if trimmed == "note" {
+            while let Some(k) = (last + 1..=count).find(|&k| !is_blank(k)) {
+                if lead(k) <= spaces {
+                    break;
+                }
+                last = k;
+            }
+            let body = (n + 1..=last)
+                .map(|k| {
+                    let text = src.line(k);
+                    text[lead(k).min(spaces + 2)..]
+                        .trim_end_matches(' ')
+                        .to_string()
+                })
+                .collect();
+            line = vec![tok(Tok::NoteBlock(body), n)];
+        } else if let Some(note) = trimmed.strip_prefix("note ") {
+            line = vec![tok(Tok::Note(note.to_string()), n)];
+        } else {
+            line = scan_line(src, n, rest)?;
+            while let Some(&Token {
+                tok: Tok::Sym(Sym::Comma),
+                line: comma,
+                ..
+            }) = line.last()
+            {
+                let cont = (last + 1..=count).find(|&k| !is_blank(k));
+                let Some(k) = cont.filter(|&k| lead(k) == spaces + 2) else {
+                    let msg = "This line ends with a comma, so the next line must continue it, indented one level deeper";
+                    return Err(Diagnostic::error(src, comma, msg));
+                };
+                line.extend(scan_line(src, k, src.line(k).trim_start_matches(' '))?);
+                last = k;
+            }
         }
         if !pushed_indent && !out.is_empty() {
             line[0].blank_before = blank;
@@ -131,6 +153,29 @@ mod tests {
         assert!(skip.blank_before);
         let stop = toks.iter().find(|t| t.tok == Tok::Kw(Kw::Stop)).unwrap();
         assert!(!stop.blank_before);
+    }
+
+    #[test]
+    fn notes() {
+        assert_eq!(
+            kinds("note smallest  program\n"),
+            vec![Tok::Note("smallest  program".into()), Tok::Newline]
+        );
+        assert_eq!(
+            kinds("note\n  Walks the list.\n\n    Indented more.\nfeature x\n"),
+            vec![
+                Tok::NoteBlock(vec![
+                    "Walks the list.".into(),
+                    "".into(),
+                    "  Indented more.".into()
+                ]),
+                Tok::Newline,
+                Tok::Kw(Kw::Feature),
+                Tok::Name("x".into()),
+                Tok::Newline,
+            ]
+        );
+        assert_eq!(kinds("notes\n")[0], Tok::Name("notes".into()));
     }
 
     #[test]
