@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::{Ctx, Ty, combine, features, similar};
 use crate::ast::print;
-use crate::ast::{ArithOp, Conversion, Expr, ExprKind, Fact, ItemType, PlainType};
+use crate::ast::{ArithOp, Conversion, Expr, ExprKind, Fact, ItemType, Line, PlainType};
 use crate::diag::Diagnostic;
 
 pub struct Env<'a> {
@@ -27,7 +27,12 @@ pub fn item_ty(t: &ItemType) -> Ty {
 }
 
 pub fn report(ctx: &mut Ctx, e: &Expr, problem: String, suggest: Option<&str>) -> Ty {
-    let mut d = Diagnostic::error(ctx.src, e.line, problem);
+    report_at(ctx, e.line, problem, suggest)
+}
+
+/// Like `report`, for a problem that belongs to a line rather than to one expression.
+pub fn report_at(ctx: &mut Ctx, line: Line, problem: String, suggest: Option<&str>) -> Ty {
+    let mut d = Diagnostic::error(ctx.src, line, problem);
     if let Some(s) = suggest {
         d = d.suggest(s);
     }
@@ -130,7 +135,7 @@ fn infer(ctx: &mut Ctx, env: &Env, e: &Expr, types: &mut Vec<Option<Ty>>) -> Ty 
         ExprKind::Call { feature, inputs } => {
             let tys = combine::type_all(ctx, env, inputs, types);
             let args: Vec<(&Expr, Ty)> = inputs.iter().zip(tys).collect();
-            let ty = combine::call_type(ctx, env, e, feature, &args);
+            let ty = combine::call_type(ctx, env.results, e.line, feature, &args);
             features::as_value(ctx, e, feature, ty)
         }
         ExprKind::BuildRecord { record, fields } => {
@@ -371,14 +376,6 @@ mod tests {
     fn names_have_values() {
         assert!(body("  set n to 1\n  show n, es, \"a\", yes\n").is_empty());
         assert!(diags("feature start\n  show 1\ntest \"t\"\n  show shown\n").is_empty());
-        assert_eq!(
-            body("  show totl\n"),
-            ["line 6: show totl. totl has no value."]
-        );
-        assert_eq!(
-            body("  set total to 1\n  show total, totl\n"),
-            ["line 7: show total, totl. totl has no value. Did you mean total?"]
-        );
         assert_eq!(
             body("  show totl\n"),
             ["line 6: show totl. totl has no value."]

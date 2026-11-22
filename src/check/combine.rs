@@ -1,7 +1,9 @@
-use super::expr::{Env, item_ty, plain, report, type_of};
+use std::collections::BTreeMap;
+
+use super::expr::{Env, item_ty, plain, report, report_at, type_of};
 use super::{Ctx, Ty, similar};
 use crate::ast::print;
-use crate::ast::{CompareOp, Expr, Type};
+use crate::ast::{CompareOp, Expr, Line, Type};
 
 pub fn compare_type(ctx: &mut Ctx, e: &Expr, op: CompareOp, l: (&Expr, Ty), r: (&Expr, Ty)) -> Ty {
     if l.1 == Ty::Error || r.1 == Ty::Error {
@@ -105,12 +107,18 @@ fn accepts(want: &Ty, got: &Ty) -> bool {
     }
 }
 
-pub fn call_type(ctx: &mut Ctx, env: &Env, e: &Expr, feature: &str, args: &[(&Expr, Ty)]) -> Ty {
+pub fn call_type(
+    ctx: &mut Ctx,
+    results: &BTreeMap<String, Ty>,
+    line: Line,
+    feature: &str,
+    args: &[(&Expr, Ty)],
+) -> Ty {
     let program = ctx.program;
     let Some(decl) = program.features().find(|f| f.name == feature) else {
         let near = similar::nearest(feature, program.features().map(|f| f.name.as_str()));
         let msg = format!("There is no feature named {feature}");
-        return report(ctx, e, msg, near);
+        return report_at(ctx, line, msg, near);
     };
     let input_names: Vec<&str> = decl.needs.iter().map(|n| n.name.as_str()).collect();
     if decl.needs.len() != args.len() {
@@ -119,7 +127,7 @@ pub fn call_type(ctx: &mut Ctx, env: &Env, e: &Expr, feature: &str, args: &[(&Ex
             needs_phrase(feature, &input_names),
             args.len()
         );
-        return report(ctx, e, msg, None);
+        return report_at(ctx, line, msg, None);
     }
     for (input, (arg, got)) in decl.needs.iter().zip(args) {
         let want = match &input.ty {
@@ -134,10 +142,14 @@ pub fn call_type(ctx: &mut Ctx, env: &Env, e: &Expr, feature: &str, args: &[(&Ex
                 print::expr(arg),
                 got.described()
             );
-            report(ctx, e, msg, None);
+            report_at(ctx, line, msg, None);
         }
     }
-    env.results.get(feature).cloned().unwrap_or(Ty::Error)
+    match results.get(feature) {
+        Some(ty) => ty.clone(),
+        // Not a known feature: the "no feature named" report above already covers it.
+        None => Ty::Error,
+    }
 }
 
 pub fn record_type(ctx: &mut Ctx, e: &Expr, record: &str, given: &[(&str, &Expr, Ty)]) -> Ty {

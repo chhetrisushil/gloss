@@ -30,7 +30,30 @@ pub fn check_flow(ctx: &mut Ctx, inputs: &[(String, Ty)], body: &[Stmt]) {
     };
     let mut defined: Defined = inputs.iter().map(|(n, _)| n.clone()).collect();
     flow.stmts(body, &mut defined);
-    flow.names(inputs, &found);
+    let mut loops = Vec::new();
+    loop_vars(body, &mut loops);
+    flow.names(inputs, &found, &loops);
+}
+
+/// Every loop variable in the body, which the typo warning treats as an existing name.
+fn loop_vars<'a>(body: &'a [Stmt], out: &mut Vec<&'a str>) {
+    for stmt in body {
+        match &stmt.kind {
+            StmtKind::ForEachIn { var, body, .. } | StmtKind::ForEachRange { var, body, .. } => {
+                out.push(var);
+                loop_vars(body, out);
+            }
+            StmtKind::RepeatWhile { body, .. } => loop_vars(body, out),
+            StmtKind::If {
+                branches,
+                otherwise,
+            } => {
+                branches.iter().for_each(|(_, b)| loop_vars(b, out));
+                loop_vars(otherwise.as_deref().unwrap_or_default(), out);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// True when the names are the same but for one final `s`.
@@ -60,7 +83,7 @@ impl Flow<'_, '_> {
     }
 
     /// Warns about unused variables and look-alike new names, and rejects case clashes.
-    fn names(&mut self, inputs: &[(String, Ty)], found: &[(String, Origin)]) {
+    fn names(&mut self, inputs: &[(String, Ty)], found: &[(String, Origin)], loops: &[&str]) {
         let program = self.ctx.program;
         let mut known: Vec<&str> = inputs.iter().map(|(n, _)| n.as_str()).collect();
         known.extend(program.tables().map(|t| t.name.as_str()));
@@ -73,6 +96,7 @@ impl Flow<'_, '_> {
                 .find(|k| k.to_lowercase() == lower && *k != name);
             let typo = known
                 .iter()
+                .chain(loops)
                 .find(|k| distance(name, k) == 1 && k.to_lowercase() != lower && !plural(name, k));
             if let Some(other) = clash {
                 let msg = format!("{name} and {other} differ only in case; rename one");
@@ -256,6 +280,15 @@ mod tests {
             (1, 1, 0)
         );
         assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn a_loop_variable_is_a_name_the_typo_warning_knows() {
+        let p = "feature start\n  set xs to list of 1\n  for each total in xs\n    show total\n  set totl to 2\n  show totl\n";
+        assert_eq!(
+            diags(p),
+            ["line 5: warning: set totl to 2. new name totl; did you mean total?"]
+        );
     }
 
     #[test]

@@ -4,7 +4,7 @@ use super::expr::{self, Env};
 use super::{Ctx, FeatureInfo, Ty, similar};
 use crate::ast::print;
 use crate::ast::stmt::{Stmt, StmtKind, Target};
-use crate::ast::{Expr, ExprId, ExprKind, Line};
+use crate::ast::{Expr, Line};
 use crate::diag::Diagnostic;
 
 /// The state of walking one body: variables in scope and what made them.
@@ -239,21 +239,9 @@ impl Walk<'_, '_> {
             }
             StmtKind::Run { feature, inputs } => {
                 let args: Vec<(&Expr, Ty)> = inputs.iter().map(|i| (i, self.ty(i))).collect();
-                let at = Expr {
-                    id: ExprId(u32::MAX),
-                    line: stmt.line,
-                    kind: ExprKind::Call {
-                        feature: feature.clone(),
-                        inputs: Vec::new(),
-                    },
-                };
-                let env = Env {
-                    vars: &self.vars,
-                    results: self.results,
-                    in_test: self.in_test,
-                };
                 let kept = self.ctx.diags.len();
-                let ty = super::combine::call_type(self.ctx, &env, &at, feature, &args);
+                let ty =
+                    super::combine::call_type(self.ctx, self.results, stmt.line, feature, &args);
                 if self.ctx.diags.len() == kept {
                     super::features::check_run(self.ctx, stmt.line, feature, inputs, &ty);
                 }
