@@ -148,7 +148,11 @@ fn compares_a_truth(types: &[Option<Ty>], e: &Expr) -> bool {
 }
 
 /// The expressions a statement holds directly, and the blocks inside it.
-fn parts<'a>(kind: &'a StmtKind, exprs: &mut Vec<&'a Expr>, nested: &mut Vec<&'a [Stmt]>) {
+pub(super) fn parts<'a>(
+    kind: &'a StmtKind,
+    exprs: &mut Vec<&'a Expr>,
+    nested: &mut Vec<&'a [Stmt]>,
+) {
     match kind {
         StmtKind::Set { value, .. } => exprs.push(value),
         StmtKind::Add { value, .. } | StmtKind::Subtract { value, .. } => exprs.push(value),
@@ -185,7 +189,7 @@ fn parts<'a>(kind: &'a StmtKind, exprs: &mut Vec<&'a Expr>, nested: &mut Vec<&'a
     }
 }
 
-fn children(e: &Expr) -> Vec<&Expr> {
+pub(super) fn children(e: &Expr) -> Vec<&Expr> {
     match &e.kind {
         ExprKind::Paren(x)
         | ExprKind::FieldOf { of: x, .. }

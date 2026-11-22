@@ -9,6 +9,7 @@ pub mod similar;
 pub mod stmt;
 mod types;
 pub mod uses;
+mod walking;
 
 use std::collections::BTreeMap;
 
@@ -92,5 +93,6 @@ fn check_bodies(ctx: &mut Ctx) -> TypeInfo {
         rules::check_rules(ctx, &info.expr_types, &t.body);
         mutation::check_mutation(ctx, &[], &t.body);
     }
+    walking::check_walking(ctx);
     info
 }
