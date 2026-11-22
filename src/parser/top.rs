@@ -241,20 +241,7 @@ mod tests {
     use crate::ast::stmt::Note;
     use crate::ast::{ItemType, PlainType, Type};
     use crate::source::Source;
-
-    /// The complete example in section 13 of the language spec.
-    fn expenses() -> String {
-        let spec = include_str!("../../spec/v0.md");
-        let after = spec
-            .split("## 13. Complete example")
-            .nth(1)
-            .expect("spec §13 heading");
-        let fenced = after
-            .split("```gloss\n")
-            .nth(1)
-            .expect("spec §13 gloss fence");
-        fenced.split("```").next().unwrap().to_string()
-    }
+    use crate::testing::expenses;
 
     fn parse(t: &str) -> Result<Program, crate::diag::Diagnostic> {
         crate::parse_source(&Source::new(t))
