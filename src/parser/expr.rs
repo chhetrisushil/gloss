@@ -89,12 +89,13 @@ impl Parser<'_> {
         if !self.eat_kw(Kw::With) {
             return Ok(Conversion::ToText);
         }
+        let line = self.line();
         let places = match self.bump().map(|t| t.tok) {
             Some(Tok::Number(n)) => n.show().parse::<u8>().ok().filter(|d| *d <= 4),
             _ => None,
         };
-        let places =
-            places.ok_or_else(|| self.err("The number of places is a digit from 0 to 4"))?;
+        let places = places
+            .ok_or_else(|| self.err_at(line, "The number of places is a digit from 0 to 4"))?;
         if !self.eat_kw(Kw::Places) {
             return Err(self.err("with needs places after the digit"));
         }
@@ -213,7 +214,10 @@ impl Parser<'_> {
             Some(Tok::RecordName(name)) => return Err(self.record_value_error(&name)),
             Some(Tok::Kw(Kw::Empty)) => self.empty_list()?,
             Some(Tok::Sym(Sym::LParen)) => self.parenthesized()?,
-            Some(other) => return Err(self.err(format!("Expected a value but found {other}"))),
+            Some(other) => {
+                let found = format!("Expected a value but found {other}");
+                return Err(self.err_at(line, found));
+            }
             None => return Err(self.err("Expected a value")),
         };
         Ok(self.mk(line, kind))
@@ -254,12 +258,13 @@ impl Parser<'_> {
     }
 
     pub fn parse_item_type(&mut self) -> Result<ItemType, Diagnostic> {
+        let line = self.line();
         match self.bump().map(|t| t.tok) {
             Some(Tok::Kw(Kw::Number)) => Ok(ItemType::Plain(PlainType::Number)),
             Some(Tok::Kw(Kw::Text)) => Ok(ItemType::Plain(PlainType::Text)),
             Some(Tok::Kw(Kw::Truth)) => Ok(ItemType::Plain(PlainType::Truth)),
             Some(Tok::RecordName(name)) => Ok(ItemType::Record(name)),
-            _ => Err(self.err("Expected number, text, truth or a record name")),
+            _ => Err(self.err_at(line, "Expected number, text, truth or a record name")),
         }
     }
 }

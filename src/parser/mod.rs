@@ -87,6 +87,12 @@ impl<'a> Parser<'a> {
         Diagnostic::error(self.src, self.line(), problem)
     }
 
+    /// An error on a line captured earlier, for when the token that shows the problem was
+    /// already taken and the parser has moved on to the next line.
+    pub fn err_at(&self, line: u32, problem: impl Into<String>) -> Diagnostic {
+        Diagnostic::error(self.src, line, problem)
+    }
+
     /// Runs one self-recursive level of parsing, refusing to go deeper than `MAX_DEPTH`
     /// so that absurdly nested input is reported instead of overflowing the stack.
     pub fn nested<T>(
