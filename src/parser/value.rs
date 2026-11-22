@@ -1,5 +1,6 @@
 use super::Parser;
-use crate::ast::{Expr, ExprKind as K};
+use crate::ast::print;
+use crate::ast::{CompareOp, Expr, ExprKind as K};
 use crate::diag::Diagnostic;
 use crate::lexer::{Kw, Sym, Tok};
 
@@ -52,6 +53,106 @@ impl Parser<'_> {
         self.pos += 1;
         Ok((field, self.parse_arith()?))
     }
+
+    /// Negations joined by `and` or by `or`, never both.
+    pub fn parse_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let line = self.line();
+        let first = self.negation()?;
+        let Some(joiner) = self.joiner() else {
+            return Ok(first);
+        };
+        let mut parts = vec![first];
+        while self.eat_kw(joiner) {
+            parts.push(self.negation()?);
+        }
+        let kind = if joiner == Kw::And {
+            K::And(parts)
+        } else {
+            K::Or(parts)
+        };
+        Ok(self.mk(line, kind))
+    }
+
+    fn joiner(&self) -> Option<Kw> {
+        match self.peek() {
+            Some(Tok::Kw(k @ (Kw::And | Kw::Or))) => Some(*k),
+            _ => None,
+        }
+    }
+
+    fn negation(&mut self) -> Result<Expr, Diagnostic> {
+        let line = self.line();
+        if !self.eat_kw(Kw::Not) {
+            return self.comparison();
+        }
+        let operand = self.comparison()?;
+        Ok(self.mk(line, K::Not(Box::new(operand))))
+    }
+
+    fn comparison(&mut self) -> Result<Expr, Diagnostic> {
+        let left = self.parse_value()?;
+        if !self.eat_kw(Kw::Is) {
+            return Ok(left);
+        }
+        let line = left.line;
+        let left = Box::new(left);
+        let kind = if self.eat_kw(Kw::Number) {
+            K::IsNumber {
+                value: left,
+                negated: false,
+            }
+        } else if self.peek() == Some(&Tok::Kw(Kw::Not))
+            && self.peek_at(1) == Some(&Tok::Kw(Kw::Number))
+        {
+            self.pos += 2;
+            K::IsNumber {
+                value: left,
+                negated: true,
+            }
+        } else {
+            let op = self.compare_op(&left)?;
+            let right = Box::new(self.parse_value()?);
+            K::Compare { op, left, right }
+        };
+        Ok(self.mk(line, kind))
+    }
+
+    /// The word or words after `is`, up to the right-hand value.
+    fn compare_op(&mut self, left: &Expr) -> Result<CompareOp, Diagnostic> {
+        if self.eat_kw(Kw::Not) {
+            return Ok(CompareOp::IsNot);
+        }
+        if self.eat_kw(Kw::Greater) {
+            self.expect_than(left, "greater")?;
+            return Ok(CompareOp::Greater);
+        }
+        if self.eat_kw(Kw::Less) {
+            self.expect_than(left, "less")?;
+            return Ok(CompareOp::Less);
+        }
+        if !self.eat_kw(Kw::At) {
+            return Ok(CompareOp::Is);
+        }
+        if self.eat_kw(Kw::Least) {
+            Ok(CompareOp::AtLeast)
+        } else if self.eat_kw(Kw::Most) {
+            Ok(CompareOp::AtMost)
+        } else {
+            Err(self.err("is at needs least or most"))
+        }
+    }
+
+    fn expect_than(&mut self, left: &Expr, word: &str) -> Result<(), Diagnostic> {
+        if self.eat_kw(Kw::Than) {
+            return Ok(());
+        }
+        let right = self.parse_value()?;
+        Err(self.err(format!(
+            "is {word} needs than, as in {} is {word} than {}",
+            print::expr(left),
+            print::expr(&right)
+        )))
+    }
 }
 
 #[cfg(test)]
@@ -80,6 +181,48 @@ mod tests {
         assert_eq!(
             sx(r#"list of (S with n "A", m 1), (S with n "B", m 2)"#),
             r#"(list (paren (record S (n "A") (m 1))) (paren (record S (n "B") (m 2))))"#
+        );
+    }
+
+    #[test]
+    fn comparisons_and_logic() {
+        assert_eq!(
+            sx(r#"category_total with "food" is 420"#),
+            r#"(is (call category_total "food") 420)"#
+        );
+        assert_eq!(sx("f with (x is 3)"), "(call f (paren (is x 3)))");
+        assert_eq!(sx("cost is not number"), "(is-not-number cost)");
+        assert_eq!(sx("cost is number"), "(is-number cost)");
+        assert_eq!(sx("a is not b"), "(is-not a b)");
+        assert_eq!(sx("a is greater than b"), "(greater a b)");
+        assert_eq!(sx("a is less than b"), "(less a b)");
+        assert_eq!(sx("a is at least 3"), "(at-least a 3)");
+        assert_eq!(sx("a is at most 3"), "(at-most a 3)");
+        assert_eq!(sx("remainder of n by 2 is 0"), "(is (remainder n 2) 0)");
+        assert_eq!(sx("not a and b"), "(and (not a) b)");
+        assert_eq!(sx("a or b or c"), "(or a b c)");
+        assert_eq!(sx("(a and b) or c"), "(or (paren (and a b)) c)");
+    }
+
+    #[test]
+    fn logic_errors() {
+        assert_eq!(
+            perr("a is greater b"),
+            "is greater needs than, as in a is greater than b"
+        );
+        assert_eq!(
+            perr("x is greater y + 1"),
+            "is greater needs than, as in x is greater than y + 1"
+        );
+        assert_eq!(
+            perr("x is less y + 1"),
+            "is less needs than, as in x is less than y + 1"
+        );
+        assert_eq!(perr("a is at 3"), "is at needs least or most");
+        assert_eq!(
+            perr("1 + f with a"),
+            "f with ... must be in parentheses here, \
+             because it is inside arithmetic or a comma list"
         );
     }
 
