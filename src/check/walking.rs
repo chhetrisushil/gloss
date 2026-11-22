@@ -45,7 +45,7 @@ fn expr_calls<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
     children(e).into_iter().for_each(|c| expr_calls(c, out));
 }
 
-fn blocks(kind: &StmtKind) -> Vec<&[Stmt]> {
+pub(super) fn blocks(kind: &StmtKind) -> Vec<&[Stmt]> {
     let (mut exprs, mut nested) = (Vec::new(), Vec::new());
     parts(kind, &mut exprs, &mut nested);
     nested

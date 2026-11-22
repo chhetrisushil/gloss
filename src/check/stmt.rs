@@ -600,7 +600,7 @@ mod tests {
             start("  ask 3 into c\n  show c\n"),
             ["line 5: ask 3 into c. The question must be text; 3 is a number."]
         );
-        assert!(start("  for each e in es\n    show amount of e\n  for each e from 1 to 3\n    show e\n  save es\n").is_empty());
+        assert!(start("  load es\n  for each e in es\n    show amount of e\n  for each e from 1 to 3\n    show e\n  save es\n").is_empty());
     }
 
     #[test]
