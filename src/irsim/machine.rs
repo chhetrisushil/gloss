@@ -1,7 +1,8 @@
 //! The interpreter's state: registers, the stack and the call frames.
 
 use super::memory::Memory;
-use crate::ir::{Cond, Module, Reg};
+use crate::ir::{Cond, Function, Inst, Label, Module, Reg};
+use std::collections::HashMap;
 
 /// The top of the simulated stack, which grows down.
 const STACK_TOP: u64 = 0x7fff_0000_0000;
@@ -10,6 +11,7 @@ const STACK_TOP: u64 = 0x7fff_0000_0000;
 pub struct Frame {
     pub func: usize,
     pub pc: usize,
+    pub args: Vec<i64>,
     pub slots: Vec<i64>,
     /// The caller's `b`, which survives the call.
     saved_b: i64,
@@ -20,6 +22,8 @@ pub struct Frame {
 pub struct Machine<'m> {
     pub module: &'m Module,
     memory: Memory,
+    /// Each function's label positions, by function index.
+    labels: Vec<HashMap<Label, usize>>,
     frames: Vec<Frame>,
     sp: u64,
     pub a: i64,
@@ -28,11 +32,22 @@ pub struct Machine<'m> {
     pub compared: (i64, i64),
 }
 
+fn label_positions(function: &Function) -> HashMap<Label, usize> {
+    let marks = function.body.iter().enumerate();
+    marks
+        .filter_map(|(i, inst)| match inst {
+            Inst::Mark(label) => Some((*label, i)),
+            _ => None,
+        })
+        .collect()
+}
+
 impl<'m> Machine<'m> {
     pub fn new(module: &'m Module) -> Machine<'m> {
         Machine {
             module,
             memory: Memory::new(module),
+            labels: module.functions.iter().map(label_positions).collect(),
             frames: Vec::new(),
             sp: STACK_TOP,
             a: 0,
@@ -82,6 +97,12 @@ impl<'m> Machine<'m> {
         self.frames.last_mut().expect("no active frame")
     }
 
+    pub fn jump(&mut self, label: Label) {
+        let func = self.frame().func;
+        let target = self.labels[func][&label];
+        self.frame().pc = target;
+    }
+
     fn function_index(&self, name: &str) -> usize {
         match self.module.functions.iter().position(|f| f.name == name) {
             Some(index) => index,
@@ -93,12 +114,17 @@ impl<'m> Machine<'m> {
     pub fn enter(&mut self, name: &str) {
         let func = self.function_index(name);
         let f = &self.module.functions[func];
-        let return_sp = self.sp + 8 * f.params as u64;
+        let params = f.params as u64;
+        let args = (1..=params)
+            .map(|i| self.memory.read(self.sp + 8 * (params - i)))
+            .collect();
+        let return_sp = self.sp + 8 * params;
         // A return address and a saved frame pointer, as on hardware.
         self.sp -= 8 * (f.slots as u64 + 2);
         self.frames.push(Frame {
             func,
             pc: 0,
+            args,
             slots: vec![0; f.slots as usize],
             saved_b: self.b,
             return_sp,
@@ -118,6 +144,12 @@ impl<'m> Machine<'m> {
         for &arg in args {
             self.push(arg);
         }
+        let func = self.function_index(name);
+        assert_eq!(
+            self.module.functions[func].params as usize,
+            args.len(),
+            "irsim: {name} called with the wrong number of arguments"
+        );
         self.enter(name);
         loop {
             if let Some(result) = self.step() {
