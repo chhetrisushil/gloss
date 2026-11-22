@@ -1,7 +1,7 @@
 //! The interpreter's state: registers, the stack and the call frames.
 
 use super::memory::Memory;
-use crate::ir::{Module, Reg};
+use crate::ir::{Cond, Module, Reg};
 
 /// The top of the simulated stack, which grows down.
 const STACK_TOP: u64 = 0x7fff_0000_0000;
@@ -24,6 +24,8 @@ pub struct Machine<'m> {
     sp: u64,
     pub a: i64,
     pub b: i64,
+    /// The operands of the last `Compare`.
+    pub compared: (i64, i64),
 }
 
 impl<'m> Machine<'m> {
@@ -35,12 +37,38 @@ impl<'m> Machine<'m> {
             sp: STACK_TOP,
             a: 0,
             b: 0,
+            compared: (0, 0),
         }
     }
 
     pub fn push(&mut self, value: i64) {
         self.sp -= 8;
         self.memory.write(self.sp, value);
+    }
+
+    pub fn pop(&mut self) -> i64 {
+        let value = self.memory.read(self.sp);
+        self.sp += 8;
+        value
+    }
+
+    pub fn reg(&self, r: Reg) -> i64 {
+        match r {
+            Reg::A => self.a,
+            Reg::B => self.b,
+        }
+    }
+
+    pub fn holds(&self, cond: Cond) -> bool {
+        let (a, b) = self.compared;
+        match cond {
+            Cond::Eq => a == b,
+            Cond::Ne => a != b,
+            Cond::Lt => a < b,
+            Cond::Le => a <= b,
+            Cond::Gt => a > b,
+            Cond::Ge => a >= b,
+        }
     }
 
     pub fn set(&mut self, r: Reg, value: i64) {

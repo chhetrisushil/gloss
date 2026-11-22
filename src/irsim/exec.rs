@@ -1,7 +1,28 @@
 //! One instruction at a time.
 
 use super::machine::Machine;
-use crate::ir::Inst;
+use crate::ir::{Inst, IntOp, Shift};
+
+fn int_op(op: IntOp, a: i64, b: i64) -> i64 {
+    match op {
+        IntOp::Add => a.wrapping_add(b),
+        IntOp::Sub => a.wrapping_sub(b),
+        IntOp::Mul => a.wrapping_mul(b),
+        IntOp::Div => a.wrapping_div(b),
+        IntOp::Rem => a.wrapping_rem(b),
+        IntOp::And => a & b,
+        IntOp::Or => a | b,
+    }
+}
+
+fn shift(kind: Shift, value: i64, n: u8) -> i64 {
+    assert!(n < 64, "irsim: shift count {n} is not below 64");
+    match kind {
+        Shift::Left => value.wrapping_shl(n as u32),
+        Shift::Right => value >> n,
+        Shift::RightLogical => ((value as u64) >> n) as i64,
+    }
+}
 
 impl Machine<'_> {
     /// Runs one instruction; gives the result when the outermost call returns.
@@ -13,21 +34,30 @@ impl Machine<'_> {
         match inst {
             Inst::Line(_) | Inst::Mark(_) => {}
             Inst::Const(r, value) => self.set(*r, *value),
+            Inst::LoadSlot(r, n) => {
+                let value = self.frame().slots[*n as usize - 1];
+                self.set(*r, value);
+            }
+            Inst::StoreSlot(n, r) => {
+                let value = self.reg(*r);
+                self.frame().slots[*n as usize - 1] = value;
+            }
+            Inst::Move { to, from } => self.set(*to, self.reg(*from)),
+            Inst::Push(r) => self.push(self.reg(*r)),
+            Inst::Pop(r) => {
+                let value = self.pop();
+                self.set(*r, value);
+            }
+            Inst::Int(op) => self.a = int_op(*op, self.a, self.b),
+            Inst::AddImm(r, n) => self.set(*r, self.reg(*r).wrapping_add(*n as i64)),
+            Inst::Shift(kind, n) => self.a = shift(*kind, self.a, *n),
+            Inst::Compare => self.compared = (self.a, self.b),
+            Inst::SetIf(cond) => self.a = self.holds(*cond) as i64,
             Inst::Return => return self.leave(),
             Inst::Enter(n) => assert_eq!(*n as usize, self.frame().slots.len()),
-            Inst::LoadSlot(..)
-            | Inst::StoreSlot(..)
-            | Inst::Move { .. }
-            | Inst::Push(_)
-            | Inst::Pop(_)
-            | Inst::LoadArg(..)
+            Inst::LoadArg(..)
             | Inst::Call(_)
-            | Inst::Int(_)
-            | Inst::AddImm(..)
-            | Inst::Shift(..)
-            | Inst::Compare
             | Inst::JumpIf(..)
-            | Inst::SetIf(_)
             | Inst::Jump(_)
             | Inst::AddressOf(..)
             | Inst::StackPointer(_)
