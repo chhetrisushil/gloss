@@ -1,7 +1,7 @@
 # Gloss v0 compiler - design spec
 
 - **Date:** 2026-11-22
-- **Status:** draft
+- **Status:** built (milestone 1); milestones 2–7 not started
 - **Context:** Implements the language defined in `spec/v0.md` (the *language spec*). This document decides *how* the compiler is built. Where the two disagree about the language, the language spec wins. Where they disagree about the implementation, this document wins.
 - **Plan:** `docs/plans/2026-11-22-compiler-m1-front-end.md` (milestone 1). Later milestones get their own plans.
 
@@ -106,4 +106,37 @@ Table paths are the only security boundary in M1. The checker rejects absolute p
 
 ## 6. As built
 
-Empty until implementation ends.
+### Milestone 1 (front end), finished 2026-11-23, `main` @ b15b5a7
+
+**What shipped:** the lexer, parser, checker (names, types, feature results, flow, mutation, walking, save/load rules), `gloss format`, and the CLI for `build` and `format`. All 22 plan tasks are in, plus two waves that fixed every deferred review finding and every finding of the final whole-milestone review. There are 253 tests: 180 unit tests and 73 integration tests across the CLI, spec examples, generated format programs, nesting, scaling and other suites. Checking time grows linearly; a reverse-written 32,000-variable chain checks in about 0.7 s on a release build.
+
+**Pull requests:** tasks #3–#74, README #75, deferred-findings wave and its fixes #76–#92, final-review fixes #93–#98. All were rebase-merged.
+
+**Deviations from the decisions above** (rulings are numbered in the milestone ledger):
+- **D14 (200-line PRs):** tasks over the cap were split into sequential PRs, never stacked (R3–R5, R7–R10, R12, R14, R19, R22, R24, R26, R28, R30, R33, R37). The owner allowed a one-time exception for the final-review fixes: six themed PRs, some over 200 lines (R47).
+- **D10 (expression ids):** ids are assigned in post-order (children before parent). The order is still deterministic and unique (R11).
+- **D7 (diagnostic text):** a problem ending in `?` gets no trailing period (R35). An echoed source line is the whole logical statement, cut at 200 characters, with invisible characters written as `\u{XXXX}` (R49).
+- **D8 (order):** program-level diagnostics come first, then by line, with errors before warnings.
+- **D16 (usage errors):** a source file that does not end in `.gloss` is also refused with exit status 3, so milestone 2's executable can never overwrite the source.
+- **Q3:** yes. Notes are allowed in record bodies, and blank lines between fields are kept by `gloss format`.
+
+**Language-spec changes made during milestone 1:**
+- `add` added to the reserved words (R16).
+- §8 path rules: rules 6–7 (unshowable characters, no `.gloss-new` ending; R25); no leading `-`; no spaces at the edges of a part; the reserved endings `.gloss`, `.allow`, `.trace` and `.svg`, compared without regard to case; a warning for paths that differ only in case.
+- §3: tabs are not allowed in comments either.
+- §7: the `run` message reads `set result to …`.
+- "To consider later" notes: choosing by value (§7) and text ordering (§4).
+
+**Carried into later milestones:**
+- **M3 (requirement):** the permission list must display file names unambiguously, quoting or escaping lookalike and non-normalised Unicode. The compiler already refuses invisible and unshowable characters, but how the list shows the rest belongs to M3, where the list is built.
+- **M2 (notes from the final review):**
+  - Use `TypeInfo.names` instead of resolving scopes again.
+  - Keep per-loop and per-test variable tables.
+  - Represent a table as a list at run time.
+  - Add a debug assert that expression ids are dense.
+  - Keep the executable-name clash and `.gloss` checks.
+  - Mind stack depth in generated code.
+  - Trap when control falls off the end of a feature.
+  - Negating the most negative number is failure 4.
+
+The milestone ledger (every ruling R2–R49 and the review record) is kept at `~/.gloss/ledgers/2026-11-22-compiler-m1-front-end/`.
