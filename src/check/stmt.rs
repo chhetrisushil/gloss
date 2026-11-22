@@ -30,8 +30,6 @@ struct Walk<'a, 'b> {
     input_names: Vec<String>,
     /// Every loop variable walked, with its loop's line.
     loops_seen: Vec<LoopVar>,
-    #[allow(dead_code)]
-    changed: bool,
 }
 
 /// Types every statement of a feature or test body, in source order.
@@ -58,7 +56,6 @@ pub fn check_body(
         loop_vars: Vec::new(),
         input_names: inputs.iter().map(|(n, _)| n.clone()).collect(),
         loops_seen: Vec::new(),
-        changed: false,
     };
     walk.type_variables(body);
     walk.stmts(body);
@@ -425,80 +422,11 @@ impl Walk<'_, '_> {
         }
     }
 
-    /// Pre-pass: each variable gets the type of its first `set` or `ask`, so a
-    /// body can read a variable above the line that sets it. Loop variables
-    /// are in scope only while their body is collected. Reports nothing.
-    #[allow(dead_code)] // The pre-pass in `prepass` replaces it; removed in the next commit.
-    fn collect(&mut self, body: &[Stmt]) {
-        for stmt in body {
-            match &stmt.kind {
-                StmtKind::Set {
-                    target: Target::Var(name),
-                    value,
-                } => {
-                    let ty = self.quiet(value);
-                    self.first(stmt.line, name, ty);
-                }
-                StmtKind::Ask { into, .. } => self.first(stmt.line, into, Ty::Text),
-                StmtKind::If {
-                    branches,
-                    otherwise,
-                } => {
-                    branches.iter().for_each(|(_, b)| self.collect(b));
-                    self.collect(otherwise.as_deref().unwrap_or_default());
-                }
-                StmtKind::RepeatWhile { body, .. } => self.collect(body),
-                StmtKind::ForEachIn { var, list, body } => {
-                    let item = self.quiet(list).item().unwrap_or(Ty::Error);
-                    self.scoped(var, item, body);
-                }
-                StmtKind::ForEachRange { var, body, .. } => self.scoped(var, Ty::Number, body),
-                _ => {}
-            }
-        }
-    }
-
     pub(super) fn quiet(&mut self, e: &Expr) -> Ty {
         let kept = self.ctx.diags.len();
         let ty = self.ty(e);
         self.ctx.diags.truncate(kept);
         ty
-    }
-
-    /// Registers a variable at its first `set` or `ask`. A type that was an
-    /// error (it read a variable not yet collected) is replaced once known, but
-    /// only by the statement that made the variable.
-    #[allow(dead_code)]
-    fn first(&mut self, line: Line, name: &str, ty: Ty) {
-        let ty = ty.norm();
-        if self.ctx.declared_as(name).is_some() {
-            return;
-        }
-        match self.made_at.get(name).map(|&i| &mut self.made[i]) {
-            None if self.vars.contains_key(name) => {}
-            None => {
-                self.vars.insert(name.into(), ty.clone());
-                self.made_at.insert(name.into(), self.made.len());
-                self.made.push((name.into(), ty, line));
-                self.changed = true;
-            }
-            Some((_, have, at)) if *at == line && *have == Ty::Error && ty != Ty::Error => {
-                *have = ty.clone();
-                self.vars.insert(name.into(), ty);
-                self.changed = true;
-            }
-            Some(_) => {}
-        }
-    }
-
-    #[allow(dead_code)]
-    fn scoped(&mut self, var: &str, ty: Ty, body: &[Stmt]) {
-        let hidden = self.vars.insert(var.into(), ty);
-        self.collect(body);
-        match hidden {
-            Some(old) => self.vars.insert(var.into(), old),
-            None => self.vars.remove(var),
-        };
     }
 
     /// Creates `name` at its first `set` or `ask`; later ones must match its type.
