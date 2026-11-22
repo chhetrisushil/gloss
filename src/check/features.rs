@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::expr::{item_ty, report};
 use super::rules::{children, parts};
+use super::uses::{self, Exits};
 use super::walking::{blocks, called};
 use super::{Ctx, FeatureInfo, Ty, order, stmt};
 use crate::ast::program::FeatureDecl;
@@ -150,22 +151,6 @@ fn reaches_itself(ctx: &Ctx, name: &str) -> bool {
     false
 }
 
-/// True when the last statement gives, or an if with an otherwise whose every branch does.
-fn always_gives(body: &[Stmt]) -> bool {
-    let last = body
-        .iter()
-        .rev()
-        .find(|s| !matches!(s.kind, StmtKind::Note(_)));
-    match last.map(|s| &s.kind) {
-        Some(StmtKind::Give(_)) => true,
-        Some(StmtKind::If {
-            branches,
-            otherwise: Some(other),
-        }) => branches.iter().all(|(_, b)| always_gives(b)) && always_gives(other),
-        _ => false,
-    }
-}
-
 /// Checks the gives of one feature: `start` has none, they agree, and every path reaches one.
 pub fn check_gives(ctx: &mut Ctx, f: &FeatureDecl, checked: &FeatureInfo) {
     let mut error = |line, msg: String| ctx.diags.push(Diagnostic::error(ctx.src, line, msg));
@@ -190,7 +175,7 @@ pub fn check_gives(ctx: &mut Ctx, f: &FeatureDecl, checked: &FeatureInfo) {
             error(*line, msg);
         }
     }
-    if !checked.gives.is_empty() && !always_gives(&f.body) {
+    if !checked.gives.is_empty() && !uses::diverges(&f.body, Exits::Give) {
         error(
             f.line,
             format!("{} can reach its end without giving a value", f.name),

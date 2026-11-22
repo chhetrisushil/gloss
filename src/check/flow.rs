@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use super::similar::Neighbours;
-use super::uses::{self, Origin};
+use super::uses::{self, Exits, Origin};
 use super::{Ctx, Ty};
 use crate::ast::program::Program;
 use crate::ast::stmt::{Stmt, StmtKind, Target};
@@ -14,6 +14,8 @@ struct Flow<'a, 'b> {
     used: BTreeSet<String>,
     /// Defensive: no input produces a duplicate report for one name and line today.
     reported: BTreeSet<(String, Line)>,
+    /// How many loops the statement being walked is inside.
+    loops: u32,
 }
 
 type Defined = BTreeSet<String>;
@@ -29,6 +31,7 @@ pub fn check_flow(ctx: &mut Ctx, base: &Known, inputs: &[(String, Ty)], body: &[
         origins: found.iter().cloned().collect(),
         used: BTreeSet::new(),
         reported: BTreeSet::new(),
+        loops: 0,
     };
     let mut defined: Defined = inputs.iter().map(|(n, _)| n.clone()).collect();
     flow.stmts(body, &mut defined);
@@ -196,9 +199,44 @@ impl Flow<'_, '_> {
     }
 
     fn stmts(&mut self, body: &[Stmt], defined: &mut Defined) {
+        let mut ended: Option<(&str, Line)> = None;
         for stmt in body {
+            if !matches!(stmt.kind, StmtKind::Note(_)) {
+                if let Some((word, at)) = ended.take() {
+                    self.never_runs(stmt.line, word, at);
+                }
+                ended = self.ends_block(stmt);
+            }
             self.stmt(stmt, defined);
         }
+    }
+
+    /// The word of a give, or of a stop or skip inside a loop, which ends the rest of its block.
+    fn ends_block(&self, stmt: &Stmt) -> Option<(&'static str, Line)> {
+        match stmt.kind {
+            StmtKind::Give(_) => Some(("give", stmt.line)),
+            StmtKind::Stop if self.loops > 0 => Some(("stop", stmt.line)),
+            StmtKind::Skip if self.loops > 0 => Some(("skip", stmt.line)),
+            _ => None,
+        }
+    }
+
+    fn never_runs(&mut self, line: Line, word: &str, at: Line) {
+        let effect = match word {
+            "give" => "ends the feature",
+            "stop" => "ends the loop",
+            _ => "moves on to the next pass of the loop",
+        };
+        let msg = format!("this line never runs; the {word} on line {at} {effect}");
+        self.ctx
+            .diags
+            .push(Diagnostic::warning(self.ctx.src, line, msg));
+    }
+
+    fn looped(&mut self, body: &[Stmt], defined: &Defined, extra: Option<&str>) {
+        self.loops += 1;
+        self.block(body, defined, extra);
+        self.loops -= 1;
     }
 
     fn block(&mut self, body: &[Stmt], defined: &Defined, extra: Option<&str>) -> Defined {
@@ -250,10 +288,12 @@ impl Flow<'_, '_> {
                 for (cond, b) in branches {
                     self.read(cond.line, cond, defined);
                     let reached = self.block(b, defined, None);
-                    live.extend((!uses::diverges(b)).then_some(reached));
+                    live.extend((!uses::diverges(b, Exits::Any)).then_some(reached));
                 }
                 if let Some(b) = otherwise {
-                    live.extend((!uses::diverges(b)).then(|| self.block(b, defined, None)));
+                    live.extend(
+                        (!uses::diverges(b, Exits::Any)).then(|| self.block(b, defined, None)),
+                    );
                     let mut sets = live.into_iter();
                     match sets.next() {
                         Some(first) => defined.extend(sets.fold(first, |a, s| &a & &s)),
@@ -263,7 +303,7 @@ impl Flow<'_, '_> {
             }
             StmtKind::ForEachIn { var, list, body } => {
                 self.read(line, list, defined);
-                self.block(body, defined, Some(var));
+                self.looped(body, defined, Some(var));
             }
             StmtKind::ForEachRange {
                 var,
@@ -273,11 +313,11 @@ impl Flow<'_, '_> {
             } => {
                 self.read(line, from, defined);
                 self.read(line, to, defined);
-                self.block(body, defined, Some(var));
+                self.looped(body, defined, Some(var));
             }
             StmtKind::RepeatWhile { cond, body } => {
                 self.read(line, cond, defined);
-                self.block(body, defined, None);
+                self.looped(body, defined, None);
             }
             _ => {}
         }
