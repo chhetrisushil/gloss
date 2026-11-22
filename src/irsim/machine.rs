@@ -64,6 +64,15 @@ impl<'m> Machine<'m> {
         self.memory.write(self.sp, value);
     }
 
+    /// Panics unless the `len` bytes at `addr` may be read, or written when `write` is set.
+    pub fn check(&self, addr: u64, len: u64, write: bool) {
+        let in_stack = addr >= self.sp && addr.checked_add(len).is_some_and(|e| e <= STACK_TOP);
+        if !in_stack && !self.memory.allows(addr, len, write) {
+            let what = if write { "write" } else { "read" };
+            panic!("irsim: {what} of {len} bytes at {addr:#x} is outside mapped memory");
+        }
+    }
+
     /// The address `base` plus `offset` names.
     pub fn effective(&self, base: Reg, offset: i32) -> u64 {
         (self.reg(base) as u64).wrapping_add(offset as i64 as u64)

@@ -42,6 +42,8 @@ pub struct Memory {
     bytes: HashMap<u64, u8>,
     text_addrs: Vec<u64>,
     desc_addrs: Vec<u64>,
+    /// The end of the read-only texts and descriptors.
+    rodata_end: u64,
 }
 
 impl Memory {
@@ -51,6 +53,7 @@ impl Memory {
             bytes: HashMap::new(),
             text_addrs: Vec::new(),
             desc_addrs: Vec::new(),
+            rodata_end: TEXT_BASE,
         };
         let mut next = TEXT_BASE;
         for text in &module.texts {
@@ -67,6 +70,7 @@ impl Memory {
             memory.desc_addrs.push(next);
             next += 8;
         }
+        memory.rodata_end = next;
         memory
     }
 
@@ -76,6 +80,18 @@ impl Memory {
             Data::Desc(i) => self.desc_addrs[i as usize],
             Data::Global(g) => global_address(g),
         }
+    }
+
+    /// Whether the `len` bytes at `addr` lie in the read-only data, or (when `write` is set,
+    /// only there) in the globals. The stack is the machine's to check; Task 3b adds `Map`.
+    pub fn allows(&self, addr: u64, len: u64, write: bool) -> bool {
+        let Some(end) = addr.checked_add(len) else {
+            return false;
+        };
+        let globals_end = GLOBAL_BASE + GLOBALS.iter().map(|&g| global_size(g)).sum::<u64>();
+        let in_rodata = addr >= TEXT_BASE && end <= self.rodata_end;
+        let in_globals = addr >= GLOBAL_BASE && end <= globals_end;
+        in_globals || (in_rodata && !write)
     }
 
     pub fn read_byte(&self, addr: u64) -> u8 {
