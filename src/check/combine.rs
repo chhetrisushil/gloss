@@ -18,7 +18,7 @@ pub fn compare_type(ctx: &mut Ctx, e: &Expr, op: CompareOp, l: (&Expr, Ty), r: (
         CompareOp::AtMost => "is at most",
     };
     let problem = if matches!(op, CompareOp::Is | CompareOp::IsNot) {
-        (l.1 != r.1).then(|| {
+        (l.1.clone().norm() != r.1.clone().norm()).then(|| {
             format!(
                 "{word} compares two values of the same type; {} is {} and {} is {}",
                 print::expr(l.0),
