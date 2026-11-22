@@ -176,4 +176,25 @@ mod tests {
             "feature start\n  if 1 is 1\n    set a to 1\n  otherwise\n    set a to 2\n  show a\n";
         assert!(diags(ok).is_empty());
     }
+
+    #[test]
+    fn diverging_branches_do_not_count() {
+        let give = "feature f\n  needs n as number\n  if n is 0\n    give 1\n  otherwise\n    set r to n\n  give r\nfeature start\n  show (f with 1)\n";
+        assert!(diags(give).is_empty());
+        let stop = "feature start\n  repeat while yes\n    if 1 is 1\n      stop\n    otherwise\n      set r to 1\n    show r\n";
+        assert!(diags(stop).is_empty());
+        let none = "feature start\n  if 1 is 1\n    set a to 1\n  show a\n";
+        assert_eq!(diags(none).len(), 1);
+    }
+
+    #[test]
+    fn read_earlier_in_the_loop_than_the_set() {
+        let p = "feature start\n  repeat while no\n    show a\n    set a to 1\n";
+        assert_eq!(
+            diags(p),
+            [
+                "line 3: show a. a may not have a value here; it is first set inside the loop on line 2. Set it before the loop."
+            ]
+        );
+    }
 }
