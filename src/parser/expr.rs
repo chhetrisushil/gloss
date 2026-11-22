@@ -180,7 +180,7 @@ impl Parser<'_> {
         format!("item ({}) of {target}", position.join(" "))
     }
 
-    fn position(&mut self) -> Result<Expr, Diagnostic> {
+    pub(super) fn position(&mut self) -> Result<Expr, Diagnostic> {
         match self.peek() {
             Some(Tok::Number(_) | Tok::Name(_) | Tok::Sym(Sym::LParen)) => self.primary(),
             _ => Err(self.err("item needs a position after it")),

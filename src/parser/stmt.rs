@@ -1,0 +1,192 @@
+use super::Parser;
+use crate::ast::stmt::{Note, Stmt, StmtKind as S, Target};
+use crate::diag::Diagnostic;
+use crate::lexer::{Kw, Tok, lex};
+use crate::source::Source;
+
+/// Parses statements until the end of the text, at level 0.
+pub fn parse_stmts_str(text: &str) -> Result<Vec<Stmt>, Diagnostic> {
+    let src = Source::new(text);
+    let toks = lex(&src)?;
+    let mut parser = Parser::new(&toks, &src);
+    let mut stmts = Vec::new();
+    while parser.peek().is_some() {
+        stmts.push(parser.parse_stmt()?);
+    }
+    Ok(stmts)
+}
+
+impl Parser<'_> {
+    pub fn parse_stmt(&mut self) -> Result<Stmt, Diagnostic> {
+        let line = self.line();
+        let blank_before = self.toks.get(self.pos).is_some_and(|t| t.blank_before);
+        let kind = self.stmt_kind()?;
+        match self.peek() {
+            Some(Tok::Newline) => self.pos += 1,
+            None => {}
+            Some(other) => {
+                return Err(self.err(format!("Unexpected {other} after the statement")));
+            }
+        }
+        Ok(Stmt {
+            line,
+            blank_before,
+            kind,
+        })
+    }
+
+    fn stmt_kind(&mut self) -> Result<S, Diagnostic> {
+        match self.peek().cloned() {
+            Some(Tok::Note(text)) => {
+                self.pos += 1;
+                Ok(S::Note(Note::Line(text)))
+            }
+            Some(Tok::NoteBlock(lines)) => {
+                self.pos += 1;
+                Ok(S::Note(Note::Block(lines)))
+            }
+            Some(Tok::Kw(Kw::If | Kw::Otherwise | Kw::For | Kw::Repeat)) => {
+                Err(self.err("Blocks are not supported yet"))
+            }
+            Some(Tok::Kw(word)) => {
+                self.pos += 1;
+                self.keyword_stmt(word)
+            }
+            Some(other) => Err(self.not_a_statement(other)),
+            None => Err(self.err("Expected a statement")),
+        }
+    }
+
+    fn keyword_stmt(&mut self, word: Kw) -> Result<S, Diagnostic> {
+        let verb = word.as_str();
+        match word {
+            Kw::Set => {
+                let target = self.parse_target(verb)?;
+                self.expect_word(verb, Kw::To)?;
+                let value = self.parse_expr()?;
+                Ok(S::Set { target, value })
+            }
+            Kw::Add => {
+                let value = self.parse_arith()?;
+                self.expect_word(verb, Kw::To)?;
+                let target = self.parse_target(verb)?;
+                Ok(S::Add { value, target })
+            }
+            other => Err(self.not_a_statement(other.as_str())),
+        }
+    }
+
+    fn not_a_statement(&self, found: impl std::fmt::Display) -> Diagnostic {
+        self.err(format!(
+            "Every statement starts with a keyword, such as set or show; {found} is not one"
+        ))
+    }
+
+    fn parse_target(&mut self, verb: &str) -> Result<Target, Diagnostic> {
+        let name = self.parse_name(verb)?;
+        Ok(Target::Var(name))
+    }
+
+    /// A lowercase name; the verb is only used in the message.
+    fn parse_name(&mut self, verb: &str) -> Result<String, Diagnostic> {
+        match self.peek().cloned() {
+            Some(Tok::Name(name)) => {
+                self.pos += 1;
+                Ok(name)
+            }
+            _ => Err(self.err(format!("{verb} needs a name after it"))),
+        }
+    }
+
+    fn expect_word(&mut self, verb: &str, word: Kw) -> Result<(), Diagnostic> {
+        if self.eat_kw(word) {
+            return Ok(());
+        }
+        let word = word.as_str();
+        let example = self.fixed_line(word);
+        Err(self.err(format!("{verb} needs {word}, as in {example}")))
+    }
+
+    /// The statement's tokens as one line, with `word` replacing the token at
+    /// index `at` or inserted before it.
+    fn example_line(&self, at: usize, word: &str, replace: bool) -> String {
+        let start = self.toks[..at]
+            .iter()
+            .rposition(|t| t.tok == Tok::Newline)
+            .map_or(0, |i| i + 1);
+        let end = self.toks[at..]
+            .iter()
+            .position(|t| t.tok == Tok::Newline)
+            .map_or(self.toks.len(), |i| at + i);
+        let mut words: Vec<String> = self.toks[start..end]
+            .iter()
+            .map(|t| t.tok.to_string())
+            .collect();
+        if replace {
+            words[at - start] = word.to_string();
+        } else {
+            words.insert(at - start, word.to_string());
+        }
+        join_words(&words)
+    }
+
+    /// The statement with `word` where parsing stopped: replacing a wrong
+    /// connecting word such as `into`, else inserted before the next token.
+    fn fixed_line(&self, word: &str) -> String {
+        let wrong_word = matches!(
+            self.peek(),
+            Some(Tok::Kw(
+                Kw::To
+                    | Kw::From
+                    | Kw::Into
+                    | Kw::By
+                    | Kw::As
+                    | Kw::In
+                    | Kw::Of
+                    | Kw::With
+                    | Kw::At
+            ))
+        );
+        self.example_line(self.pos, word, wrong_word)
+    }
+}
+
+/// Joins tokens with single spaces, none after `(` or before `)` and `,`.
+fn join_words(words: &[String]) -> String {
+    let mut line = String::new();
+    for (i, word) in words.iter().enumerate() {
+        let after_open = i > 0 && words[i - 1] == "(";
+        if i > 0 && !after_open && word != ")" && word != "," {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    line
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::sexpr::stmt;
+    use crate::parser::parse_stmts_str;
+
+    fn ss(t: &str) -> Vec<String> {
+        parse_stmts_str(t).unwrap().iter().map(stmt).collect()
+    }
+
+    #[test]
+    fn simple_statements() {
+        assert_eq!(
+            ss("set total to 0\nadd price to total"),
+            ["(set total 0)", "(add price total)"]
+        );
+    }
+
+    #[test]
+    fn examples_use_canonical_spacing() {
+        let error = parse_stmts_str("add (f with a, b) total").unwrap_err();
+        assert_eq!(
+            error.render(),
+            "line 1: add (f with a, b) total. add needs to, as in add (f with a, b) to total."
+        );
+    }
+}

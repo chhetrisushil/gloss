@@ -28,7 +28,7 @@ impl Parser<'_> {
         }
     }
 
-    fn comma_list(&mut self) -> Result<Vec<Expr>, Diagnostic> {
+    pub(super) fn comma_list(&mut self) -> Result<Vec<Expr>, Diagnostic> {
         let mut items = vec![self.parse_arith()?];
         while self.eat_sym(Sym::Comma) {
             items.push(self.parse_arith()?);
