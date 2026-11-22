@@ -25,6 +25,17 @@ impl Parser<'_> {
 
     /// Reads a newline, an indent, then statements up to the matching dedent.
     pub fn parse_block(&mut self, owner: &str) -> Result<Vec<Stmt>, Diagnostic> {
+        self.open_block(owner)?;
+        let mut body = Vec::new();
+        while !matches!(self.peek(), Some(Tok::Dedent) | None) {
+            body.push(self.parse_stmt()?);
+        }
+        self.close_block();
+        Ok(body)
+    }
+
+    /// Reads the newline and indent that open an indented block.
+    pub(super) fn open_block(&mut self, owner: &str) -> Result<(), Diagnostic> {
         if let Some(found) = self.peek().filter(|t| **t != Tok::Newline) {
             return Err(self.err(format!("Unexpected {found} after the {owner} line")));
         }
@@ -33,14 +44,13 @@ impl Parser<'_> {
             return Err(self.err(format!("{owner} needs an indented block under it")));
         }
         self.pos += 2;
-        let mut body = Vec::new();
-        while !matches!(self.peek(), Some(Tok::Dedent) | None) {
-            body.push(self.parse_stmt()?);
-        }
+        Ok(())
+    }
+
+    pub(super) fn close_block(&mut self) {
         if self.peek() == Some(&Tok::Dedent) {
             self.pos += 1;
         }
-        Ok(body)
     }
 
     fn if_stmt(&mut self) -> Result<S, Diagnostic> {
