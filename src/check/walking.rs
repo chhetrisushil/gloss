@@ -102,6 +102,16 @@ pub fn check_walking(ctx: &mut Ctx) {
     }
 }
 
+/// The name a loop walks, looking through parentheses. Records cannot hold lists, so a name
+/// (a variable or a table) is the only way a loop can walk something that can be changed.
+fn list_name(e: &Expr) -> Option<&str> {
+    match &e.kind {
+        ExprKind::Name(name) => Some(name),
+        ExprKind::Paren(inner) => list_name(inner),
+        _ => None,
+    }
+}
+
 fn walk<'a>(ctx: &mut Ctx, graph: &Graph, body: &'a [Stmt], walked: &mut Vec<(&'a str, Line)>) {
     for stmt in body {
         let mut runs = Vec::new();
@@ -131,7 +141,7 @@ fn walk<'a>(ctx: &mut Ctx, graph: &Graph, body: &'a [Stmt], walked: &mut Vec<(&'
         for b in blocks(&stmt.kind) {
             let before = walked.len();
             if let StmtKind::ForEachIn { list, .. } = &stmt.kind {
-                if let ExprKind::Name(name) = &list.kind {
+                if let Some(name) = list_name(list) {
                     walked.push((name, stmt.line));
                 }
             }
@@ -164,6 +174,14 @@ mod tests {
     #[test]
     fn walking_a_local_list() {
         let p = "feature start\n  set ns to list of 1\n  for each n in ns\n    append 2 to ns\n    show n\n";
+        assert_eq!(
+            diags(p),
+            ["line 4: append 2 to ns. ns cannot change while the loop on line 3 walks it."]
+        );
+    }
+    #[test]
+    fn walking_through_parentheses() {
+        let p = "feature start\n  set ns to list of 1\n  for each n in (ns)\n    append 2 to ns\n    show n\n";
         assert_eq!(
             diags(p),
             ["line 4: append 2 to ns. ns cannot change while the loop on line 3 walks it."]
