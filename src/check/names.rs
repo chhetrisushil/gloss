@@ -115,33 +115,56 @@ fn test_titles(ctx: &mut Ctx) {
 /// Table files are fixed, relative and inside the program's folder. Every
 /// rule rejects a spelling so each file has exactly one: that is what lets
 /// duplicate files be found by comparing paths.
-fn path_problem(path: &str) -> Option<&'static str> {
+fn path_problem(path: &str) -> Option<String> {
     let mut parts = path.split('/');
     if path.starts_with('/') {
-        Some(
+        Some(String::from(
             "The file name must not start with /; table files are found from the folder the program runs in",
-        )
+        ))
     } else if path.contains('\\') {
-        Some("Use / between folders, not \\")
+        Some("Use / between folders, not \\".into())
     } else if parts.clone().any(|p| p == "..") {
-        Some(
+        Some(String::from(
             "The file name must not use ..; table files stay inside the folder the program runs in",
-        )
+        ))
     } else if parts.clone().any(|p| p == ".") {
-        Some("The file name must not use . as a folder; write x.csv")
+        Some("The file name must not use . as a folder; write x.csv".into())
     } else if parts.clone().any(str::is_empty) {
-        Some("The file name has an empty part; write folders as data/expenses.csv")
+        Some("The file name has an empty part; write folders as data/expenses.csv".into())
     } else if path.chars().any(unshowable) {
-        Some(
+        Some(String::from(
             "The file name contains a character that cannot be shown, such as a tab or a control character",
-        )
+        ))
     } else if parts.next_back().is_some_and(|p| p.ends_with(".gloss-new")) {
-        Some(
+        Some(String::from(
             "The file name must not end in .gloss-new; that ending is kept for files Gloss writes while saving",
-        )
+        ))
     } else {
-        None
+        later_path_problem(path)
     }
+}
+
+/// The rules added after the first seven: names that would read as a command-line option,
+/// that hide a space, or that end in an ending Gloss keeps for its own files.
+fn later_path_problem(path: &str) -> Option<String> {
+    if path.starts_with('-') {
+        return Some("The file name must not start with -".into());
+    }
+    if path
+        .split('/')
+        .any(|p| p.starts_with(' ') || p.ends_with(' '))
+    {
+        return Some(
+            "A part of the file name starts or ends with a space; the permission list could not show it clearly".into(),
+        );
+    }
+    let last = path.rsplit('/').next().unwrap_or_default();
+    let ending = [".gloss", ".allow", ".trace", ".svg"]
+        .into_iter()
+        .find(|e| last.ends_with(e))?;
+    Some(format!(
+        "The file name must not end in {ending}; that ending is kept for files Gloss reads or writes"
+    ))
 }
 
 /// Control characters and invisible formatting characters.
@@ -152,9 +175,10 @@ fn unshowable(c: char) -> bool {
 
 fn table_files(ctx: &mut Ctx) {
     let mut files: HashMap<&str, (&str, u32)> = HashMap::new();
+    let mut by_case: HashMap<String, &str> = HashMap::new();
     for t in ctx.program.tables() {
         let problem = if let Some(p) = path_problem(&t.path) {
-            p.to_string()
+            p
         } else if let Some(&(other, line)) = files.get(t.path.as_str()) {
             let path = &t.path;
             format!(
@@ -162,6 +186,13 @@ fn table_files(ctx: &mut Ctx) {
             )
         } else {
             files.insert(&t.path, (&t.name, t.line));
+            if let Some(other) = by_case.insert(t.path.to_lowercase(), &t.path) {
+                let msg = format!(
+                    "{} and {other} differ only in case; on some systems they are the same file",
+                    t.path
+                );
+                ctx.diags.push(Diagnostic::warning(ctx.src, t.line, msg));
+            }
             continue;
         };
         ctx.diags.push(Diagnostic::error(ctx.src, t.line, problem));
@@ -239,6 +270,19 @@ mod tests {
     }
 
     #[test]
+    fn paths_differing_only_in_case_warn_on_the_second_table() {
+        let two = format!(
+            "{START}record E\n  a as text\ntable t of E in \"Data.csv\"\ntable u of E in \"data.csv\"\n"
+        );
+        assert_eq!(
+            diags(&two),
+            [
+                "line 6: warning: table u of E in \"data.csv\". data.csv and Data.csv differ only in case; on some systems they are the same file."
+            ]
+        );
+    }
+
+    #[test]
     fn table_paths_are_a_security_boundary() {
         let t = |path: &str| {
             diags(&format!(
@@ -291,6 +335,24 @@ mod tests {
                 r#"line 5: table t of E in "./x.csv". The file name must not use . as a folder; write x.csv."#
             ]
         );
+        assert_eq!(
+            t("-rf.csv"),
+            [r#"line 5: table t of E in "-rf.csv". The file name must not start with -."#]
+        );
+        assert_eq!(
+            t("data/ x.csv"),
+            [
+                r#"line 5: table t of E in "data/ x.csv". A part of the file name starts or ends with a space; the permission list could not show it clearly."#
+            ]
+        );
+        for ending in [".gloss", ".allow", ".trace", ".svg"] {
+            assert_eq!(
+                t(&format!("x{ending}")),
+                [format!(
+                    "line 5: table t of E in \"x{ending}\". The file name must not end in {ending}; that ending is kept for files Gloss reads or writes."
+                )]
+            );
+        }
         assert!(t("data/expenses.csv").is_empty());
         assert!(t("a..b.csv").is_empty());
         let two = format!(
