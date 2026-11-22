@@ -62,6 +62,7 @@ impl Walk<'_, '_> {
         let env = Env {
             vars: &self.vars,
             results: self.results,
+            in_test: self.in_test,
         };
         expr::type_of(self.ctx, &env, e, self.types)
     }
@@ -233,6 +234,7 @@ impl Walk<'_, '_> {
                 let env = Env {
                     vars: &self.vars,
                     results: self.results,
+                    in_test: self.in_test,
                 };
                 super::combine::call_type(self.ctx, &env, &at, feature, &args);
             }
@@ -549,6 +551,10 @@ mod tests {
         assert_eq!(
             start("  input \"a\"\n"),
             ["line 5: input \"a\". input can only be used inside a test."]
+        );
+        assert_eq!(
+            start("  show count of shown\n"),
+            ["line 5: show count of shown. shown can only be used inside a test."]
         );
         assert_eq!(
             start("  set x to 1\n  show x\n  for each x in es\n    show 1\n"),

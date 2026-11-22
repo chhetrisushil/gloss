@@ -8,6 +8,7 @@ use crate::diag::Diagnostic;
 pub struct Env<'a> {
     pub vars: &'a BTreeMap<String, Ty>,
     pub results: &'a BTreeMap<String, Ty>,
+    pub in_test: bool,
 }
 
 pub fn plain(p: PlainType) -> Ty {
@@ -52,7 +53,8 @@ fn infer(ctx: &mut Ctx, env: &Env, e: &Expr, types: &mut Vec<Option<Ty>>) -> Ty 
         ExprKind::Text(_) => Ty::Text,
         ExprKind::Truth(_) => Ty::Truth,
         ExprKind::Name(name) => name_type(ctx, env, e, name),
-        ExprKind::Shown => Ty::List(Box::new(Ty::Text)),
+        ExprKind::Shown if env.in_test => Ty::List(Box::new(Ty::Text)),
+        ExprKind::Shown => report(ctx, e, "shown can only be used inside a test".into(), None),
         ExprKind::EmptyList(ItemType::Record(r))
             if !ctx.program.records().any(|d| &d.name == r) =>
         {
@@ -361,7 +363,8 @@ mod tests {
 
     #[test]
     fn names_have_values() {
-        assert!(body("  set n to 1\n  show n, es, \"a\", yes, shown\n").is_empty());
+        assert!(body("  set n to 1\n  show n, es, \"a\", yes\n").is_empty());
+        assert!(diags("feature start\n  show 1\ntest \"t\"\n  show shown\n").is_empty());
         assert_eq!(
             body("  show totl\n"),
             ["line 6: show totl. totl has no value."]
