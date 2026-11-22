@@ -102,11 +102,17 @@ fn input_names(ctx: &mut Ctx) {
 fn fields(ctx: &mut Ctx) {
     for r in ctx.program.records() {
         let mut seen: HashMap<&str, u32> = HashMap::new();
+        let mut by_lower: HashMap<String, &str> = HashMap::new();
         for f in r.fields() {
+            let first = by_lower.get(&f.name.to_lowercase()).copied();
             if seen.insert(&f.name, f.line).is_some() {
                 let msg = format!("{} already has a field named {}", r.name, f.name);
                 ctx.diags.push(Diagnostic::error(ctx.src, f.line, msg));
+            } else if let Some(other) = first {
+                let msg = format!("{} and {other} differ only in case; rename one", f.name);
+                ctx.diags.push(Diagnostic::error(ctx.src, f.line, msg));
             }
+            by_lower.entry(f.name.to_lowercase()).or_insert(&f.name);
         }
     }
 }
