@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::expr::{item_ty, report};
-use super::rules::{children, parts};
 use super::uses::{self, Exits};
-use super::walking::{blocks, called};
+use super::walking::called;
 use super::{Ctx, FeatureInfo, Ty, order, stmt};
 use crate::ast::program::FeatureDecl;
 use crate::ast::stmt::{Stmt, StmtKind};
+use crate::ast::walk::{blocks, children, parts};
 use crate::ast::{Expr, ExprKind, Line, Type, print};
 use crate::diag::Diagnostic;
 

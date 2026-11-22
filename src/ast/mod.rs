@@ -3,6 +3,7 @@ pub mod program;
 pub mod sexpr;
 pub mod stmt;
 mod stmt_sexpr;
+pub mod walk;
 
 pub type Line = u32;
 

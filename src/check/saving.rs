@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::Ctx;
-use super::walking::blocks;
 use crate::ast::Line;
 use crate::ast::stmt::{Stmt, StmtKind};
+use crate::ast::walk::blocks;
 use crate::diag::Diagnostic;
 
 /// Rejects a table that is saved but never loaded or cleared, and warns when a

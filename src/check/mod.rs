@@ -188,7 +188,7 @@ mod tests {
     fn names_in(stmts: &[Stmt], out: &mut Vec<(ExprId, String)>) {
         for s in stmts {
             let (mut exprs, mut nested) = (Vec::new(), Vec::new());
-            rules::parts(&s.kind, &mut exprs, &mut nested);
+            crate::ast::walk::parts(&s.kind, &mut exprs, &mut nested);
             exprs.into_iter().for_each(|e| name_exprs(e, out));
             nested.into_iter().for_each(|b| names_in(b, out));
         }
@@ -198,7 +198,7 @@ mod tests {
         if let ExprKind::Name(n) = &e.kind {
             out.push((e.id, n.clone()));
         }
-        rules::children(e)
+        crate::ast::walk::children(e)
             .into_iter()
             .for_each(|c| name_exprs(c, out));
     }
