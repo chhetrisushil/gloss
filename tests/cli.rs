@@ -79,3 +79,36 @@ fn build_with_only_warnings_exits_0() {
     );
     cleanup(&p);
 }
+
+#[test]
+fn format_rewrites_in_place() {
+    let p = temp_file(
+        "fmt",
+        "feature start\n  set  t to 1\n  set t to t + 1\n  show t\n",
+    );
+    assert_eq!(gloss(&["format", p.to_str().unwrap()]).0, 0);
+    assert_eq!(
+        std::fs::read_to_string(&p).unwrap(),
+        "feature start\n  set t to 1\n  add 1 to t\n  show t\n"
+    );
+    let (code, out, _) = gloss(&["format", p.to_str().unwrap()]);
+    assert_eq!(
+        (code, out.as_str()),
+        (0, "fmt.gloss is already formatted\n")
+    );
+    cleanup(&p);
+}
+
+#[test]
+fn format_leaves_unparsable_file_untouched() {
+    let text = "feature start\n  set total as 0\n";
+    let p = temp_file("fmtbad", text);
+    let (code, out, err) = gloss(&["format", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert_eq!(
+        err,
+        "line 2: set total as 0. set needs to. Did you mean set total to 0?\n"
+    );
+    assert_eq!(std::fs::read(&p).unwrap(), text.as_bytes());
+    cleanup(&p);
+}

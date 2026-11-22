@@ -3,7 +3,7 @@
 use std::io::Write;
 use std::path::Path;
 
-use crate::check_source;
+use crate::{check_source, format_source};
 
 const USAGE: &str = "usage: gloss <command> <file.gloss>\ncommands: build, test, format, trace, explain, flowchart\n";
 
@@ -14,7 +14,7 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
         return 3;
     };
     let milestone = match command.as_str() {
-        "build" => 0,
+        "build" | "format" => 0,
         "test" => 4,
         "trace" => 5,
         "explain" => 6,
@@ -38,7 +38,11 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let name = Path::new(file)
         .file_name()
         .map_or(file.clone(), |n| n.to_string_lossy().into());
-    build(&name, &text, out, err)
+    if command == "build" {
+        build(&name, &text, out, err)
+    } else {
+        format(file, &name, &text, out, err)
+    }
 }
 
 fn build(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
@@ -53,5 +57,24 @@ fn build(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i3
         out,
         "Checked {name}: no errors (code generation arrives in milestone 2)"
     );
+    0
+}
+
+fn format(path: &str, name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let formatted = match format_source(text) {
+        Ok(f) => f,
+        Err(d) => {
+            let _ = writeln!(err, "{}", d.render());
+            return 3;
+        }
+    };
+    if formatted == text {
+        let _ = writeln!(out, "{name} is already formatted");
+    } else if std::fs::write(path, formatted).is_ok() {
+        let _ = writeln!(out, "Formatted {name}");
+    } else {
+        let _ = writeln!(err, "cannot write {path}");
+        return 3;
+    }
     0
 }
