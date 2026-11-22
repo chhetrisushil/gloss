@@ -54,6 +54,8 @@ impl Diagnostic {
     }
 
     pub fn render(&self) -> String {
+        // A problem that already ends in a question mark takes no full stop.
+        let stop = if self.problem.ends_with('?') { "" } else { "." };
         let mut out = match self.line {
             Some(n) => {
                 let tag = if self.severity == Severity::Warning {
@@ -61,9 +63,12 @@ impl Diagnostic {
                 } else {
                     ""
                 };
-                format!("line {n}: {tag}{}. {}.", self.source_line, self.problem)
+                format!(
+                    "line {n}: {tag}{}. {}{stop}",
+                    self.source_line, self.problem
+                )
             }
-            None => format!("{}.", self.problem),
+            None => format!("{}{stop}", self.problem),
         };
         if let Some(s) = &self.suggestion {
             out.push_str(&format!(" Did you mean {s}?"));
@@ -128,5 +133,15 @@ mod tests {
         assert_eq!(src.line(1), "one");
         assert_eq!(src.line(2), "two");
         assert_eq!(src.line(99), "");
+    }
+
+    #[test]
+    fn a_question_takes_no_full_stop() {
+        let src = Source::new("a\n  set totl to 5\n");
+        let w = Diagnostic::warning(&src, 2, "new name totl; did you mean total?");
+        assert_eq!(
+            w.render(),
+            "line 2: warning: set totl to 5. new name totl; did you mean total?"
+        );
     }
 }
