@@ -15,6 +15,8 @@ struct Walk<'a, 'b> {
     vars: BTreeMap<String, Ty>,
     made: Vec<(String, Ty, u32)>,
     result: Option<Ty>,
+    in_test: bool,
+    loops: u32,
 }
 
 fn target_text(t: &Target) -> String {
@@ -33,6 +35,7 @@ pub fn check_body(
     results: &BTreeMap<String, Ty>,
     inputs: &[(String, Ty)],
     body: &[Stmt],
+    in_test: bool,
     types: &mut Vec<Option<Ty>>,
 ) -> FeatureInfo {
     let vars = inputs.iter().cloned().collect();
@@ -43,6 +46,8 @@ pub fn check_body(
         vars,
         made: Vec::new(),
         result: None,
+        in_test,
+        loops: 0,
     };
     walk.stmts(body);
     FeatureInfo {
@@ -243,7 +248,7 @@ impl Walk<'_, '_> {
             }
             StmtKind::RepeatWhile { cond, body } => {
                 self.condition(stmt.line, cond, "repeat while");
-                self.stmts(body);
+                self.in_loop(body);
             }
             StmtKind::Append { value, list } => self.append(stmt.line, value, list),
             StmtKind::Load(name) | StmtKind::Save(name) | StmtKind::Clear(name) => {
@@ -268,7 +273,7 @@ impl Walk<'_, '_> {
                     }
                     Ty::Error
                 });
-                self.looped(var, item, body);
+                self.looped(stmt.line, var, item, body);
             }
             StmtKind::ForEachRange {
                 var,
@@ -284,9 +289,39 @@ impl Walk<'_, '_> {
                         "for each … from walks numbers",
                     );
                 }
-                self.looped(var, Ty::Number, body);
+                self.looped(stmt.line, var, Ty::Number, body);
+            }
+            StmtKind::Skip | StmtKind::Stop if self.loops == 0 => {
+                let word = if stmt.kind == StmtKind::Skip {
+                    "skip"
+                } else {
+                    "stop"
+                };
+                self.error(stmt.line, format!("{word} can only be used inside a loop"));
+            }
+            StmtKind::Expect(cond) => {
+                self.test_only(stmt.line, "expect");
+                self.condition(stmt.line, cond, "expect");
+            }
+            StmtKind::Input(items) => {
+                self.test_only(stmt.line, "input");
+                items.iter().for_each(|i| {
+                    self.ty(i);
+                });
             }
             _ => {}
+        }
+    }
+
+    fn in_loop(&mut self, body: &[Stmt]) {
+        self.loops += 1;
+        self.stmts(body);
+        self.loops -= 1;
+    }
+
+    fn test_only(&mut self, line: Line, word: &str) {
+        if !self.in_test {
+            self.error(line, format!("{word} can only be used inside a test"));
         }
     }
 
@@ -305,9 +340,17 @@ impl Walk<'_, '_> {
     }
 
     /// Walks a loop body with its variable in scope, then puts back what it hid.
-    fn looped(&mut self, var: &str, ty: Ty, body: &[Stmt]) {
+    fn looped(&mut self, line: Line, var: &str, ty: Ty, body: &[Stmt]) {
+        let clash = self.vars.contains_key(var);
+        if clash {
+            let msg = format!(
+                "{var} is already a variable in this feature; pick another name for the loop"
+            );
+            self.error(line, msg);
+        }
+        let ty = if clash { Ty::Error } else { ty };
         let hidden = self.vars.insert(var.into(), ty);
-        self.stmts(body);
+        self.in_loop(body);
         match hidden {
             Some(old) => self.vars.insert(var.into(), old),
             None => self.vars.remove(var),
@@ -490,6 +533,42 @@ mod tests {
         assert_eq!(
             start("  set n to 1\n  save n\n  show n\n"),
             ["line 6: save n. save works on tables; n is a number."]
+        );
+    }
+
+    #[test]
+    fn placement_rules() {
+        assert_eq!(
+            start("  skip\n"),
+            ["line 5: skip. skip can only be used inside a loop."]
+        );
+        assert_eq!(
+            start("  expect 1 is 1\n"),
+            ["line 5: expect 1 is 1. expect can only be used inside a test."]
+        );
+        assert_eq!(
+            start("  input \"a\"\n"),
+            ["line 5: input \"a\". input can only be used inside a test."]
+        );
+        assert_eq!(
+            start("  set x to 1\n  show x\n  for each x in es\n    show 1\n"),
+            [
+                "line 7: for each x in es. x is already a variable in this feature; pick another name for the loop."
+            ]
+        );
+        assert!(
+            start(
+                "  for each x in es\n    show amount of x\n  for each x from 1 to 3\n    show x\n"
+            )
+            .is_empty()
+        );
+        let test = format!(
+            "{HEAD}feature start\n  show 1\ntest \"t\"\n  input \"a\"\n  expect count of shown is 0\n"
+        );
+        assert!(diags(&test).is_empty());
+        assert_eq!(
+            start("  repeat while no\n    stop\n  stop\n"),
+            ["line 7: stop. stop can only be used inside a loop."]
         );
     }
 }
