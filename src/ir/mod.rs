@@ -182,3 +182,90 @@ pub enum Inst {
     },
     System(Prim),
 }
+
+/// A function: `params` arguments, `slots` local slots, and its instructions.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Function {
+    pub name: String,
+    pub params: u32,
+    pub slots: u32,
+    pub body: Vec<Inst>,
+}
+
+/// A type descriptor the runtime uses to print values.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Desc {
+    Number,
+    Text,
+    Truth,
+    /// Fields name other descriptors by index.
+    Record {
+        name: String,
+        fields: Vec<(String, u32)>,
+    },
+    /// The element descriptor, by index.
+    List(u32),
+}
+
+/// A whole program.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Module {
+    /// The entry routine `_start` is among them.
+    pub functions: Vec<Function>,
+    /// Read-only text constants, by index.
+    pub texts: Vec<Vec<u8>>,
+    /// Type descriptors, by index.
+    pub descs: Vec<Desc>,
+}
+
+impl Module {
+    /// Adds a text constant, or finds it: the same bytes give the same index.
+    pub fn text(&mut self, bytes: &[u8]) -> u32 {
+        let index = match self.texts.iter().position(|t| t == bytes) {
+            Some(index) => index,
+            None => {
+                self.texts.push(bytes.to_vec());
+                self.texts.len() - 1
+            }
+        };
+        index as u32
+    }
+
+    /// Adds a descriptor, or finds it: an equal descriptor gives the same index.
+    pub fn desc(&mut self, d: Desc) -> u32 {
+        let index = match self.descs.iter().position(|e| *e == d) {
+            Some(index) => index,
+            None => {
+                self.descs.push(d);
+                self.descs.len() - 1
+            }
+        };
+        index as u32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_is_interned() {
+        let mut m = Module::default();
+        let a = m.text(b"a");
+        assert_eq!(m.text(b"a"), a);
+        let b = m.text(b"b");
+        assert_ne!(a, b);
+        assert_eq!(m.texts, vec![b"a".to_vec(), b"b".to_vec()]);
+    }
+
+    #[test]
+    fn desc_is_interned() {
+        let mut m = Module::default();
+        let n = m.desc(Desc::Number);
+        assert_eq!(m.desc(Desc::Number), n);
+        let list = m.desc(Desc::List(n));
+        assert_ne!(list, n);
+        assert_eq!(m.desc(Desc::List(n)), list);
+        assert_eq!(m.descs.len(), 2);
+    }
+}
