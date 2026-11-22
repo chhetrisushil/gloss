@@ -41,3 +41,32 @@ fn a_ninety_nine_deep_expression_checks_and_formats() {
     assert!(check_source(&text).iter().all(|d| !d.is_error()));
     assert_eq!(format_source(&text).unwrap(), text);
 }
+
+fn chain(parts: usize, op: &str) -> String {
+    vec!["1"; parts].join(&format!(" {op} "))
+}
+
+#[test]
+fn a_chain_of_operators_counts_toward_the_limit() {
+    let too_many = "This expression has too many parts; split it into smaller steps with set";
+    assert_eq!(
+        parse_expr_str(&chain(101, "+")).unwrap_err().problem,
+        too_many
+    );
+    assert_eq!(
+        parse_expr_str(&chain(101, "*")).unwrap_err().problem,
+        too_many
+    );
+    let ok = format!("feature start\n  show {}\n", chain(100, "+"));
+    assert!(check_source(&ok).iter().all(|d| !d.is_error()));
+    assert_eq!(format_source(&ok).unwrap().lines().count(), 2);
+}
+
+#[test]
+fn very_long_chains_and_minus_signs_give_a_diagnostic() {
+    for term in ["1 +", "1 -", "1 *", "1 /", "- ", "-"] {
+        let text = format!("feature start\n  show {}1\n", term.repeat(20_000));
+        assert_eq!(check_source(&text).len(), 1);
+        assert!(format_source(&text).is_err());
+    }
+}

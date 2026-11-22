@@ -10,18 +10,36 @@ impl Parser<'_> {
 
     fn arith(&mut self) -> Result<Expr, Diagnostic> {
         let mut left = self.product()?;
+        let mut parts = 0;
         while let Some(op) = self.arith_op(Sym::Plus, Sym::Minus, ArithOp::Add, ArithOp::Sub) {
+            parts += self.add_part()?;
             left = self.extend(op, left, Self::product)?;
         }
+        self.depth -= parts;
         Ok(left)
     }
 
     fn product(&mut self) -> Result<Expr, Diagnostic> {
         let mut left = self.converted()?;
+        let mut parts = 0;
         while let Some(op) = self.arith_op(Sym::Star, Sym::Slash, ArithOp::Mul, ArithOp::Div) {
+            parts += self.add_part()?;
             left = self.extend(op, left, Self::converted)?;
         }
+        self.depth -= parts;
         Ok(left)
+    }
+
+    /// Counts one more operator wrapping the left side toward the depth limit, since the tree
+    /// of `a + b + c ...` is as deep as the chain is long. Returns 1 for the caller to give
+    /// back when the chain ends.
+    fn add_part(&mut self) -> Result<u32, Diagnostic> {
+        self.depth += 1;
+        if self.depth >= super::MAX_DEPTH {
+            let msg = "This expression has too many parts; split it into smaller steps with set";
+            return Err(self.err(msg));
+        }
+        Ok(1)
     }
 
     /// Consumes one of two operator symbols, if it is next.
