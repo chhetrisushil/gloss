@@ -325,3 +325,162 @@ fn run_calls_the_entry_with_no_output() {
     assert_eq!(outcome.status, 0);
     assert!(outcome.stdout.is_empty() && outcome.stderr.is_empty());
 }
+
+fn dirty_slot_callee() -> Function {
+    function(
+        "dirty",
+        1,
+        1,
+        vec![LoadSlot(A, 1), LoadArg(B, 1), StoreSlot(1, B), Return],
+    )
+}
+
+#[test]
+fn every_call_gets_fresh_zeroed_slots() {
+    let caller = function(
+        "caller",
+        0,
+        1,
+        vec![
+            Const(A, 9),
+            Push(A),
+            Call("dirty".to_string()),
+            Push(A),
+            Const(A, 9),
+            Push(A),
+            Call("dirty".to_string()),
+            Pop(B),
+            Int(IntOp::Add),
+            Return,
+        ],
+    );
+    let m = two_functions(dirty_slot_callee(), caller);
+    assert_eq!(call(&m, "caller", &[]), 0);
+}
+
+const ALL_CONDS: [Cond; 6] = [Cond::Eq, Cond::Ne, Cond::Lt, Cond::Le, Cond::Gt, Cond::Ge];
+
+fn expected(cond: Cond, a: i64, b: i64) -> bool {
+    match cond {
+        Cond::Eq => a == b,
+        Cond::Ne => a != b,
+        Cond::Lt => a < b,
+        Cond::Le => a <= b,
+        Cond::Gt => a > b,
+        Cond::Ge => a >= b,
+    }
+}
+
+#[test]
+fn every_condition_is_signed_for_set_if_and_jump_if() {
+    let taken = Label(0);
+    for cond in ALL_CONDS {
+        for (a, b) in [(-1, 1), (1, -1), (-2, -2), (-3, -2), (0, 0)] {
+            let set = single(vec![Const(A, a), Const(B, b), Compare, SetIf(cond), Return]);
+            let want = i64::from(expected(cond, a, b));
+            assert_eq!(call(&set, "f", &[]), want, "SetIf {cond:?} {a} {b}");
+            let jump = single(vec![
+                Const(A, a),
+                Const(B, b),
+                Compare,
+                JumpIf(cond, taken),
+                Const(A, 0),
+                Return,
+                Mark(taken),
+                Const(A, 1),
+                Return,
+            ]);
+            assert_eq!(call(&jump, "f", &[]), want, "JumpIf {cond:?} {a} {b}");
+        }
+    }
+}
+
+#[test]
+fn a_call_restores_the_stack_pointer_and_leaves_what_was_pushed() {
+    let callee = function("callee", 1, 1, vec![Return]);
+    let caller = function(
+        "caller",
+        0,
+        2,
+        vec![
+            Const(A, 77),
+            Push(A),
+            StackPointer(A),
+            StoreSlot(1, A),
+            Const(A, 5),
+            Push(A),
+            Call("callee".to_string()),
+            StackPointer(B),
+            LoadSlot(A, 1),
+            Compare,
+            SetIf(Cond::Eq),
+            StoreSlot(2, A),
+            Pop(A),
+            LoadSlot(B, 2),
+            Int(IntOp::Mul),
+            Return,
+        ],
+    );
+    assert_eq!(call(&two_functions(callee, caller), "caller", &[]), 77);
+}
+
+#[test]
+fn stack_check_allows_a_frame_that_ends_exactly_at_the_limit() {
+    let fail = Label(0);
+    // Inside `f` the stack pointer is the top minus its frame's two words.
+    let sp = 0x7fff_0000_0000i64 - 16;
+    let with_bytes = |bytes| {
+        single(vec![
+            AddressOf(B, Data::Global(Global::StackLimit)),
+            Const(A, sp - 50),
+            Store {
+                base: B,
+                offset: 0,
+                from: A,
+            },
+            StackCheck { bytes, fail },
+            Const(A, 0),
+            Return,
+            Mark(fail),
+            Const(A, 1),
+            Return,
+        ])
+    };
+    assert_eq!(call(&with_bytes(50), "f", &[]), 0);
+    assert_eq!(call(&with_bytes(51), "f", &[]), 1);
+}
+
+#[test]
+fn and_or_and_stack_memory_work() {
+    let and = single(vec![
+        Const(A, 0b1100),
+        Const(B, 0b1010),
+        Int(IntOp::And),
+        Return,
+    ]);
+    assert_eq!(call(&and, "f", &[]), 0b1000);
+    let or = single(vec![
+        Const(A, 0b1100),
+        Const(B, 0b1010),
+        Int(IntOp::Or),
+        Return,
+    ]);
+    assert_eq!(call(&or, "f", &[]), 0b1110);
+    let stack = single(vec![
+        StackPointer(B),
+        Const(A, 0x1234),
+        Store {
+            base: B,
+            offset: 8,
+            from: A,
+        },
+        Const(A, 0),
+        Load {
+            to: A,
+            base: B,
+            offset: 8,
+        },
+        Return,
+    ]);
+    assert_eq!(call(&stack, "f", &[]), 0x1234);
+}
