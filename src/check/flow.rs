@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::similar::distance;
 use super::uses::{self, Origin};
 use super::{Ctx, Ty};
 use crate::ast::stmt::{Stmt, StmtKind, Target};
@@ -9,24 +10,36 @@ use crate::diag::Diagnostic;
 struct Flow<'a, 'b> {
     ctx: &'a mut Ctx<'b>,
     origins: BTreeMap<String, Origin>,
+    used: BTreeSet<String>,
 }
 
 type Defined = BTreeSet<String>;
 
-/// Reports every read of a variable that may not have a value yet.
+/// Reports reads of a variable that may not have a value yet, then variables
+/// never read and new names that look like typos or differ only in case.
 pub fn check_flow(ctx: &mut Ctx, inputs: &[(String, Ty)], body: &[Stmt]) {
     let mut found = Vec::new();
     uses::firsts(body, None, &mut found);
+    found.retain(|(name, _)| !ctx.program.tables().any(|t| &t.name == name));
     let mut flow = Flow {
         ctx,
-        origins: found.into_iter().collect(),
+        origins: found.iter().cloned().collect(),
+        used: BTreeSet::new(),
     };
     let mut defined: Defined = inputs.iter().map(|(n, _)| n.clone()).collect();
     flow.stmts(body, &mut defined);
+    flow.names(inputs, &found);
+}
+
+/// True when the names are the same but for one final `s`.
+fn plural(a: &str, b: &str) -> bool {
+    let one = |short: &str, long: &str| long.strip_suffix('s') == Some(short);
+    one(a, b) || one(b, a)
 }
 
 impl Flow<'_, '_> {
     fn read_name(&mut self, line: Line, name: &str, defined: &mut Defined) {
+        self.used.insert(name.into());
         let Some(origin) = self.origins.get(name) else {
             return;
         };
@@ -39,6 +52,36 @@ impl Flow<'_, '_> {
         self.ctx
             .diags
             .push(Diagnostic::error(self.ctx.src, line, msg));
+    }
+
+    /// Warns about unused variables and look-alike new names, and rejects case clashes.
+    fn names(&mut self, inputs: &[(String, Ty)], found: &[(String, Origin)]) {
+        let program = self.ctx.program;
+        let mut known: Vec<&str> = inputs.iter().map(|(n, _)| n.as_str()).collect();
+        known.extend(program.tables().map(|t| t.name.as_str()));
+        known.extend(program.features().map(|f| f.name.as_str()));
+        for (name, origin) in found {
+            let (src, line) = (self.ctx.src, origin.line);
+            let lower = name.to_lowercase();
+            let clash = known
+                .iter()
+                .find(|k| k.to_lowercase() == lower && *k != name);
+            let typo = known
+                .iter()
+                .find(|k| distance(name, k) == 1 && k.to_lowercase() != lower && !plural(name, k));
+            if let Some(other) = clash {
+                let msg = format!("{name} and {other} differ only in case; rename one");
+                self.ctx.diags.push(Diagnostic::error(src, line, msg));
+            } else if let Some(near) = typo.filter(|_| name.chars().count() >= 4) {
+                let msg = format!("new name {name}; did you mean {near}?");
+                self.ctx.diags.push(Diagnostic::warning(src, line, msg));
+            }
+            if !self.used.contains(name) {
+                let msg = format!("{name} is set but never used");
+                self.ctx.diags.push(Diagnostic::warning(src, line, msg));
+            }
+            known.push(name);
+        }
     }
 
     fn read(&mut self, line: Line, e: &Expr, defined: &mut Defined) {
@@ -195,6 +238,29 @@ mod tests {
             [
                 "line 3: show a. a may not have a value here; it is first set inside the loop on line 2. Set it before the loop."
             ]
+        );
+    }
+
+    #[test]
+    fn warnings() {
+        assert_eq!(
+            diags("feature start\n  set totl to 5\n"),
+            ["line 2: warning: set totl to 5. totl is set but never used."]
+        );
+        let typo = "feature start\n  set total to 1\n  set totl to 2\n  show total, totl\n";
+        assert_eq!(
+            diags(typo),
+            ["line 3: warning: set totl to 2. new name totl; did you mean total?"]
+        );
+        let plural = "feature start\n  set pen to 1\n  set pens to list of 2\n  show pen, pens\n";
+        assert!(diags(plural).is_empty());
+        let short = "feature start\n  set ab to 1\n  set ac to 2\n  show ab, ac\n";
+        assert!(diags(short).is_empty());
+        let case =
+            "feature start\n  set myTotal to 1\n  set mytotal to 2\n  show myTotal, mytotal\n";
+        assert_eq!(
+            diags(case),
+            ["line 3: set mytotal to 2. mytotal and myTotal differ only in case; rename one."]
         );
     }
 }

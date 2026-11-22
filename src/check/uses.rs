@@ -2,6 +2,7 @@ use crate::ast::stmt::{Stmt, StmtKind, Target};
 use crate::ast::{Expr, ExprKind, Line};
 
 /// Where a variable is first set, and the outermost if or loop around that set.
+#[derive(Clone, Copy)]
 pub struct Origin {
     pub line: Line,
     pub within: Option<(&'static str, Line)>,
