@@ -6,6 +6,8 @@ pub mod lexer;
 pub mod number;
 pub mod parser;
 pub mod source;
+#[cfg(test)]
+mod testing;
 
 use ast::program::Program;
 use diag::Diagnostic;
@@ -14,6 +16,12 @@ use source::Source;
 /// Lexes and parses a whole program.
 pub fn parse_source(src: &Source) -> Result<Program, Diagnostic> {
     parser::parse(&lexer::lex(src)?, src)
+}
+
+/// Rewrites a program in the canonical layout.
+pub fn format_source(text: &str) -> Result<String, Diagnostic> {
+    let program = parse_source(&Source::new(text))?;
+    Ok(format::format_program(&program))
 }
 
 /// Parses and checks a program; returns the parse error alone if parsing
