@@ -81,20 +81,26 @@ impl Machine<'_> {
             }
             Inst::StackPointer(r) => self.set(*r, self.sp as i64),
             Inst::Load { to, base, offset } => {
-                let value = self.memory.read(self.effective(*base, *offset));
+                let addr = self.effective(*base, *offset);
+                self.check(addr, 8, false);
+                let value = self.memory.read(addr);
                 self.set(*to, value);
             }
             Inst::Store { base, offset, from } => {
                 let addr = self.effective(*base, *offset);
+                self.check(addr, 8, true);
                 self.memory.write(addr, self.reg(*from));
             }
             // A loaded byte is zero-extended.
             Inst::LoadByte { to, base, offset } => {
-                let value = self.memory.read_byte(self.effective(*base, *offset));
+                let addr = self.effective(*base, *offset);
+                self.check(addr, 1, false);
+                let value = self.memory.read_byte(addr);
                 self.set(*to, i64::from(value));
             }
             Inst::StoreByte { base, offset, from } => {
                 let addr = self.effective(*base, *offset);
+                self.check(addr, 1, true);
                 self.memory.write_byte(addr, self.reg(*from) as u8);
             }
             Inst::StackCheck { bytes, fail } => {

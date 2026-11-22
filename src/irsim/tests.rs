@@ -554,3 +554,79 @@ fn jump_if_without_a_compare_panics() {
         &[],
     );
 }
+
+#[test]
+#[should_panic(expected = "0x10000000")]
+fn writing_a_text_panics() {
+    let mut m = single(vec![
+        AddressOf(B, Data::Text(0)),
+        Store {
+            base: B,
+            offset: 0,
+            from: A,
+        },
+        Return,
+    ]);
+    m.text(b"read only");
+    call(&m, "f", &[]);
+}
+
+#[test]
+#[should_panic(expected = "0x0")]
+fn reading_address_zero_panics() {
+    let m = single(vec![
+        Const(B, 0),
+        Load {
+            to: A,
+            base: B,
+            offset: 0,
+        },
+        Return,
+    ]);
+    call(&m, "f", &[]);
+}
+
+#[test]
+#[should_panic(expected = "outside mapped memory")]
+fn a_word_running_off_the_end_of_a_global_panics() {
+    let m = single(vec![
+        AddressOf(B, Data::Global(Global::InBuf)),
+        Load {
+            to: A,
+            base: B,
+            offset: 4096 - 4,
+        },
+        Return,
+    ]);
+    call(&m, "f", &[]);
+}
+
+#[test]
+#[should_panic(expected = "outside mapped memory")]
+fn reading_below_the_stack_pointer_panics() {
+    let m = single(vec![
+        StackPointer(B),
+        Load {
+            to: A,
+            base: B,
+            offset: -8,
+        },
+        Return,
+    ]);
+    call(&m, "f", &[]);
+}
+
+#[test]
+#[should_panic(expected = "outside mapped memory")]
+fn reading_above_the_top_of_the_stack_panics() {
+    let m = single(vec![
+        Const(B, 0x7fff_0000_0000),
+        Load {
+            to: A,
+            base: B,
+            offset: 0,
+        },
+        Return,
+    ]);
+    call(&m, "f", &[]);
+}
