@@ -1,4 +1,5 @@
 pub mod expr;
+mod value;
 
 use crate::ast::{Expr, ExprId, ExprKind};
 use crate::diag::Diagnostic;
@@ -76,7 +77,7 @@ pub fn parse_expr_str(text: &str) -> Result<Expr, Diagnostic> {
     let src = Source::new(text);
     let toks = lex(&src)?;
     let mut parser = Parser::new(&toks, &src);
-    let expr = parser.parse_arith()?;
+    let expr = parser.parse_value()?;
     match parser.peek() {
         Some(Tok::Newline) | None => Ok(expr),
         Some(other) => Err(parser.err(format!("Unexpected {other} after the expression"))),
