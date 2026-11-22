@@ -10,17 +10,42 @@ fn gloss(args: &[&str]) -> (i32, String, String) {
     (o.status.code().unwrap(), text(o.stdout), text(o.stderr))
 }
 
-/// Writes `text` into a folder of its own; the caller removes the folder.
-fn temp_file(name: &str, text: &str) -> PathBuf {
+/// A test file in a folder of its own; dropping it removes the folder, even when a test fails.
+struct TempFile(PathBuf);
+
+impl std::ops::Deref for TempFile {
+    type Target = std::path::Path;
+    fn deref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl AsRef<std::path::Path> for TempFile {
+    fn as_ref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let dir = self.0.parent().unwrap();
+        // A test may have made the folder read-only; undo that so it can be removed.
+        if let Ok(meta) = std::fs::metadata(dir) {
+            let mut mode = meta.permissions();
+            #[allow(clippy::permissions_set_readonly_false)]
+            mode.set_readonly(false);
+            let _ = std::fs::set_permissions(dir, mode);
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+fn temp_file(name: &str, text: &str) -> TempFile {
     let dir = std::env::temp_dir().join(format!("gloss-cli-{}-{}", name, std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let p = dir.join(format!("{name}.gloss"));
     std::fs::write(&p, text).unwrap();
-    p
-}
-
-fn cleanup(p: &std::path::Path) {
-    std::fs::remove_dir_all(p.parent().unwrap()).unwrap();
+    TempFile(p)
 }
 
 #[test]
@@ -32,7 +57,6 @@ fn build_reports_errors_with_status_3() {
         err,
         "line 2: set total as 0. set needs to. Did you mean set total to 0?\n"
     );
-    cleanup(&p);
 }
 
 #[test]
@@ -44,7 +68,6 @@ fn build_checks_clean_program() {
         out,
         "Checked good.gloss: no errors (code generation arrives in milestone 2)\n"
     );
-    cleanup(&p);
 }
 
 #[test]
@@ -60,9 +83,10 @@ fn usage_and_unbuilt_commands_exit_3() {
         )
     );
     let (code, _, err) = gloss(&["build", "/nonexistent/x.gloss"]);
-    assert_eq!(
-        (code, err.as_str()),
-        (3, "cannot read /nonexistent/x.gloss\n")
+    assert_eq!(code, 3);
+    assert!(
+        err.starts_with("cannot read /nonexistent/x.gloss: "),
+        "{err}"
     );
 }
 
@@ -77,7 +101,6 @@ fn build_with_only_warnings_exits_0() {
         out,
         "Checked warn.gloss: no errors (code generation arrives in milestone 2)\n"
     );
-    cleanup(&p);
 }
 
 #[test]
@@ -96,7 +119,6 @@ fn format_rewrites_in_place() {
         (code, out.as_str()),
         (0, "fmt.gloss is already formatted\n")
     );
-    cleanup(&p);
 }
 
 #[test]
@@ -110,5 +132,40 @@ fn format_leaves_unparsable_file_untouched() {
         "line 2: set total as 0. set needs to. Did you mean set total to 0?\n"
     );
     assert_eq!(std::fs::read(&p).unwrap(), text.as_bytes());
-    cleanup(&p);
+}
+
+fn leftovers(p: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(p.parent().unwrap())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn format_leaves_no_temporary_file() {
+    let p = temp_file("fmttmp", "feature start\n  set  t to 1\n  show t\n");
+    assert_eq!(gloss(&["format", p.to_str().unwrap()]).0, 0);
+    assert_eq!(leftovers(&p), ["fmttmp.gloss"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn format_write_failure_keeps_original_and_reports_os_error() {
+    use std::os::unix::fs::PermissionsExt;
+    let text = "feature start\n  set  t to 1\n  show t\n";
+    let p = temp_file("fmtro", text);
+    let dir = p.parent().unwrap();
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let (code, out, err) = gloss(&["format", p.to_str().unwrap()]);
+    let names = leftovers(&p);
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert!(
+        err.starts_with(&format!("cannot write {}: ", p.display())),
+        "{err}"
+    );
+    assert_eq!(std::fs::read(&p).unwrap(), text.as_bytes());
+    assert_eq!(names, ["fmtro.gloss"]);
 }

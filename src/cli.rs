@@ -31,9 +31,12 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
         );
         return 3;
     }
-    let Ok(text) = std::fs::read_to_string(file) else {
-        let _ = writeln!(err, "cannot read {file}");
-        return 3;
+    let text = match std::fs::read_to_string(file) {
+        Ok(text) => text,
+        Err(e) => {
+            let _ = writeln!(err, "cannot read {file}: {e}");
+            return 3;
+        }
     };
     let name = Path::new(file)
         .file_name()
@@ -70,11 +73,27 @@ fn format(path: &str, name: &str, text: &str, out: &mut dyn Write, err: &mut dyn
     };
     if formatted == text {
         let _ = writeln!(out, "{name} is already formatted");
-    } else if std::fs::write(path, formatted).is_ok() {
-        let _ = writeln!(out, "Formatted {name}");
-    } else {
-        let _ = writeln!(err, "cannot write {path}");
+    } else if let Err(e) = write_atomically(path, &formatted) {
+        let _ = writeln!(err, "cannot write {path}: {e}");
         return 3;
+    } else {
+        let _ = writeln!(out, "Formatted {name}");
     }
     0
+}
+
+/// Replaces `path` with `text` by writing a temporary file beside it and renaming it over
+/// the original, so an interrupted write cannot truncate the user's source.
+fn write_atomically(path: &str, text: &str) -> std::io::Result<()> {
+    let temp = format!("{path}.gloss-format-tmp");
+    let result = (|| {
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(&temp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
 }
