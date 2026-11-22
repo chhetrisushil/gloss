@@ -191,11 +191,11 @@ impl Flow<'_, '_> {
     }
 
     fn stmts(&mut self, body: &[Stmt], defined: &mut Defined) {
-        let mut ended: Option<(&str, Line)> = None;
+        let mut ended: Option<String> = None;
         for stmt in body {
             if !matches!(stmt.kind, StmtKind::Note(_)) {
-                if let Some((word, at)) = ended.take() {
-                    self.never_runs(stmt.line, word, at);
+                if let Some(cause) = ended.take() {
+                    self.never_runs(stmt.line, &cause);
                 }
                 ended = self.ends_block(stmt);
             }
@@ -203,23 +203,42 @@ impl Flow<'_, '_> {
         }
     }
 
-    /// The word of a give, or of a stop or skip inside a loop, which ends the rest of its block.
-    fn ends_block(&self, stmt: &Stmt) -> Option<(&'static str, Line)> {
-        match stmt.kind {
-            StmtKind::Give(_) => Some(("give", stmt.line)),
-            StmtKind::Stop if self.loops > 0 => Some(("stop", stmt.line)),
-            StmtKind::Skip if self.loops > 0 => Some(("skip", stmt.line)),
+    /// Why the rest of the block never runs: a give, or a stop or skip inside a loop, or an if
+    /// with an otherwise whose every branch ends the feature or the loop.
+    fn ends_block(&self, stmt: &Stmt) -> Option<String> {
+        let at = stmt.line;
+        let loops = self.loops > 0;
+        match &stmt.kind {
+            StmtKind::Give(_) => Some(format!("the give on line {at} ends the feature")),
+            StmtKind::Stop if loops => Some(format!("the stop on line {at} ends the loop")),
+            StmtKind::Skip if loops => Some(format!(
+                "the skip on line {at} moves on to the next pass of the loop"
+            )),
+            StmtKind::If {
+                branches,
+                otherwise: Some(other),
+            } => {
+                let all = |exits| {
+                    let ends = |b: &[Stmt]| uses::diverges(b, exits);
+                    branches.iter().all(|(_, b)| ends(b)) && ends(other)
+                };
+                let end = if all(Exits::Give) {
+                    "feature"
+                } else if loops && all(Exits::Any) {
+                    "loop"
+                } else {
+                    return None;
+                };
+                Some(format!(
+                    "every branch of the if on line {at} ends the {end}"
+                ))
+            }
             _ => None,
         }
     }
 
-    fn never_runs(&mut self, line: Line, word: &str, at: Line) {
-        let effect = match word {
-            "give" => "ends the feature",
-            "stop" => "ends the loop",
-            _ => "moves on to the next pass of the loop",
-        };
-        let msg = format!("this line never runs; the {word} on line {at} {effect}");
+    fn never_runs(&mut self, line: Line, cause: &str) {
+        let msg = format!("this line never runs; {cause}");
         self.ctx
             .diags
             .push(Diagnostic::warning(self.ctx.src, line, msg));
