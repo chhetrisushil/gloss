@@ -29,6 +29,10 @@ fn gloss_blocks() -> Vec<String> {
             None => {}
         }
     }
+    assert!(
+        current.is_none(),
+        "a gloss block in the spec is never closed"
+    );
     blocks
 }
 

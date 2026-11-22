@@ -457,4 +457,23 @@ mod tests {
             ["line 6: show 1 + (2 + \"a\"). + needs numbers on both sides; \"a\" is text."]
         );
     }
+
+    #[test]
+    fn last_negation_item_and_no_input_features() {
+        assert!(body("  load es\n  show amount of last of es\n").is_empty());
+        assert_eq!(
+            body("  show last of 1\n"),
+            ["line 6: show last of 1. last of works on lists and tables; 1 is a number."]
+        );
+        assert_eq!(
+            body("  show -\"a\"\n"),
+            ["line 6: show -\"a\". negation works on numbers; \"a\" is text."]
+        );
+        assert_eq!(
+            body("  set n to 1\n  show item 1 of n\n"),
+            ["line 7: show item 1 of n. item works on lists and tables; n is a number."]
+        );
+        let by_name = "feature start\n  show zero\nfeature zero\n  give 1\n";
+        assert!(diags(by_name).is_empty());
+    }
 }

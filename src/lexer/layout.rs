@@ -221,4 +221,66 @@ mod tests {
         assert_eq!(problem("feature a\n  show 1,\n  2\n"), (Some(2), "This line ends with a comma, so the next line must continue it, indented one level deeper".into()));
         assert_eq!(problem("feature a\n  show 1,\n"), (Some(2), "This line ends with a comma, so the next line must continue it, indented one level deeper".into()));
     }
+
+    fn num(n: i64) -> Tok {
+        Tok::Number(crate::number::Number(n * 10_000))
+    }
+
+    #[test]
+    fn continuation_can_run_over_three_lines() {
+        let t = kinds("feature a\n  show 1,\n    2,\n    3\n");
+        assert_eq!(
+            &t[4..],
+            &[
+                Tok::Kw(Kw::Show),
+                num(1),
+                Tok::Sym(Sym::Comma),
+                num(2),
+                Tok::Sym(Sym::Comma),
+                num(3),
+                Tok::Newline,
+                Tok::Dedent,
+            ]
+        );
+    }
+
+    #[test]
+    fn note_block_at_end_of_file() {
+        assert_eq!(
+            &kinds("feature a\n  note\n    why\n")[3..],
+            &[
+                Tok::Indent,
+                Tok::NoteBlock(vec!["why".into()]),
+                Tok::Newline,
+                Tok::Dedent,
+            ]
+        );
+    }
+
+    #[test]
+    fn note_block_before_a_dedent() {
+        let t = kinds("feature a\n  stop\n  note\n    why\nfeature b\n  stop\n");
+        let at = t
+            .iter()
+            .position(|t| matches!(t, Tok::NoteBlock(_)))
+            .unwrap();
+        assert_eq!(t[at], Tok::NoteBlock(vec!["why".into()]));
+        assert_eq!(
+            &t[at + 1..at + 4],
+            &[Tok::Newline, Tok::Dedent, Tok::Kw(Kw::Feature)]
+        );
+    }
+
+    #[test]
+    fn a_blank_line_right_after_an_indent_is_not_flagged() {
+        let toks = lex(&Source::new("feature a\n\n  stop\n")).unwrap();
+        let stop = toks.iter().find(|t| t.tok == Tok::Kw(Kw::Stop)).unwrap();
+        assert!(!stop.blank_before);
+    }
+
+    #[test]
+    fn blank_lines_at_end_of_file_add_nothing() {
+        let plain = kinds("feature a\n  stop\n");
+        assert_eq!(kinds("feature a\n  stop\n\n\n  \n"), plain);
+    }
 }

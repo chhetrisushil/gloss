@@ -154,4 +154,18 @@ mod tests {
         assert_eq!(n(0).with_places(4), "0.0000");
         assert_eq!(n(i64::MAX).with_places(0), "922337203685478");
     }
+
+    #[test]
+    fn with_places_at_the_edges() {
+        assert_eq!(n(i64::MIN).with_places(0), "-922337203685478");
+        assert_eq!(n(i64::MIN).with_places(4), "-922337203685477.5808");
+        assert_eq!(n(-500).with_places(1), "-0.1");
+        assert_eq!(n(-499).with_places(1), "0.0");
+    }
+
+    #[test]
+    fn negative_zero_text_is_zero() {
+        assert_eq!(Number::parse_text("-0"), Ok(n(0)));
+        assert_eq!(Number::parse_text("-0.0000"), Ok(n(0)));
+    }
 }

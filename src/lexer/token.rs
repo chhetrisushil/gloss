@@ -114,6 +114,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tokens_display_as_they_read_in_messages() {
+        let shown = |t: Tok| t.to_string();
+        assert_eq!(shown(Tok::Kw(Kw::Otherwise)), "otherwise");
+        assert_eq!(shown(Tok::Name("total".into())), "total");
+        assert_eq!(shown(Tok::RecordName("Expense".into())), "Expense");
+        assert_eq!(shown(Tok::Number(Number(1_205_000))), "120.5");
+        assert_eq!(shown(Tok::Text("say \"hi\"".into())), "\"say \"\"hi\"\"\"");
+        assert_eq!(shown(Tok::Sym(Sym::Slash)), "/");
+        assert_eq!(shown(Tok::Newline), "the end of the line");
+        assert_eq!(shown(Tok::Indent), "a change of indentation");
+        assert_eq!(shown(Tok::Dedent), "a change of indentation");
+        assert_eq!(shown(Tok::Note("x".into())), "note");
+        assert_eq!(shown(Tok::NoteBlock(vec!["x".into()])), "note");
+    }
+
+    #[test]
     fn keyword_list_matches_language_spec() {
         let spec = include_str!("../../spec/v0.md");
         let words: Vec<&str> = spec

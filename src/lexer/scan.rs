@@ -178,4 +178,23 @@ mod tests {
         assert_eq!(problem("show\t1"), "Tabs are not allowed; use spaces");
         assert_eq!(problem("show 1 # 2"), "# is not part of Gloss");
     }
+
+    #[test]
+    fn non_ascii_is_fine_inside_text_only() {
+        assert_eq!(scan("\"héllo\""), vec![Tok::Text("héllo".into())]);
+        assert_eq!(problem("show é"), "é is not part of Gloss");
+    }
+
+    #[test]
+    fn a_capitalised_keyword_is_a_record_name() {
+        assert_eq!(scan("Set"), vec![Tok::RecordName("Set".into())]);
+    }
+
+    #[test]
+    fn greater_than_sign_is_answered_in_words() {
+        assert_eq!(
+            problem("if a > 3"),
+            "> is not part of Gloss. Comparisons are written in words, such as is greater than"
+        );
+    }
 }
