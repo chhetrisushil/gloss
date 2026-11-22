@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::{Ctx, Ty, combine, features, similar};
+use super::{Ctx, NameKind, Ty, combine, features, similar};
 use crate::ast::print;
 use crate::ast::{ArithOp, Conversion, Expr, ExprKind, Fact, ItemType, Line, PlainType};
 use crate::diag::Diagnostic;
@@ -9,6 +9,9 @@ pub struct Env<'a> {
     pub vars: &'a BTreeMap<String, Ty>,
     pub results: &'a BTreeMap<String, Ty>,
     pub in_test: bool,
+    /// The inputs of the feature, and the loop variables whose loops are being walked.
+    pub inputs: &'a [String],
+    pub loops: &'a [String],
 }
 
 pub fn plain(p: PlainType) -> Ty {
@@ -236,9 +239,18 @@ fn number_only(ctx: &mut Ctx, e: &Expr, what: &str, operand: &Expr, t: Ty) -> Ty
 
 fn name_type(ctx: &mut Ctx, env: &Env, e: &Expr, name: &str) -> Ty {
     if let Some(t) = env.vars.get(name) {
+        let kind = if env.loops.iter().any(|l| l == name) {
+            NameKind::LoopVariable
+        } else if env.inputs.iter().any(|i| i == name) {
+            NameKind::Input
+        } else {
+            NameKind::Variable
+        };
+        ctx.names.insert(e.id, kind);
         return t.clone();
     }
     if let Some(t) = ctx.program.tables().find(|t| t.name == name) {
+        ctx.names.insert(e.id, NameKind::Table);
         return Ty::Table {
             table: t.name.clone(),
             record: t.record.clone(),
@@ -246,6 +258,7 @@ fn name_type(ctx: &mut Ctx, env: &Env, e: &Expr, name: &str) -> Ty {
     }
     if let Some(f) = ctx.feature(name) {
         if f.needs.is_empty() {
+            ctx.names.insert(e.id, NameKind::FeatureCall);
             let ty = env.results.get(&f.name).cloned().unwrap_or(Ty::Error);
             ctx.pending += usize::from(ty == Ty::Error);
             return features::as_value(ctx, e, name, ty);

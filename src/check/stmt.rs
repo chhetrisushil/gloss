@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::expr::{self, Env};
 use super::rules::target_text;
-use super::{Ctx, FeatureInfo, Ty, similar};
+use super::{Ctx, FeatureInfo, LoopVar, Ty, similar};
 use crate::ast::print;
 use crate::ast::stmt::{Stmt, StmtKind, Target};
 use crate::ast::{Expr, Line};
@@ -24,6 +24,10 @@ struct Walk<'a, 'b> {
     loops: u32,
     /// The names of the loops being walked; changing one is reported by the mutation check.
     loop_vars: Vec<String>,
+    /// The names of the feature's inputs.
+    input_names: Vec<String>,
+    /// Every loop variable walked, with its loop's line.
+    loops_seen: Vec<LoopVar>,
     changed: bool,
 }
 
@@ -49,6 +53,8 @@ pub fn check_body(
         in_test,
         loops: 0,
         loop_vars: Vec::new(),
+        input_names: inputs.iter().map(|(n, _)| n.clone()).collect(),
+        loops_seen: Vec::new(),
         changed: false,
     };
     for _ in 0..=body.len() + 1 {
@@ -71,6 +77,7 @@ pub fn check_body(
         cycle: !walk.gives.is_empty() && walk.waiting == walk.gives.len(),
         gives: walk.gives,
         vars: walk.made,
+        loops: walk.loops_seen,
     }
 }
 
@@ -80,6 +87,8 @@ impl Walk<'_, '_> {
             vars: &self.vars,
             results: self.results,
             in_test: self.in_test,
+            inputs: &self.input_names,
+            loops: &self.loop_vars,
         };
         expr::type_of(self.ctx, &env, e, self.types)
     }
@@ -377,6 +386,11 @@ impl Walk<'_, '_> {
         } else {
             ty
         };
+        self.loops_seen.push(LoopVar {
+            name: var.into(),
+            ty: ty.clone(),
+            line,
+        });
         let hidden = self.vars.insert(var.into(), ty);
         self.loop_vars.push(var.into());
         self.in_loop(body);
