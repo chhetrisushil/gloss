@@ -205,7 +205,7 @@ impl Walk<'_, '_> {
             }
             StmtKind::Divide { target, by } => self.arithmetic(stmt.line, "divide", target, by),
             StmtKind::Ask { question, into } => {
-                self.ty(question);
+                self.require(stmt.line, question, &Ty::Text, "The question must be text");
                 self.bind(stmt.line, into, Ty::Text, "be asked into, which gives text");
             }
             StmtKind::Show(items) => items.iter().for_each(|i| {
@@ -236,16 +236,105 @@ impl Walk<'_, '_> {
                 otherwise,
             } => {
                 for (cond, body) in branches {
-                    self.ty(cond);
+                    self.condition(cond.line, cond, "if");
                     self.stmts(body);
                 }
                 self.stmts(otherwise.as_deref().unwrap_or_default());
             }
             StmtKind::RepeatWhile { cond, body } => {
-                self.ty(cond);
+                self.condition(stmt.line, cond, "repeat while");
                 self.stmts(body);
             }
+            StmtKind::Append { value, list } => self.append(stmt.line, value, list),
+            StmtKind::Load(name) | StmtKind::Save(name) | StmtKind::Clear(name) => {
+                let verb = match &stmt.kind {
+                    StmtKind::Load(_) => "load",
+                    StmtKind::Save(_) => "save",
+                    _ => "clear",
+                };
+                let t = self.target_ty(stmt.line, &Target::Var(name.clone()));
+                if !matches!(t, Ty::Table { .. } | Ty::Error) {
+                    let msg = format!("{verb} works on tables; {name} is {}", t.described());
+                    self.error(stmt.line, msg);
+                }
+            }
+            StmtKind::ForEachIn { var, list, body } => {
+                let t = self.ty(list);
+                let item = t.item().unwrap_or_else(|| {
+                    if t != Ty::Error {
+                        let what =
+                            format!("for each … in walks a list or table; {}", print::expr(list));
+                        self.error(stmt.line, format!("{what} is {}", t.described()));
+                    }
+                    Ty::Error
+                });
+                self.looped(var, item, body);
+            }
+            StmtKind::ForEachRange {
+                var,
+                from,
+                to,
+                body,
+            } => {
+                for bound in [from, to] {
+                    self.require(
+                        stmt.line,
+                        bound,
+                        &Ty::Number,
+                        "for each … from walks numbers",
+                    );
+                }
+                self.looped(var, Ty::Number, body);
+            }
             _ => {}
+        }
+    }
+
+    /// Types `e` and reports unless it is `want` (or already an error).
+    fn require(&mut self, line: Line, e: &Expr, want: &Ty, lead: &str) {
+        let t = self.ty(e);
+        if t != *want && t != Ty::Error {
+            let msg = format!("{lead}; {} is {}", print::expr(e), t.described());
+            self.error(line, msg);
+        }
+    }
+
+    fn condition(&mut self, line: Line, cond: &Expr, word: &str) {
+        let lead = format!("The condition of {word} must be yes or no");
+        self.require(line, cond, &Ty::Truth, &lead);
+    }
+
+    /// Walks a loop body with its variable in scope, then puts back what it hid.
+    fn looped(&mut self, var: &str, ty: Ty, body: &[Stmt]) {
+        let hidden = self.vars.insert(var.into(), ty);
+        self.stmts(body);
+        match hidden {
+            Some(old) => self.vars.insert(var.into(), old),
+            None => self.vars.remove(var),
+        };
+    }
+
+    fn append(&mut self, line: Line, value: &Expr, list: &str) {
+        let v = self.ty(value);
+        let t = self.target_ty(line, &Target::Var(list.into()));
+        let Some(item) = t.item() else {
+            if t != Ty::Error {
+                let msg = format!(
+                    "append works on lists and tables; {list} is {}",
+                    t.described()
+                );
+                self.error(line, msg);
+            }
+            return;
+        };
+        if v != Ty::Error && v != item {
+            let msg = format!(
+                "{list} holds {}; {} is {}",
+                item.describe(),
+                print::expr(value),
+                v.described()
+            );
+            self.error(line, msg);
         }
     }
 
@@ -342,6 +431,65 @@ mod tests {
                 "line 5: set amount of item 1 of es to \"a\". amount of item 1 of es is a number, so it cannot be set to text.",
                 "line 6: divide amout of item 1 of es by 2. E has no field amout. Did you mean amount?"
             ]
+        );
+    }
+
+    #[test]
+    fn verbs_match_types() {
+        assert_eq!(
+            start("  set xs to list of 1\n  add 5 to xs\n  show count of xs\n"),
+            [
+                "line 6: add 5 to xs. add works on numbers; to put an item at the end of xs, use append. Did you mean append 5 to xs?"
+            ]
+        );
+        assert_eq!(
+            start("  set n to 1\n  append 5 to n\n  show n\n"),
+            ["line 6: append 5 to n. append works on lists and tables; n is a number."]
+        );
+        assert_eq!(
+            start("  append 5 to es\n"),
+            ["line 5: append 5 to es. es holds E; 5 is a number."]
+        );
+        assert_eq!(
+            start("  set n to 1\n  load n\n  show n\n"),
+            ["line 6: load n. load works on tables; n is a number."]
+        );
+        assert_eq!(
+            start("  if 1\n    show 1\n"),
+            ["line 5: if 1. The condition of if must be yes or no; 1 is a number."]
+        );
+        assert_eq!(
+            start("  for each x in 3\n    show x\n"),
+            ["line 5: for each x in 3. for each … in walks a list or table; 3 is a number."]
+        );
+        assert_eq!(
+            start("  ask 3 into c\n  show c\n"),
+            ["line 5: ask 3 into c. The question must be text; 3 is a number."]
+        );
+        assert!(start("  for each e in es\n    show amount of e\n  for each e from 1 to 3\n    show e\n  save es\n").is_empty());
+    }
+
+    #[test]
+    fn branches_run_and_save_are_checked() {
+        assert_eq!(
+            start("  if yes\n    show 1\n  otherwise if 1\n    show 2\n"),
+            ["line 7: otherwise if 1. The condition of if must be yes or no; 1 is a number."]
+        );
+        assert_eq!(
+            start("  if yes\n    set v to 1\n  otherwise\n    set v to \"a\"\n  show v\n"),
+            [
+                "line 8: set v to \"a\". v is a number, so it cannot be set to text (line 6 made it a number)."
+            ]
+        );
+        assert_eq!(
+            diags(&format!(
+                "{HEAD}feature f\n  needs n as number\n  give n\nfeature start\n  run f with \"a\"\n"
+            )),
+            ["line 8: run f with \"a\". The input n of f is a number; \"a\" is text."]
+        );
+        assert_eq!(
+            start("  set n to 1\n  save n\n  show n\n"),
+            ["line 6: save n. save works on tables; n is a number."]
         );
     }
 }
