@@ -155,7 +155,7 @@ fn path_problem(path: &str) -> Option<String> {
         Some("The file name has an empty part; write folders as data/expenses.csv".into())
     } else if path.chars().any(unshowable) {
         Some(String::from(
-            "The file name contains a character that cannot be shown, such as a tab or a control character",
+            "The file name contains a character that cannot be shown, such as a tab, a control character or an invisible character",
         ))
     } else if parts
         .next_back()
@@ -215,12 +215,13 @@ fn unshowable(c: char) -> bool {
         (0x180B, 0x180F),
         (0x200B, 0x200F),
         (0x202A, 0x202E),
+        (0x2028, 0x2029),
         (0x2060, 0x206F),
         (0x3164, 0x3164),
         (0xFE00, 0xFE0F),
         (0xFEFF, 0xFEFF),
         (0xFFA0, 0xFFA0),
-        (0xFFF0, 0xFFFB),
+        (0xFFF0, 0xFFFC),
         (0x110BD, 0x110BD),
         (0x110CD, 0x110CD),
         (0x13430, 0x1343F),
@@ -465,8 +466,8 @@ mod tests {
                 "{START}record E\n  a as text\ntable t of E in \"{path}\"\n"
             ))
         };
-        let shown = "The file name contains a character that cannot be shown, such as a tab or a control character";
-        for path in ["\0x", "\x1b[2Kx", "\u{202E}x", "x\u{200B}.csv"] {
+        let shown = "The file name contains a character that cannot be shown, such as a tab, a control character or an invisible character";
+        for path in ["\0x", "\x1b[2Kx", "\u{202E}x", "x\u{200B}.csv", "x\u{2028}"] {
             assert_eq!(
                 t(path),
                 [format!("line 5: table t of E in \"{path}\". {shown}.")],
