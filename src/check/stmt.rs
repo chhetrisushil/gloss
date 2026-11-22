@@ -504,10 +504,14 @@ impl Walk<'_, '_> {
         if ty == Ty::Error || have == Ty::Error || have == ty {
             return;
         }
-        let origin = match self.made.iter().find(|(n, ..)| n == name) {
-            Some((.., at)) => format!("line {at} made it {}", have.described()),
-            None => "it is an input of this feature".to_string(),
+        // Inputs and loop variables are reported by the mutation check, once.
+        let Some((.., at)) = self.made.iter().find(|(n, ..)| n == name) else {
+            return;
         };
+        if self.loop_vars.iter().any(|v| v == name) {
+            return;
+        }
+        let origin = format!("line {at} made it {}", have.described());
         let msg = format!(
             "{name} is {}, so it cannot {action} ({origin})",
             have.described()
