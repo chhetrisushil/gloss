@@ -1,6 +1,7 @@
 pub mod ast;
 pub mod check;
 pub mod diag;
+pub mod format;
 pub mod lexer;
 pub mod number;
 pub mod parser;
