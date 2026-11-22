@@ -69,6 +69,8 @@ fn plural(a: &str, b: &str) -> bool {
 pub struct Known<'a> {
     near: Neighbours<'a>,
     by_lower: HashMap<String, Vec<&'a str>>,
+    /// Record names by lowercase; a record clashes with a name unless only the first letter differs.
+    records: HashMap<String, Vec<&'a str>>,
 }
 
 impl<'a> Known<'a> {
@@ -77,6 +79,13 @@ impl<'a> Known<'a> {
         let mut known = Known::default();
         program.tables().for_each(|t| known.add(&t.name));
         program.features().for_each(|f| known.add(&f.name));
+        for r in program.records() {
+            known
+                .records
+                .entry(r.name.to_lowercase())
+                .or_default()
+                .push(&r.name);
+        }
         known
     }
 
@@ -90,8 +99,14 @@ impl<'a> Known<'a> {
 
     /// The first known name that is `name` in other letter case.
     fn clash(&self, name: &str) -> Option<&'a str> {
-        let same = self.by_lower.get(&name.to_lowercase())?;
-        same.iter().copied().find(|k| *k != name)
+        let lower = name.to_lowercase();
+        let tail = |s: &str| s.chars().skip(1).collect::<String>();
+        let same = self.by_lower.get(&lower).into_iter().flatten().copied();
+        let records = self.records.get(&lower).into_iter().flatten().copied();
+        let mut others = same.filter(|k| *k != name);
+        others
+            .next()
+            .or_else(|| records.into_iter().find(|r| tail(r) != tail(name)))
     }
 
     /// The first known name one edit from `name`, if `name` is long enough to look like a typo.
