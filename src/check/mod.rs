@@ -1,3 +1,4 @@
+pub mod names;
 pub mod similar;
 
 use std::collections::BTreeMap;
@@ -48,6 +49,7 @@ pub fn check(program: &Program, src: &Source) -> CheckResult {
         src,
         diags: Vec::new(),
     };
+    names::check_program(&mut ctx);
     diag::sort(&mut ctx.diags);
     let types = (!ctx.diags.iter().any(Diagnostic::is_error)).then(TypeInfo::default);
     CheckResult {
