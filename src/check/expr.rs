@@ -53,6 +53,11 @@ fn infer(ctx: &mut Ctx, env: &Env, e: &Expr, types: &mut Vec<Option<Ty>>) -> Ty 
         ExprKind::Truth(_) => Ty::Truth,
         ExprKind::Name(name) => name_type(ctx, env, e, name),
         ExprKind::Shown => Ty::List(Box::new(Ty::Text)),
+        ExprKind::EmptyList(ItemType::Record(r))
+            if !ctx.program.records().any(|d| &d.name == r) =>
+        {
+            combine::no_record(ctx, e, r)
+        }
         ExprKind::EmptyList(item) => Ty::List(Box::new(item_ty(item))),
         ExprKind::Paren(inner) => type_of(ctx, env, inner, types),
         ExprKind::FieldOf { field, of } => {
@@ -125,7 +130,18 @@ fn infer(ctx: &mut Ctx, env: &Env, e: &Expr, types: &mut Vec<Option<Ty>>) -> Ty 
             let args: Vec<(&Expr, Ty)> = inputs.iter().zip(tys).collect();
             combine::call_type(ctx, env, e, feature, &args)
         }
-        _ => Ty::Error,
+        ExprKind::BuildRecord { record, fields } => {
+            let given: Vec<(&str, &Expr, Ty)> = fields
+                .iter()
+                .map(|(n, x)| (n.as_str(), x, type_of(ctx, env, x, types)))
+                .collect();
+            combine::record_type(ctx, e, record, &given)
+        }
+        ExprKind::BuildList(items) => {
+            let tys = combine::type_all(ctx, env, items, types);
+            let pairs: Vec<(&Expr, Ty)> = items.iter().zip(tys).collect();
+            combine::list_type(ctx, e, &pairs)
+        }
     }
 }
 

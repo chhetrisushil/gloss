@@ -1,4 +1,4 @@
-use super::expr::{Env, item_ty, report, type_of};
+use super::expr::{Env, item_ty, plain, report, type_of};
 use super::{Ctx, Ty, similar};
 use crate::ast::print;
 use crate::ast::{CompareOp, Expr, Type};
@@ -140,6 +140,87 @@ pub fn call_type(ctx: &mut Ctx, env: &Env, e: &Expr, feature: &str, args: &[(&Ex
     env.results.get(feature).cloned().unwrap_or(Ty::Error)
 }
 
+pub fn record_type(ctx: &mut Ctx, e: &Expr, record: &str, given: &[(&str, &Expr, Ty)]) -> Ty {
+    let program = ctx.program;
+    let Some(decl) = program.records().find(|r| r.name == record) else {
+        return no_record(ctx, e, record);
+    };
+    let mut seen: Vec<&str> = Vec::new();
+    let mut unknown = false;
+    for &(field, arg, ref got) in given {
+        if seen.contains(&field) {
+            report(ctx, e, format!("{field} is given twice"), None);
+        }
+        seen.push(field);
+        let Some(f) = decl.fields().find(|f| f.name == field) else {
+            let near = similar::nearest(field, decl.fields().map(|f| f.name.as_str()));
+            report(ctx, e, format!("{record} has no field {field}"), near);
+            unknown = true;
+            continue;
+        };
+        let want = plain(f.ty);
+        if *got != Ty::Error && *got != want {
+            let msg = format!(
+                "The field {field} of {record} is {}; {} is {}",
+                want.described(),
+                print::expr(arg),
+                got.described()
+            );
+            report(ctx, e, msg, None);
+        }
+    }
+    let missing: Vec<&str> = decl
+        .fields()
+        .map(|f| f.name.as_str())
+        .filter(|f| !seen.contains(f))
+        .collect();
+    if unknown {
+        return Ty::Error;
+    }
+    if missing.is_empty() {
+        return Ty::Record(record.to_string());
+    }
+    let verb = if missing.len() == 1 { "is" } else { "are" };
+    let msg = format!(
+        "Every field of {record} must be given; {} {verb} missing",
+        names(&missing)
+    );
+    report(ctx, e, msg, None)
+}
+
+pub fn no_record(ctx: &mut Ctx, e: &Expr, record: &str) -> Ty {
+    let program = ctx.program;
+    let near = similar::nearest(record, program.records().map(|r| r.name.as_str()));
+    report(ctx, e, format!("There is no record named {record}"), near)
+}
+
+pub fn list_type(ctx: &mut Ctx, e: &Expr, items: &[(&Expr, Ty)]) -> Ty {
+    let first = &items[0];
+    if items.iter().any(|(_, t)| *t == Ty::Error) {
+        return Ty::Error;
+    }
+    let msg = if matches!(first.1, Ty::List(_)) {
+        "Lists of lists are not part of v0".to_string()
+    } else if matches!(first.1, Ty::Table { .. } | Ty::Nothing) {
+        format!(
+            "A list holds numbers, text, truths or records; {} is {}",
+            print::expr(first.0),
+            first.1.describe()
+        )
+    } else if let Some((x, t)) = items.iter().find(|(_, t)| *t != first.1) {
+        format!(
+            "Every item of a list has the same type; {} is {} and {} is {}",
+            print::expr(first.0),
+            first.1.described(),
+            print::expr(x),
+            t.described()
+        )
+    } else {
+        return Ty::List(Box::new(first.1.clone()));
+    };
+    report(ctx, e, msg, None)
+}
+
 #[cfg(test)]
 mod tests {
     fn diags(s: &str) -> Vec<String> {
@@ -216,6 +297,34 @@ mod tests {
             ["line 12: show (h with 1). There is no feature named h."]
         );
         assert_eq!(
+            with_f("  set r to E with amount 1\n  show r\n"),
+            ["line 12: set r to E with amount 1. Every field of E must be given; name is missing."]
+        );
+        assert_eq!(
+            with_f("  show (E with amount 1, amount 2, name \"x\")\n"),
+            ["line 12: show (E with amount 1, amount 2, name \"x\"). amount is given twice."]
+        );
+        assert_eq!(
+            with_f("  show (E with amount \"1\", name \"x\")\n"),
+            [
+                "line 12: show (E with amount \"1\", name \"x\"). The field amount of E is a number; \"1\" is text."
+            ]
+        );
+        assert_eq!(
+            with_f("  show (list of 1, \"a\")\n"),
+            [
+                "line 12: show (list of 1, \"a\"). Every item of a list has the same type; 1 is a number and \"a\" is text."
+            ]
+        );
+        assert_eq!(
+            with_f("  show (list of (list of 1))\n"),
+            ["line 12: show (list of (list of 1)). Lists of lists are not part of v0."]
+        );
+        assert_eq!(
+            with_f("  show empty list of F\n"),
+            ["line 12: show empty list of F. There is no record named F."]
+        );
+        assert_eq!(
             with_f("  show f\n"),
             ["line 12: show f. f needs 2 inputs: n and t, as in f with ...."]
         );
@@ -246,6 +355,28 @@ mod tests {
             src("  show (takes_n with es)\n"),
             [
                 "line 18: show (takes_n with es). The input xs of takes_n is list of number; es is table es."
+            ]
+        );
+    }
+
+    #[test]
+    fn building_edge_cases() {
+        assert_eq!(
+            with_f("  show (list of es)\n"),
+            [
+                "line 12: show (list of es). A list holds numbers, text, truths or records; es is table es."
+            ]
+        );
+        assert_eq!(
+            with_f("  show (list of 1, 2, \"a\")\n"),
+            [
+                "line 12: show (list of 1, 2, \"a\"). Every item of a list has the same type; 1 is a number and \"a\" is text."
+            ]
+        );
+        assert_eq!(
+            with_f("  show (E with amout 1, name \"x\")\n"),
+            [
+                "line 12: show (E with amout 1, name \"x\"). E has no field amout. Did you mean amount?"
             ]
         );
     }
