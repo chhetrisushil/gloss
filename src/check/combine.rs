@@ -146,7 +146,10 @@ pub fn call_type(
         }
     }
     match results.get(feature) {
-        Some(ty) => ty.clone(),
+        Some(ty) => {
+            ctx.pending += usize::from(*ty == Ty::Error);
+            ty.clone()
+        }
         // Not a known feature: the "no feature named" report above already covers it.
         None => Ty::Error,
     }

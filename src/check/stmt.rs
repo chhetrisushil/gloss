@@ -15,6 +15,8 @@ struct Walk<'a, 'b> {
     vars: BTreeMap<String, Ty>,
     made: Vec<(String, Ty, u32)>,
     gives: Vec<(Line, Ty)>,
+    /// Gives whose type is unknown only because of a still-unknown feature result.
+    waiting: usize,
     in_test: bool,
     loops: u32,
     changed: bool,
@@ -47,6 +49,7 @@ pub fn check_body(
         vars,
         made: Vec::new(),
         gives: Vec::new(),
+        waiting: 0,
         in_test,
         loops: 0,
         changed: false,
@@ -68,6 +71,7 @@ pub fn check_body(
     FeatureInfo {
         inputs: inputs.to_vec(),
         result,
+        cycle: !walk.gives.is_empty() && walk.waiting == walk.gives.len(),
         gives: walk.gives,
         vars: walk.made,
     }
@@ -234,7 +238,12 @@ impl Walk<'_, '_> {
                 self.ty(i);
             }),
             StmtKind::Give(value) => {
+                let (kept, pending) = (self.ctx.diags.len(), self.ctx.pending);
                 let ty = self.ty(value);
+                let own_error = self.ctx.diags.len() > kept;
+                if ty == Ty::Error && !own_error && self.ctx.pending > pending {
+                    self.waiting += 1;
+                }
                 self.gives.push((stmt.line, ty));
             }
             StmtKind::Run { feature, inputs } => {

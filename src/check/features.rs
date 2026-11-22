@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::expr::{item_ty, report};
+use super::walking::blocks;
 use super::{Ctx, FeatureInfo, Ty, stmt};
 use crate::ast::program::FeatureDecl;
 use crate::ast::stmt::{Stmt, StmtKind};
@@ -28,7 +29,13 @@ pub fn infer_results(ctx: &mut Ctx) -> BTreeMap<String, Ty> {
         .features()
         .map(|f| (f.name.clone(), Ty::Error))
         .collect();
-    for _ in 0..=results.len() {
+    // Each pass that changes anything moves some feature's result to the type of an earlier
+    // give (or settles it for the first time), and a feature can do that at most once per
+    // give it has, so the passes cannot outnumber the gives. One more pass sees no change,
+    // and one more covers features with no give, which settle on `Nothing` in the first pass.
+    let passes = program.features().map(|f| gives_in(&f.body)).sum::<usize>() + 2;
+    let mut converged = false;
+    for _ in 0..passes {
         let mut changed = false;
         for f in program.features() {
             let kept = ctx.diags.len();
@@ -39,15 +46,26 @@ pub fn infer_results(ctx: &mut Ctx) -> BTreeMap<String, Ty> {
                 results.insert(f.name.clone(), checked.result.clone()) != Some(checked.result);
         }
         if !changed {
+            converged = true;
             break;
         }
     }
+    debug_assert!(converged, "feature results did not settle");
     results
+}
+
+/// How many give statements a body holds, nested ones included.
+fn gives_in(body: &[Stmt]) -> usize {
+    let nested = |s: &Stmt| blocks(&s.kind).into_iter().map(gives_in).sum::<usize>();
+    body.iter()
+        .map(|s| usize::from(matches!(s.kind, StmtKind::Give(_))) + nested(s))
+        .sum()
 }
 
 /// Reports a feature whose result is still unknown with nothing else wrong.
 pub fn check_result(ctx: &mut Ctx, f: &FeatureDecl, checked: &FeatureInfo, kept: usize) {
-    if checked.result == Ty::Error && ctx.diags.len() == kept {
+    // A cycle is reported even beside unrelated errors, unless a give already has its own.
+    if checked.cycle || (checked.result == Ty::Error && ctx.diags.len() == kept) {
         let name = &f.name;
         let msg =
             format!("cannot work out what {name} gives; add a give that does not call {name}");
@@ -150,6 +168,20 @@ mod tests {
                 "line 6: feature b. cannot work out what b gives; add a give that does not call b.",
             ]
         );
+    }
+
+    #[test]
+    fn a_cycle_is_reported_beside_unrelated_errors() {
+        let p = "feature start\n  show (f with 1)\nfeature f\n  needs n as number\n  show n + \"a\"\n  give f with n\n";
+        assert_eq!(
+            diags(p),
+            [
+                "line 3: feature f. cannot work out what f gives; add a give that does not call f.",
+                "line 5: show n + \"a\". + needs numbers on both sides; \"a\" is text."
+            ]
+        );
+        let own = "feature start\n  show (f with 1)\nfeature f\n  needs n as number\n  give f with n + \"a\"\n";
+        assert_eq!(diags(own).len(), 1);
     }
 
     #[test]

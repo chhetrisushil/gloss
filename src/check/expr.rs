@@ -252,6 +252,7 @@ fn name_type(ctx: &mut Ctx, env: &Env, e: &Expr, name: &str) -> Ty {
     if let Some(f) = ctx.program.features().find(|f| f.name == name) {
         if f.needs.is_empty() {
             let ty = env.results.get(&f.name).cloned().unwrap_or(Ty::Error);
+            ctx.pending += usize::from(ty == Ty::Error);
             return features::as_value(ctx, e, name, ty);
         }
         let inputs: Vec<&str> = f.needs.iter().map(|n| n.name.as_str()).collect();
