@@ -130,3 +130,14 @@ fn the_most_negative_magnitude_alone_is_out_of_range() {
     let past = first_error("feature start\n  show -922337203685477.5809\n");
     assert!(past.contains(RANGE), "{past}");
 }
+
+#[test]
+fn a_list_after_in_needs_parentheses() {
+    let out = first_error("feature start\n  for each i in list of 1\n    show i\n");
+    assert_eq!(
+        out,
+        "line 2: for each i in list of 1. Expected a value but found list; list of … goes in parentheses here, as in for each i in (list of 1)."
+    );
+    let ok = "feature start\n  for each i in (list of 1)\n    show i\n";
+    assert_eq!(format_source(ok).unwrap(), ok);
+}

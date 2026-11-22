@@ -81,6 +81,13 @@ impl Parser<'_> {
         }
         let var = self.parse_name("for each")?;
         if self.eat_kw(Kw::In) {
+            let list_of = (self.peek(), self.peek_at(1));
+            if list_of == (Some(&Tok::Kw(Kw::List)), Some(&Tok::Kw(Kw::Of))) {
+                let list = self.words_from(self.pos);
+                let advice =
+                    format!("list of … goes in parentheses here, as in for each {var} in ({list})");
+                return Err(self.err(format!("Expected a value but found list; {advice}")));
+            }
             let list = self.parse_arith()?;
             let body = self.parse_block("for each")?;
             return Ok(S::ForEachIn { var, list, body });
