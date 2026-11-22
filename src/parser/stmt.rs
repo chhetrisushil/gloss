@@ -1,7 +1,7 @@
 use super::Parser;
 use crate::ast::stmt::{Note, Stmt, StmtKind as S, Target};
 use crate::diag::Diagnostic;
-use crate::lexer::{Kw, Tok, lex};
+use crate::lexer::{Kw, Tok, Token, lex};
 use crate::source::Source;
 
 /// Parses statements until the end of the text, at level 0.
@@ -196,10 +196,12 @@ impl Parser<'_> {
     /// The statement's tokens as one line, with `word` replacing the token at
     /// index `at` or inserted before it.
     pub(super) fn example_line(&self, at: usize, word: &str, replace: bool) -> String {
-        let start = self.toks[..at]
+        let line_start = self.toks[..at]
             .iter()
             .rposition(|t| t.tok == Tok::Newline)
             .map_or(0, |i| i + 1);
+        let layout = |t: &&Token| matches!(t.tok, Tok::Indent | Tok::Dedent);
+        let start = line_start + self.toks[line_start..at].iter().take_while(layout).count();
         let end = self.toks[at..]
             .iter()
             .position(|t| t.tok == Tok::Newline)
