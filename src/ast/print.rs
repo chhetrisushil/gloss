@@ -114,6 +114,13 @@ mod tests {
             right: bx(r),
         })
     }
+    fn cmp(op: CompareOp, l: Expr, r: Expr) -> Expr {
+        e(K::Compare {
+            op,
+            left: bx(l),
+            right: bx(r),
+        })
+    }
     fn check(x: Expr, want: &str) {
         assert_eq!(expr(&x), want, "{x:?}");
     }
@@ -186,6 +193,61 @@ mod tests {
         for (op, want) in ops {
             check(bin(op, name("a"), name("b")), want);
         }
+    }
+
+    #[test]
+    fn prints_calls_and_builders() {
+        check(
+            e(K::Call {
+                feature: "f".into(),
+                inputs: vec![name("a"), name("b")],
+            }),
+            "f with a, b",
+        );
+        check(
+            e(K::BuildRecord {
+                record: "Expense".into(),
+                fields: vec![
+                    ("name".into(), e(K::Text("L".into()))),
+                    ("amount".into(), num(1_200_000)),
+                ],
+            }),
+            "Expense with name \"L\", amount 120",
+        );
+        check(
+            e(K::BuildList(vec![num(40_000), num(90_000)])),
+            "list of 4, 9",
+        );
+    }
+
+    #[test]
+    fn prints_comparisons_and_logic() {
+        let ops = [
+            (CompareOp::Is, "a is b"),
+            (CompareOp::IsNot, "a is not b"),
+            (CompareOp::Greater, "a is greater than b"),
+            (CompareOp::Less, "a is less than b"),
+            (CompareOp::AtLeast, "a is at least b"),
+            (CompareOp::AtMost, "a is at most b"),
+        ];
+        for (op, want) in ops {
+            check(cmp(op, name("a"), name("b")), want);
+        }
+        for (negated, want) in [(false, "c is number"), (true, "c is not number")] {
+            check(
+                e(K::IsNumber {
+                    value: bx(name("c")),
+                    negated,
+                }),
+                want,
+            );
+        }
+        check(e(K::Not(bx(name("a")))), "not a");
+        check(
+            e(K::And(vec![name("a"), name("b"), name("c")])),
+            "a and b and c",
+        );
+        check(e(K::Or(vec![name("a"), name("b")])), "a or b");
     }
 
     #[test]
