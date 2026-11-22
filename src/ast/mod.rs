@@ -6,7 +6,7 @@ mod stmt_sexpr;
 
 pub type Line = u32;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ExprId(pub u32);
 
 #[derive(Clone, Debug, PartialEq)]
