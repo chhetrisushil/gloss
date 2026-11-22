@@ -126,6 +126,46 @@ pub enum ExprKind {
     Or(Vec<Expr>),
 }
 
+impl Expr {
+    /// The direct sub-expressions, for editing in place.
+    pub fn children_mut(&mut self) -> Vec<&mut Expr> {
+        match &mut self.kind {
+            ExprKind::Paren(x)
+            | ExprKind::FieldOf { of: x, .. }
+            | ExprKind::Fact { of: x, .. }
+            | ExprKind::Negate(x)
+            | ExprKind::Convert { value: x, .. }
+            | ExprKind::IsNumber { value: x, .. }
+            | ExprKind::Not(x) => vec![x],
+            ExprKind::ItemOf { position: a, of: b }
+            | ExprKind::Remainder { of: a, by: b }
+            | ExprKind::Binary {
+                left: a, right: b, ..
+            }
+            | ExprKind::Compare {
+                left: a, right: b, ..
+            } => vec![a, b],
+            ExprKind::Call { inputs: xs, .. }
+            | ExprKind::BuildList(xs)
+            | ExprKind::And(xs)
+            | ExprKind::Or(xs) => xs.iter_mut().collect(),
+            ExprKind::BuildRecord { fields, .. } => fields.iter_mut().map(|(_, x)| x).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Applies `edit` to the node with this id, if it is in the tree; true when found.
+    pub fn edit_node(&mut self, id: ExprId, edit: &mut dyn FnMut(&mut Expr)) -> bool {
+        if self.id == id {
+            edit(self);
+            return true;
+        }
+        self.children_mut()
+            .into_iter()
+            .any(|child| child.edit_node(id, edit))
+    }
+}
+
 pub fn item_type_text(t: &ItemType) -> String {
     match t {
         ItemType::Plain(PlainType::Number) => "number".into(),
@@ -168,5 +208,18 @@ mod tests {
         assert_eq!(type_text(&Type::List(n)), "list of number");
         let r = ItemType::Record("Student".into());
         assert_eq!(type_text(&Type::List(r)), "list of Student");
+    }
+
+    #[test]
+    fn edit_node_changes_only_the_node_with_that_id() {
+        let mut tree = crate::parser::parse_expr_str("a + (b * c)").unwrap();
+        let ExprKind::Binary { right, .. } = &tree.kind else {
+            panic!("a sum");
+        };
+        let target = right.id;
+        let found = tree.edit_node(target, &mut |n| n.kind = ExprKind::Name("z".into()));
+        assert!(found);
+        assert_eq!(print::expr(&tree), "a + z");
+        assert!(!tree.edit_node(ExprId(9999), &mut |_| panic!("no such node")));
     }
 }
