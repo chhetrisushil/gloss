@@ -247,7 +247,7 @@ impl Parser<'_> {
     }
 
     fn parenthesized(&mut self) -> Result<K, Diagnostic> {
-        let inner = self.parse_value()?;
+        let inner = self.parse_expr()?;
         if !self.eat_sym(Sym::RParen) {
             return Err(self.err("This ( has no matching )"));
         }
