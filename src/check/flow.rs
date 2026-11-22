@@ -26,7 +26,10 @@ type Defined = BTreeSet<String>;
 pub fn check_flow(ctx: &mut Ctx, base: &Known, inputs: &[(String, Ty)], body: &[Stmt]) {
     let mut found = Vec::new();
     uses::firsts(body, None, &mut found);
-    found.retain(|(name, _)| ctx.declared_as(name).is_none());
+    // An input already has a value, so setting it makes no new variable.
+    found.retain(|(name, _)| {
+        ctx.declared_as(name).is_none() && !inputs.iter().any(|(n, _)| n == name)
+    });
     let mut flow = Flow {
         ctx,
         origins: found.iter().cloned().collect(),
@@ -416,5 +419,13 @@ mod tests {
                 "line 3: set item i of xs to 1. i may not have a value here; it is first set on line 4. Set it before this line."
             ]
         );
+    }
+
+    #[test]
+    fn setting_an_input_is_not_a_new_unused_variable() {
+        let p = "feature f\n  needs n as number\n  set n to 5\n  give 1\nfeature start\n  show (f with 1)\n";
+        let all = diags(p);
+        assert!(all.iter().all(|d| !d.contains("never used")), "{all:?}");
+        assert_eq!(all.len(), 1, "{all:?}");
     }
 }
