@@ -18,7 +18,9 @@ pub fn expr(e: &Expr) -> String {
         K::Binary { op, left, right } => {
             format!("{} {} {}", expr(left), symbol(*op), expr(right))
         }
+        K::Call { feature, inputs } if inputs.is_empty() => feature.clone(),
         K::Call { feature, inputs } => format!("{feature} with {}", join(inputs, ", ")),
+        K::BuildRecord { record, fields } if fields.is_empty() => record.clone(),
         K::BuildRecord { record, fields } => {
             format!("{record} with {}", pairs(fields))
         }
@@ -130,7 +132,6 @@ mod tests {
             of: bx(of),
         })
     }
-
     fn fact(fact: Fact, of: Expr) -> Expr {
         e(K::Fact { fact, of: bx(of) })
     }
@@ -218,6 +219,16 @@ mod tests {
             e(K::BuildList(vec![num(40_000), num(90_000)])),
             "list of 4, 9",
         );
+        let call = K::Call {
+            feature: "f".into(),
+            inputs: vec![],
+        };
+        check(e(call), "f");
+        let record = K::BuildRecord {
+            record: "E".into(),
+            fields: vec![],
+        };
+        check(e(record), "E");
     }
 
     #[test]

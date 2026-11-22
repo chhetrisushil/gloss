@@ -182,11 +182,15 @@ impl Parser<'_> {
         if self.eat_kw(Kw::Than) {
             return Ok(());
         }
-        let right = self.parse_value()?;
+        // The right side may itself be broken; the message must still be about the missing than.
+        let start = self.pos;
+        let right = match self.parse_value() {
+            Ok(value) => print::expr(&value),
+            Err(_) => self.words_from(start),
+        };
         Err(self.err(format!(
-            "is {word} needs than, as in {} is {word} than {}",
-            print::expr(left),
-            print::expr(&right)
+            "is {word} needs than, as in {} is {word} than {right}",
+            print::expr(left)
         )))
     }
 }
@@ -243,6 +247,18 @@ mod tests {
         assert_eq!(sx("not a and b"), "(and (not a) b)");
         assert_eq!(sx("a or b or c"), "(or a b c)");
         assert_eq!(sx("(a and b) or c"), "(or (paren (and a b)) c)");
+    }
+
+    #[test]
+    fn a_broken_right_side_does_not_hide_the_missing_than() {
+        assert_eq!(
+            perr("a is greater ("),
+            "is greater needs than, as in a is greater than ("
+        );
+        assert_eq!(
+            perr("a is less b + 1"),
+            "is less needs than, as in a is less than b + 1"
+        );
     }
 
     #[test]
