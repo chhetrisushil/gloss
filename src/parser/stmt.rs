@@ -72,6 +72,44 @@ impl Parser<'_> {
                 let target = self.parse_target(verb)?;
                 Ok(S::Add { value, target })
             }
+            Kw::Subtract => {
+                let value = self.parse_arith()?;
+                self.expect_word(verb, Kw::From)?;
+                let target = self.parse_target(verb)?;
+                Ok(S::Subtract { value, target })
+            }
+            Kw::Multiply | Kw::Divide => {
+                let target = self.parse_target(verb)?;
+                self.expect_word(verb, Kw::By)?;
+                let by = self.parse_arith()?;
+                Ok(if word == Kw::Multiply {
+                    S::Multiply { target, by }
+                } else {
+                    S::Divide { target, by }
+                })
+            }
+            Kw::Append => {
+                let value = self.parse_value()?;
+                self.expect_word(verb, Kw::To)?;
+                let list = self.parse_name(verb)?;
+                Ok(S::Append { value, list })
+            }
+            Kw::Show => Ok(S::Show(self.comma_list()?)),
+            Kw::Input => Ok(S::Input(self.comma_list()?)),
+            Kw::Ask => {
+                let question = self.parse_arith()?;
+                self.expect_word(verb, Kw::Into)?;
+                let into = self.parse_name(verb)?;
+                Ok(S::Ask { question, into })
+            }
+            Kw::Skip => Ok(S::Skip),
+            Kw::Stop => Ok(S::Stop),
+            Kw::Give => Ok(S::Give(self.parse_expr()?)),
+            Kw::Expect => Ok(S::Expect(self.parse_expr()?)),
+            Kw::Run => self.run_stmt(),
+            Kw::Load => Ok(S::Load(self.parse_name(verb)?)),
+            Kw::Save => Ok(S::Save(self.parse_name(verb)?)),
+            Kw::Clear => Ok(S::Clear(self.parse_name(verb)?)),
             other => Err(self.not_a_statement(other.as_str())),
         }
     }
@@ -82,9 +120,33 @@ impl Parser<'_> {
         ))
     }
 
+    fn run_stmt(&mut self) -> Result<S, Diagnostic> {
+        let feature = self.parse_name("run")?;
+        let mut inputs = Vec::new();
+        if self.eat_kw(Kw::With) {
+            inputs = self.comma_list()?;
+        }
+        Ok(S::Run { feature, inputs })
+    }
+
     fn parse_target(&mut self, verb: &str) -> Result<Target, Diagnostic> {
+        if self.eat_kw(Kw::Item) {
+            let position = self.position()?;
+            if !self.eat_kw(Kw::Of) {
+                return Err(self.err("item needs of after its position"));
+            }
+            let of = Box::new(self.parse_target(verb)?);
+            return Ok(Target::Item {
+                position: Box::new(position),
+                of,
+            });
+        }
         let name = self.parse_name(verb)?;
-        Ok(Target::Var(name))
+        if !self.eat_kw(Kw::Of) {
+            return Ok(Target::Var(name));
+        }
+        let of = Box::new(self.parse_target(verb)?);
+        Ok(Target::Field { field: name, of })
     }
 
     /// A lowercase name; the verb is only used in the message.
@@ -176,8 +238,56 @@ mod tests {
     #[test]
     fn simple_statements() {
         assert_eq!(
-            ss("set total to 0\nadd price to total"),
-            ["(set total 0)", "(add price total)"]
+            ss(
+                "set total to 0\nadd price to total\nsubtract d from total\nmultiply total by 2\ndivide total by people"
+            ),
+            [
+                "(set total 0)",
+                "(add price total)",
+                "(subtract d total)",
+                "(multiply total 2)",
+                "(divide total people)"
+            ]
+        );
+        assert_eq!(
+            ss("set amount of item 3 of expenses to 150"),
+            ["(set (of amount (item 3 expenses)) 150)"]
+        );
+        assert_eq!(
+            ss(r#"append Expense with name "L", amount 1 to expenses"#),
+            [r#"(append (record Expense (name "L") (amount 1)) expenses)"#]
+        );
+        assert_eq!(
+            ss(r#"show "Total: ", (f with kind), total"#),
+            [r#"(show "Total: " (paren (call f kind)) total)"#]
+        );
+        assert_eq!(
+            ss(r#"ask "How much?" into cost"#),
+            [r#"(ask "How much?" cost)"#]
+        );
+        assert_eq!(
+            ss("skip\nstop\ngive total\nrun report with a, b\nrun start"),
+            [
+                "skip",
+                "stop",
+                "(give total)",
+                "(run report a b)",
+                "(run start)"
+            ]
+        );
+        assert_eq!(
+            ss("load expenses\nsave expenses\nclear expenses"),
+            ["(load expenses)", "(save expenses)", "(clear expenses)"]
+        );
+        assert_eq!(
+            ss(r#"expect total is 420
+input "Lunch", "120"
+note hi there"#),
+            [
+                "(expect (is total 420))",
+                r#"(input "Lunch" "120")"#,
+                r#"(note "hi there")"#
+            ]
         );
     }
 
