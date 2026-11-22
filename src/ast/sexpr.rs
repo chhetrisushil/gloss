@@ -1,3 +1,4 @@
+pub use super::stmt_sexpr::stmt;
 use crate::ast::{ArithOp, CompareOp, Conversion, Expr, ExprKind as K, Fact, item_type_text};
 
 pub fn sexpr(e: &Expr) -> String {
