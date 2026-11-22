@@ -4,6 +4,7 @@ use super::expr::item_ty;
 use super::{Ctx, FeatureInfo, Ty, stmt};
 use crate::ast::Type;
 use crate::ast::program::FeatureDecl;
+use crate::ast::stmt::{Stmt, StmtKind};
 use crate::diag::Diagnostic;
 
 /// The declared inputs of a feature with their types.
@@ -54,6 +55,54 @@ pub fn check_result(ctx: &mut Ctx, f: &FeatureDecl, checked: &FeatureInfo, kept:
     }
 }
 
+/// True when the last statement gives, or an if with an otherwise whose every branch does.
+fn always_gives(body: &[Stmt]) -> bool {
+    let last = body
+        .iter()
+        .rev()
+        .find(|s| !matches!(s.kind, StmtKind::Note(_)));
+    match last.map(|s| &s.kind) {
+        Some(StmtKind::Give(_)) => true,
+        Some(StmtKind::If {
+            branches,
+            otherwise: Some(other),
+        }) => branches.iter().all(|(_, b)| always_gives(b)) && always_gives(other),
+        _ => false,
+    }
+}
+
+/// Checks the gives of one feature: `start` has none, they agree, and every path reaches one.
+pub fn check_gives(ctx: &mut Ctx, f: &FeatureDecl, checked: &FeatureInfo) {
+    let mut error = |line, msg: String| ctx.diags.push(Diagnostic::error(ctx.src, line, msg));
+    if f.name == "start" {
+        for (line, _) in &checked.gives {
+            error(
+                *line,
+                "start cannot give a value; it is where the program begins".into(),
+            );
+        }
+        return;
+    }
+    let mut known = checked.gives.iter().filter(|(_, t)| *t != Ty::Error);
+    if let Some((first, want)) = known.next() {
+        for (line, got) in known.filter(|(_, t)| t != want) {
+            let msg = format!(
+                "Every give in {} must give the same type: line {first} gives {}, this line gives {}",
+                f.name,
+                want.described(),
+                got.described()
+            );
+            error(*line, msg);
+        }
+    }
+    if !checked.gives.is_empty() && !always_gives(&f.body) {
+        error(
+            f.line,
+            format!("{} can reach its end without giving a value", f.name),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     fn diags(s: &str) -> Vec<String> {
@@ -73,6 +122,26 @@ mod tests {
                 "line 3: feature a. cannot work out what a gives; add a give that does not call a.",
                 "line 6: feature b. cannot work out what b gives; add a give that does not call b.",
             ]
+        );
+    }
+
+    #[test]
+    fn give_rules() {
+        let mixed = "feature start\n  show (f with 1)\nfeature f\n  needs n as number\n  if n is 1\n    give \"one\"\n  give n\n";
+        assert_eq!(
+            diags(mixed),
+            [
+                "line 7: give n. Every give in f must give the same type: line 6 gives text, this line gives a number."
+            ]
+        );
+        let partial = "feature start\n  show (f with 1)\nfeature f\n  needs n as number\n  if n is 1\n    give 1\n";
+        assert_eq!(
+            diags(partial),
+            ["line 3: feature f. f can reach its end without giving a value."]
+        );
+        assert_eq!(
+            diags("feature start\n  give 1\n"),
+            ["line 2: give 1. start cannot give a value; it is where the program begins."]
         );
     }
 }
