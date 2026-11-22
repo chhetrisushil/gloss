@@ -147,6 +147,7 @@ pub fn record_type(ctx: &mut Ctx, e: &Expr, record: &str, given: &[(&str, &Expr,
     };
     let mut seen: Vec<&str> = Vec::new();
     let mut unknown = false;
+    let mut suggested: Vec<&str> = Vec::new();
     for &(field, arg, ref got) in given {
         if seen.contains(&field) {
             report(ctx, e, format!("{field} is given twice"), None);
@@ -155,6 +156,7 @@ pub fn record_type(ctx: &mut Ctx, e: &Expr, record: &str, given: &[(&str, &Expr,
         seen.push(field);
         let Some(f) = decl.fields().find(|f| f.name == field) else {
             let near = similar::nearest(field, decl.fields().map(|f| f.name.as_str()));
+            suggested.extend(near);
             report(ctx, e, format!("{record} has no field {field}"), near);
             unknown = true;
             continue;
@@ -170,16 +172,18 @@ pub fn record_type(ctx: &mut Ctx, e: &Expr, record: &str, given: &[(&str, &Expr,
             report(ctx, e, msg, None);
         }
     }
+    // A misspelt field is the field its suggestion names, so that one is not also missing.
     let missing: Vec<&str> = decl
         .fields()
         .map(|f| f.name.as_str())
-        .filter(|f| !seen.contains(f))
+        .filter(|f| !seen.contains(f) && !suggested.contains(f))
         .collect();
-    if unknown {
-        return Ty::Error;
-    }
     if missing.is_empty() {
-        return Ty::Record(record.to_string());
+        return if unknown {
+            Ty::Error
+        } else {
+            Ty::Record(record.to_string())
+        };
     }
     let verb = if missing.len() == 1 { "is" } else { "are" };
     let msg = format!(
@@ -196,19 +200,24 @@ pub fn no_record(ctx: &mut Ctx, e: &Expr, record: &str) -> Ty {
 }
 
 pub fn list_type(ctx: &mut Ctx, e: &Expr, items: &[(&Expr, Ty)]) -> Ty {
-    let first = &items[0];
-    if items.iter().any(|(_, t)| *t == Ty::Error) {
+    // An item that is already an error is reported where it is; the others are still
+    // compared with each other, but the list's own type is then unknown.
+    let known: Vec<&(&Expr, Ty)> = items.iter().filter(|(_, t)| *t != Ty::Error).collect();
+    let Some(first) = known.first() else {
         return Ty::Error;
-    }
+    };
+    let not_an_item = known
+        .iter()
+        .find(|(_, t)| matches!(t, Ty::Table { .. } | Ty::Nothing));
     let msg = if matches!(first.1, Ty::List(_)) {
         "Lists of lists are not part of v0".to_string()
-    } else if matches!(first.1, Ty::Table { .. } | Ty::Nothing) {
+    } else if let Some((x, t)) = not_an_item {
         format!(
             "A list holds numbers, text, truths or records; {} is {}",
-            print::expr(first.0),
-            first.1.described()
+            print::expr(x),
+            t.described()
         )
-    } else if let Some((x, t)) = items.iter().find(|(_, t)| *t != first.1) {
+    } else if let Some((x, t)) = known.iter().find(|(_, t)| *t != first.1) {
         format!(
             "Every item of a list has the same type; {} is {} and {} is {}",
             print::expr(first.0),
@@ -216,6 +225,8 @@ pub fn list_type(ctx: &mut Ctx, e: &Expr, items: &[(&Expr, Ty)]) -> Ty {
             print::expr(x),
             t.described()
         )
+    } else if known.len() < items.len() {
+        return Ty::Error;
     } else {
         return Ty::List(Box::new(first.1.clone()));
     };
@@ -365,6 +376,51 @@ mod tests {
         assert_eq!(
             with_f("  show (E with amount 1, amount \"x\", name \"x\")\n"),
             ["line 12: show (E with amount 1, amount \"x\", name \"x\"). amount is given twice."]
+        );
+    }
+
+    #[test]
+    fn independent_errors_are_all_reported() {
+        let both = with_f("  show (list of nope, 1, \"a\")\n");
+        assert_eq!(
+            both,
+            [
+                "line 12: show (list of nope, 1, \"a\"). nope has no value.",
+                "line 12: show (list of nope, 1, \"a\"). Every item of a list has the same type; 1 is a number and \"a\" is text."
+            ]
+        );
+        assert_eq!(with_f("  show (list of nope, 1)\n").len(), 1);
+    }
+
+    #[test]
+    fn a_misspelt_field_does_not_hide_a_different_missing_one() {
+        assert_eq!(
+            with_f("  show (E with amout 1)\n"),
+            [
+                "line 12: show (E with amout 1). E has no field amout. Did you mean amount?",
+                "line 12: show (E with amout 1). Every field of E must be given; name is missing."
+            ]
+        );
+    }
+
+    #[test]
+    fn a_table_at_a_later_list_position_is_not_an_item() {
+        assert_eq!(
+            with_f("  show (list of 1, es)\n"),
+            [
+                "line 12: show (list of 1, es). A list holds numbers, text, truths or records; es is the table es."
+            ]
+        );
+    }
+
+    #[test]
+    fn both_bad_operands_are_reported() {
+        assert_eq!(
+            with_f("  show \"a\" + yes\n"),
+            [
+                "line 12: show \"a\" + yes. + needs numbers on both sides; \"a\" is text.",
+                "line 12: show \"a\" + yes. + needs numbers on both sides; yes is a truth."
+            ]
         );
     }
 
