@@ -4,6 +4,14 @@ use super::machine::Machine;
 use crate::ir::{Inst, IntOp, Shift};
 
 fn int_op(op: IntOp, a: i64, b: i64) -> i64 {
+    if matches!(op, IntOp::Div | IntOp::Rem) {
+        // Ruling M2-R7: a CPU divide faults on zero and on MIN / -1, and the backends
+        // do not special-case negative divisors.
+        assert!(
+            b > 0,
+            "irsim: M2-R7: Div and Rem need a divisor above 0, got {b}"
+        );
+    }
     match op {
         IntOp::Add => a.wrapping_add(b),
         IntOp::Sub => a.wrapping_sub(b),
@@ -31,6 +39,9 @@ impl Machine<'_> {
         let frame = self.frame();
         let inst = &module.functions[frame.func].body[frame.pc];
         frame.pc += 1;
+        if !matches!(inst, Inst::Line(_)) {
+            self.compared = self.fresh.take();
+        }
         match inst {
             Inst::Line(_) | Inst::Mark(_) => {}
             Inst::Const(r, value) => self.set(*r, *value),
@@ -51,7 +62,7 @@ impl Machine<'_> {
             Inst::Int(op) => self.a = int_op(*op, self.a, self.b),
             Inst::AddImm(r, n) => self.set(*r, self.reg(*r).wrapping_add(*n as i64)),
             Inst::Shift(kind, n) => self.a = shift(*kind, self.a, *n),
-            Inst::Compare => self.compared = (self.a, self.b),
+            Inst::Compare => self.fresh = Some((self.a, self.b)),
             Inst::SetIf(cond) => self.a = self.holds(*cond) as i64,
             Inst::LoadArg(r, n) => {
                 let value = self.frame().args[*n as usize - 1];

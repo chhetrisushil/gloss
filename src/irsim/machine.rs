@@ -28,18 +28,20 @@ pub struct Machine<'m> {
     pub sp: u64,
     pub a: i64,
     pub b: i64,
-    /// The operands of the last `Compare`.
-    pub compared: (i64, i64),
+    /// The operands of a `Compare` the current instruction may use.
+    pub compared: Option<(i64, i64)>,
+    /// The operands of the `Compare` just run, usable by the next instruction.
+    pub fresh: Option<(i64, i64)>,
 }
 
 fn label_positions(function: &Function) -> HashMap<Label, usize> {
-    let marks = function.body.iter().enumerate();
-    marks
-        .filter_map(|(i, inst)| match inst {
-            Inst::Mark(label) => Some((*label, i)),
-            _ => None,
-        })
-        .collect()
+    let mut positions = HashMap::new();
+    for (i, inst) in function.body.iter().enumerate() {
+        if let Inst::Mark(label) = inst {
+            positions.insert(*label, i);
+        }
+    }
+    positions
 }
 
 impl<'m> Machine<'m> {
@@ -52,7 +54,8 @@ impl<'m> Machine<'m> {
             sp: STACK_TOP,
             a: 0,
             b: 0,
-            compared: (0, 0),
+            compared: None,
+            fresh: None,
         }
     }
 
@@ -88,7 +91,9 @@ impl<'m> Machine<'m> {
     }
 
     pub fn holds(&self, cond: Cond) -> bool {
-        let (a, b) = self.compared;
+        let Some((a, b)) = self.compared else {
+            panic!("irsim: JumpIf and SetIf must directly follow Compare");
+        };
         match cond {
             Cond::Eq => a == b,
             Cond::Ne => a != b,

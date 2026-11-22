@@ -28,7 +28,8 @@ pub enum Cond {
     Ge,
 }
 
-/// Wrapping integer operations: `a = a op b`. `Div` and `Rem` are signed and truncating.
+/// Wrapping integer operations: `a = a op b`. `Div` and `Rem` are signed and truncating and
+/// require a divisor greater than 0.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IntOp {
     Add,
@@ -162,11 +163,13 @@ pub enum Inst {
     AddImm(Reg, i32),
     /// `a = a << n`, or `a >> n` (arithmetic or logical), with `n` from 0 to 63.
     Shift(Shift, u8),
-    /// Compares `a` with `b`, for the next `JumpIf` or `SetIf`.
+    /// Compares `a` with `b`, for the next `JumpIf` or `SetIf`: they must directly follow
+    /// `Compare` (a `Line` marker may come between).
     Compare,
-    /// Jumps when `a cond b`.
+    /// Jumps when `a cond b`. Must directly follow `Compare` (a `Line` marker may come between).
     JumpIf(Cond, Label),
-    /// Sets `a` to 1 when `a cond b`, else 0.
+    /// Sets `a` to 1 when `a cond b`, else 0. Must directly follow `Compare` (a `Line` marker
+    /// may come between).
     SetIf(Cond),
     Jump(Label),
     Mark(Label),
