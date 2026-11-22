@@ -155,16 +155,20 @@ fn binary_type(ctx: &mut Ctx, e: &Expr, op: ArithOp, l: (&Expr, Ty), r: (&Expr, 
         ArithOp::Mul => "*",
         ArithOp::Div => "/",
     };
-    let bad = [l.clone(), r.clone()]
-        .into_iter()
-        .find(|(_, t)| !matches!(t, Ty::Number | Ty::Error));
-    if let Some((operand, t)) = bad {
-        let msg = format!(
-            "{sym} needs numbers on both sides; {} is {}",
-            print::expr(operand),
-            t.described()
-        );
-        return report(ctx, e, msg, None);
+    let mut bad = false;
+    for (operand, t) in [&l, &r] {
+        if !matches!(t, Ty::Number | Ty::Error) {
+            let msg = format!(
+                "{sym} needs numbers on both sides; {} is {}",
+                print::expr(operand),
+                t.described()
+            );
+            report(ctx, e, msg, None);
+            bad = true;
+        }
+    }
+    if bad {
+        return Ty::Error;
     }
     if l.1 == Ty::Error || r.1 == Ty::Error {
         Ty::Error
@@ -375,6 +379,14 @@ mod tests {
             body("  set total to 1\n  show total, totl\n"),
             ["line 7: show total, totl. totl has no value. Did you mean total?"]
         );
+        assert_eq!(
+            body("  show totl\n"),
+            ["line 6: show totl. totl has no value."]
+        );
+        assert_eq!(
+            body("  set total to 1\n  show total, totl\n"),
+            ["line 7: show total, totl. totl has no value. Did you mean total?"]
+        );
     }
 
     #[test]
@@ -384,14 +396,6 @@ mod tests {
                 "  set n to 1\n  show n + 2, count of es, amount of first of es, whole of n, -n\n"
             )
             .is_empty()
-        );
-        assert_eq!(
-            body("  show totl\n"),
-            ["line 6: show totl. totl has no value."]
-        );
-        assert_eq!(
-            body("  set total to 1\n  show total, totl\n"),
-            ["line 7: show total, totl. totl has no value. Did you mean total?"]
         );
         assert_eq!(
             body("  set e to first of es\n  show amout of e\n"),
