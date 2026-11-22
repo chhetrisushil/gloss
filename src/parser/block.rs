@@ -26,12 +26,14 @@ impl Parser<'_> {
     /// Reads a newline, an indent, then statements up to the matching dedent.
     pub fn parse_block(&mut self, owner: &str) -> Result<Vec<Stmt>, Diagnostic> {
         self.open_block(owner)?;
-        let mut body = Vec::new();
-        while !matches!(self.peek(), Some(Tok::Dedent) | None) {
-            body.push(self.parse_stmt()?);
-        }
-        self.close_block();
-        Ok(body)
+        self.nested_block(|p| {
+            let mut body = Vec::new();
+            while !matches!(p.peek(), Some(Tok::Dedent) | None) {
+                body.push(p.parse_stmt()?);
+            }
+            p.close_block();
+            Ok(body)
+        })
     }
 
     /// Reads the newline and indent that open an indented block.

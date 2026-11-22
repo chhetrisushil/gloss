@@ -1,0 +1,43 @@
+//! Deep nesting is reported or handled, never a stack overflow. These run on an ordinary
+//! test thread (2 MB of stack), the smallest the compiler is expected to cope with.
+
+use gloss::{check_source, format_source, parser::parse_expr_str};
+
+fn nested_ifs(depth: usize) -> String {
+    let mut text = String::from("feature start\n  set t to 1\n");
+    for level in 0..depth {
+        let pad = "  ".repeat(level + 1);
+        text.push_str(&format!("{pad}if t is 1\n"));
+    }
+    text.push_str(&format!("{}show t\n", "  ".repeat(depth + 1)));
+    text
+}
+
+fn parens(depth: usize) -> String {
+    format!("{}1{}", "(".repeat(depth), ")".repeat(depth))
+}
+
+#[test]
+fn parentheses_nest_one_hundred_deep_but_not_more() {
+    assert!(parse_expr_str(&parens(100)).is_ok());
+    let err = parse_expr_str(&parens(101)).unwrap_err();
+    assert_eq!(err.problem, "This expression is nested too deeply");
+}
+
+#[test]
+fn blocks_nest_one_hundred_deep_but_not_more() {
+    let ok = nested_ifs(100);
+    assert!(check_source(&ok).iter().all(|d| !d.is_error()));
+    assert_eq!(format_source(&ok).unwrap(), ok);
+    let err = format_source(&nested_ifs(101)).unwrap_err();
+    assert_eq!(err.problem, "This block is nested too deeply");
+    assert_eq!(check_source(&nested_ifs(101)).len(), 1);
+    assert_eq!(check_source(&nested_ifs(3000)).len(), 1);
+}
+
+#[test]
+fn a_ninety_nine_deep_expression_checks_and_formats() {
+    let text = format!("feature start\n  show {}\n", parens(99));
+    assert!(check_source(&text).iter().all(|d| !d.is_error()));
+    assert_eq!(format_source(&text).unwrap(), text);
+}
