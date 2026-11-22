@@ -181,4 +181,16 @@ mod tests {
         let p = "feature start\n  set items to list of 1\n  for each n in items\n    run helper\n    show n\nfeature helper\n  set items to list of 2\n  show items\n";
         assert!(diags(p).is_empty());
     }
+    #[test]
+    fn a_call_in_an_item_position_counts() {
+        let p = format!(
+            "{HEAD}feature start\n  set xs to list of 1\n  for each e in es\n    set item (bump with 1) of xs to 1\nfeature bump\n  needs n as number\n  append (E with amount 1) to es\n  give n\n"
+        );
+        assert_eq!(
+            diags(&p),
+            [
+                "line 7: set item (bump with 1) of xs to 1. es cannot change while the loop on line 6 walks it: bump changes it."
+            ]
+        );
+    }
 }

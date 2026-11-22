@@ -404,4 +404,17 @@ mod tests {
             ["line 3: set mytotal to 2. mytotal and myTotal differ only in case; rename one."]
         );
     }
+
+    #[test]
+    fn a_position_in_an_item_target_is_a_read() {
+        let used = "feature start\n  set xs to list of 1\n  set i to 1\n  set item i of xs to 1\n  show xs\n";
+        assert!(diags(used).is_empty());
+        let early = "feature start\n  set xs to list of 1\n  set item i of xs to 1\n  set i to 1\n  show xs\n";
+        assert_eq!(
+            diags(early),
+            [
+                "line 3: set item i of xs to 1. i may not have a value here; it is first set on line 4. Set it before this line."
+            ]
+        );
+    }
 }
