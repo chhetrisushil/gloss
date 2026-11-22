@@ -74,8 +74,9 @@ impl Parser<'_> {
         self.open_block("record")?;
         let mut entries = Vec::new();
         while !matches!(self.peek(), Some(Tok::Dedent) | None) {
+            let blank_before = self.toks.get(self.pos).is_some_and(|t| t.blank_before);
             if let Some(note) = self.eat_note()? {
-                entries.push(RecordEntry::Note(note));
+                entries.push(RecordEntry::Note(note, blank_before));
                 continue;
             }
             let line = self.line();
@@ -83,7 +84,13 @@ impl Parser<'_> {
             self.expect_word("a field", Kw::As)?;
             let ty = self.plain_type()?;
             self.end_line()?;
-            entries.push(RecordEntry::Field(FieldDecl { line, name, ty }));
+            let field = FieldDecl {
+                line,
+                name,
+                ty,
+                blank_before,
+            };
+            entries.push(RecordEntry::Field(field));
         }
         self.close_block();
         if !entries.iter().any(|e| matches!(e, RecordEntry::Field(_))) {
@@ -153,6 +160,7 @@ impl Parser<'_> {
         };
         self.open_block("feature")?;
         let (mut needs, mut body) = (Vec::new(), Vec::new());
+        let mut notes_before_needs = 0;
         while !matches!(self.peek(), Some(Tok::Dedent) | None) {
             if self.peek() != Some(&Tok::Kw(Kw::Needs)) {
                 body.push(self.parse_stmt()?);
@@ -163,6 +171,7 @@ impl Parser<'_> {
                 return Err(self.err("needs must be the first line of a feature"));
             }
             self.pos += 1;
+            notes_before_needs = body.len();
             if matches!(self.peek(), Some(Tok::Newline) | None) {
                 return Err(self.err("needs must name at least one input"));
             }
@@ -177,6 +186,7 @@ impl Parser<'_> {
             line,
             name,
             needs,
+            notes_before_needs,
             body,
         })
     }
@@ -276,7 +286,7 @@ mod tests {
         assert_eq!(r.entries.len(), 2);
         assert_eq!(
             r.entries[0],
-            RecordEntry::Note(Note::Line("the name".into()))
+            RecordEntry::Note(Note::Line("the name".into()), false)
         );
         assert!(matches!(p.items[3], Item::Note { line: 7, .. }));
     }

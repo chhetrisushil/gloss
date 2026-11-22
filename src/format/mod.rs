@@ -27,14 +27,18 @@ fn item_lines(item: &Item) -> Vec<String> {
         Item::Note { note, .. } => note_lines(note, 0),
         Item::Record(r) => {
             let mut lines = vec![format!("record {}", r.name)];
-            for entry in &r.entries {
-                match entry {
+            for (i, entry) in r.entries.iter().enumerate() {
+                let (blank, text) = match entry {
                     RecordEntry::Field(f) => {
                         let ty = type_text(&Type::Item(ItemType::Plain(f.ty)));
-                        lines.push(format!("  {} as {ty}", f.name));
+                        (f.blank_before, vec![format!("  {} as {ty}", f.name)])
                     }
-                    RecordEntry::Note(note) => lines.extend(note_lines(note, 1)),
+                    RecordEntry::Note(note, blank) => (*blank, note_lines(note, 1)),
+                };
+                if blank && i > 0 {
+                    lines.push(String::new());
                 }
+                lines.extend(text);
             }
             lines
         }
@@ -46,6 +50,8 @@ fn item_lines(item: &Item) -> Vec<String> {
         )],
         Item::Feature(f) => {
             let mut lines = vec![format!("feature {}", f.name)];
+            let (notes, rest) = f.body.split_at(f.notes_before_needs);
+            lines.extend(stmts(notes, 1));
             if !f.needs.is_empty() {
                 let inputs: Vec<String> = f
                     .needs
@@ -54,7 +60,7 @@ fn item_lines(item: &Item) -> Vec<String> {
                     .collect();
                 lines.extend(wrap(1, &format!("needs {}", inputs.join(", "))));
             }
-            lines.extend(stmts(&f.body, 1));
+            lines.extend(stmts(rest, 1));
             lines
         }
         Item::Test(t) => {
@@ -191,6 +197,23 @@ mod tests {
         );
         let own = "feature f\n  show (d)\n";
         assert_eq!(fmt(own), own);
+    }
+
+    #[test]
+    fn a_note_before_needs_stays_before_it() {
+        let s = "feature f\n  note why\n  needs a as number\n  show a\n";
+        assert_eq!(fmt(s), s);
+        let two =
+            "feature f\n  note one\n  note\n    two\n  needs a as number\n  note after\n  show a\n";
+        assert_eq!(fmt(two), two);
+    }
+
+    #[test]
+    fn blank_lines_between_record_fields_are_kept() {
+        let s = "record E\n  a as text\n\n  note why b\n  b as number\n  c as text\n";
+        assert_eq!(fmt(s), s);
+        let many = "record E\n  a as text\n\n\n\n  b as number\n";
+        assert_eq!(fmt(many), "record E\n  a as text\n\n  b as number\n");
     }
 
     #[test]
