@@ -72,9 +72,17 @@ pub fn firsts(
                 }
                 firsts(otherwise.as_deref().unwrap_or_default(), here("if"), out);
             }
-            StmtKind::ForEachIn { body, .. }
-            | StmtKind::ForEachRange { body, .. }
-            | StmtKind::RepeatWhile { body, .. } => firsts(body, here("loop"), out),
+            StmtKind::ForEachIn { var, body, .. } | StmtKind::ForEachRange { var, body, .. } => {
+                // Inside the loop the variable is the loop's own, not a new name.
+                let kept = out.len();
+                firsts(body, here("loop"), out);
+                let mut at = 0;
+                out.retain(|(n, _)| {
+                    at += 1;
+                    at <= kept || n != var
+                });
+            }
+            StmtKind::RepeatWhile { body, .. } => firsts(body, here("loop"), out),
             _ => {}
         }
     }
