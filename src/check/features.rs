@@ -1,11 +1,12 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::expr::{item_ty, report};
+use super::rules::{children, parts};
 use super::walking::{blocks, called};
-use super::{Ctx, FeatureInfo, Ty, stmt};
+use super::{Ctx, FeatureInfo, Ty, order, stmt};
 use crate::ast::program::FeatureDecl;
 use crate::ast::stmt::{Stmt, StmtKind};
-use crate::ast::{Expr, Line, Type, print};
+use crate::ast::{Expr, ExprKind, Line, Type, print};
 use crate::diag::Diagnostic;
 
 /// The declared inputs of a feature with their types.
@@ -20,38 +21,79 @@ pub fn inputs_of(f: &FeatureDecl) -> Vec<(String, Ty)> {
         .collect()
 }
 
-/// What every feature gives. A result starts as `Error`, meaning "being worked
-/// out", and bodies are typed silently until nothing changes, so a feature can
-/// be used before it is declared, or call itself.
+/// What every feature gives. A result starts as `Error`, meaning "being worked out".
+/// Features are worked out callees first, so a feature that calls another (or uses it by
+/// name) sees its final result; features that call each other are worked out as a group,
+/// typing their bodies silently until nothing changes. A feature can be used before it is
+/// declared, or call itself.
 pub fn infer_results(ctx: &mut Ctx) -> BTreeMap<String, Ty> {
     let program = ctx.program;
-    let mut results: BTreeMap<String, Ty> = program
-        .features()
+    let features: Vec<&FeatureDecl> = program.features().collect();
+    let mut at: HashMap<&str, usize> = HashMap::new();
+    for (i, f) in features.iter().enumerate() {
+        at.entry(f.name.as_str()).or_insert(i);
+    }
+    let edges: Vec<Vec<usize>> = features
+        .iter()
+        .map(|f| {
+            let mut names = Vec::new();
+            dependencies(&f.body, &mut names);
+            let mut to: Vec<usize> = names.iter().filter_map(|n| at.get(n).copied()).collect();
+            to.sort_unstable();
+            to.dedup();
+            to
+        })
+        .collect();
+    let mut results: BTreeMap<String, Ty> = features
+        .iter()
         .map(|f| (f.name.clone(), Ty::Error))
         .collect();
-    // Each pass that changes anything moves some feature's result to the type of an earlier
-    // give (or settles it for the first time), and a feature can do that at most once per
-    // give it has, so the passes cannot outnumber the gives. One more pass sees no change,
-    // and one more covers features with no give, which settle on `Nothing` in the first pass.
-    let passes = program.features().map(|f| gives_in(&f.body)).sum::<usize>() + 2;
-    let mut converged = false;
-    for _ in 0..passes {
-        let mut changed = false;
-        for f in program.features() {
-            let kept = ctx.diags.len();
-            let inputs = inputs_of(f);
-            let checked = stmt::check_body(ctx, &results, &inputs, &f.body, false, &mut Vec::new());
-            ctx.diags.truncate(kept);
-            changed |=
-                results.insert(f.name.clone(), checked.result.clone()) != Some(checked.result);
+    for group in order::components(&edges) {
+        let cyclic = group.len() > 1 || edges[group[0]].contains(&group[0]);
+        // A changing pass settles a result or moves it to an earlier give's type, at most once
+        // per give; two more passes see no change and cover features with no give.
+        let gives: usize = group.iter().map(|&i| gives_in(&features[i].body)).sum();
+        let passes = if cyclic { gives + 2 } else { 1 };
+        let mut converged = false;
+        for _ in 0..passes {
+            let mut changed = false;
+            for &i in &group {
+                let f = features[i];
+                let kept = ctx.diags.len();
+                let inputs = inputs_of(f);
+                let checked =
+                    stmt::check_body(ctx, &results, &inputs, &f.body, false, &mut Vec::new());
+                ctx.diags.truncate(kept);
+                changed |=
+                    results.insert(f.name.clone(), checked.result.clone()) != Some(checked.result);
+            }
+            if !changed || !cyclic {
+                converged = true;
+                break;
+            }
         }
-        if !changed {
-            converged = true;
-            break;
-        }
+        debug_assert!(converged, "feature results did not settle");
     }
-    debug_assert!(converged, "feature results did not settle");
     results
+}
+
+/// Every name in a body that can make it depend on a feature's result: features it runs or
+/// calls, and any name that may be a feature used as a value.
+fn dependencies<'a>(body: &'a [Stmt], out: &mut Vec<&'a str>) {
+    for stmt in body {
+        called(&stmt.kind, out);
+        let (mut exprs, mut nested) = (Vec::new(), Vec::new());
+        parts(&stmt.kind, &mut exprs, &mut nested);
+        exprs.into_iter().for_each(|e| names_in(e, out));
+        nested.into_iter().for_each(|b| dependencies(b, out));
+    }
+}
+
+fn names_in<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
+    if let ExprKind::Name(name) = &e.kind {
+        out.push(name);
+    }
+    children(e).into_iter().for_each(|c| names_in(c, out));
 }
 
 /// How many give statements a body holds, nested ones included.

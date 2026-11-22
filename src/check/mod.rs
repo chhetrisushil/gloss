@@ -4,6 +4,7 @@ mod features;
 mod flow;
 mod mutation;
 pub mod names;
+mod order;
 pub mod rules;
 mod saving;
 pub mod similar;
