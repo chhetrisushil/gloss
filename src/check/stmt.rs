@@ -363,14 +363,23 @@ impl Walk<'_, '_> {
 
     /// Walks a loop body with its variable in scope, then puts back what it hid.
     fn looped(&mut self, line: Line, var: &str, ty: Ty, body: &[Stmt]) {
+        let reused = self.ctx.program.declared_as(var);
+        if let Some(noun) = reused {
+            let msg = format!("{var} is {noun}; a variable cannot reuse its name");
+            self.error(line, msg);
+        }
         let clash = self.vars.contains_key(var);
-        if clash {
+        if clash && reused.is_none() {
             let msg = format!(
                 "{var} is already a variable in this feature; pick another name for the loop"
             );
             self.error(line, msg);
         }
-        let ty = if clash { Ty::Error } else { ty };
+        let ty = if clash || reused.is_some() {
+            Ty::Error
+        } else {
+            ty
+        };
         let hidden = self.vars.insert(var.into(), ty);
         self.loop_vars.push(var.into());
         self.in_loop(body);
@@ -452,7 +461,7 @@ impl Walk<'_, '_> {
     /// only by the statement that made the variable.
     fn first(&mut self, line: Line, name: &str, ty: Ty) {
         let ty = ty.norm();
-        if self.ctx.program.tables().any(|t| t.name == name) {
+        if self.ctx.program.declared_as(name).is_some() {
             return;
         }
         match self.made.iter_mut().find(|(n, ..)| n == name) {
@@ -482,9 +491,8 @@ impl Walk<'_, '_> {
 
     /// Creates `name` at its first `set` or `ask`; later ones must match its type.
     fn bind(&mut self, line: Line, name: &str, ty: Ty, action: &str) {
-        let program = self.ctx.program;
-        if program.tables().any(|t| t.name == name) {
-            let msg = format!("{name} is a table; a variable cannot reuse its name");
+        if let Some(noun) = self.ctx.program.declared_as(name) {
+            let msg = format!("{name} is {noun}; a variable cannot reuse its name");
             return self.error(line, msg);
         }
         let Some(have) = self.vars.get(name).cloned() else {

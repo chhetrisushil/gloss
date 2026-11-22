@@ -25,6 +25,7 @@ pub fn check_program(ctx: &mut Ctx) {
     start_rules(ctx);
     program_names(ctx);
     fields(ctx);
+    input_names(ctx);
     test_titles(ctx);
     table_files(ctx);
     unknown_records(ctx);
@@ -86,6 +87,17 @@ fn collides(a: &str, ka: Kind, b: &str, kb: Kind) -> bool {
     let tail = |s: &str| s.chars().skip(1).collect::<String>();
     let exempt = (ka == Kind::Record) != (kb == Kind::Record) && tail(a) == tail(b);
     !exempt
+}
+
+/// An input is a name inside its feature, so it cannot reuse a feature, table or record name.
+fn input_names(ctx: &mut Ctx) {
+    let program = ctx.program;
+    for need in program.features().flat_map(|f| &f.needs) {
+        if let Some(noun) = program.declared_as(&need.name) {
+            let msg = format!("{} is {noun}; an input cannot reuse its name", need.name);
+            ctx.diags.push(Diagnostic::error(ctx.src, need.line, msg));
+        }
+    }
 }
 
 fn fields(ctx: &mut Ctx) {

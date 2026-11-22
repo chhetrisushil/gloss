@@ -22,7 +22,7 @@ type Defined = BTreeSet<String>;
 pub fn check_flow(ctx: &mut Ctx, inputs: &[(String, Ty)], body: &[Stmt]) {
     let mut found = Vec::new();
     uses::firsts(body, None, &mut found);
-    found.retain(|(name, _)| !ctx.program.tables().any(|t| &t.name == name));
+    found.retain(|(name, _)| ctx.program.declared_as(name).is_none());
     let mut flow = Flow {
         ctx,
         origins: found.iter().cloned().collect(),
