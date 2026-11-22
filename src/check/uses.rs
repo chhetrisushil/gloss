@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::ast::stmt::{Stmt, StmtKind, Target};
 use crate::ast::walk::for_each_expr;
 use crate::ast::{Expr, ExprKind, Line};
@@ -52,10 +54,21 @@ pub fn firsts(
     within: Option<(&'static str, Line)>,
     out: &mut Vec<(String, Origin)>,
 ) {
+    let mut seen = out.iter().map(|(n, _)| n.clone()).collect();
+    firsts_seen(body, within, out, &mut seen);
+}
+
+/// `seen` holds the names in `out`, so a name is looked up without scanning `out`.
+fn firsts_seen(
+    body: &[Stmt],
+    within: Option<(&'static str, Line)>,
+    out: &mut Vec<(String, Origin)>,
+    seen: &mut HashSet<String>,
+) {
     for stmt in body {
         let here = |word| within.or(Some((word, stmt.line)));
         let mut note = |name: &str| {
-            if !out.iter().any(|(n, _)| n == name) {
+            if seen.insert(name.into()) {
                 out.push((
                     name.into(),
                     Origin {
@@ -76,21 +89,29 @@ pub fn firsts(
                 otherwise,
             } => {
                 for (_, b) in branches {
-                    firsts(b, here("if"), out);
+                    firsts_seen(b, here("if"), out, seen);
                 }
-                firsts(otherwise.as_deref().unwrap_or_default(), here("if"), out);
+                firsts_seen(
+                    otherwise.as_deref().unwrap_or_default(),
+                    here("if"),
+                    out,
+                    seen,
+                );
             }
             StmtKind::ForEachIn { var, body, .. } | StmtKind::ForEachRange { var, body, .. } => {
                 // Inside the loop the variable is the loop's own, not a new name.
-                let kept = out.len();
-                firsts(body, here("loop"), out);
+                let (kept, had) = (out.len(), seen.contains(var.as_str()));
+                firsts_seen(body, here("loop"), out, seen);
+                if !had {
+                    seen.remove(var.as_str());
+                }
                 let mut at = 0;
                 out.retain(|(n, _)| {
                     at += 1;
                     at <= kept || n != var
                 });
             }
-            StmtKind::RepeatWhile { body, .. } => firsts(body, here("loop"), out),
+            StmtKind::RepeatWhile { body, .. } => firsts_seen(body, here("loop"), out, seen),
             _ => {}
         }
     }
