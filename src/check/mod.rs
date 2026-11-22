@@ -1,5 +1,6 @@
 pub mod names;
 pub mod similar;
+mod types;
 
 use std::collections::BTreeMap;
 
@@ -14,7 +15,7 @@ pub enum Ty {
     Truth,
     Record(String),
     List(Box<Ty>),
-    Table(String),
+    Table { table: String, record: String },
     Nothing,
     Error,
 }
