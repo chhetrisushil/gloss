@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+mod prepass;
+
 use super::expr::{self, Env};
 use super::rules::target_text;
 use super::{Ctx, FeatureInfo, LoopVar, Ty, similar};
@@ -28,6 +30,7 @@ struct Walk<'a, 'b> {
     input_names: Vec<String>,
     /// Every loop variable walked, with its loop's line.
     loops_seen: Vec<LoopVar>,
+    #[allow(dead_code)]
     changed: bool,
 }
 
@@ -57,13 +60,7 @@ pub fn check_body(
         loops_seen: Vec::new(),
         changed: false,
     };
-    for _ in 0..=body.len() + 1 {
-        walk.changed = false;
-        walk.collect(body);
-        if !walk.changed {
-            break;
-        }
-    }
+    walk.type_variables(body);
     walk.stmts(body);
     let known = walk.gives.iter().find(|(_, t)| *t != Ty::Error);
     let result = match (known, walk.gives.is_empty()) {
@@ -431,6 +428,7 @@ impl Walk<'_, '_> {
     /// Pre-pass: each variable gets the type of its first `set` or `ask`, so a
     /// body can read a variable above the line that sets it. Loop variables
     /// are in scope only while their body is collected. Reports nothing.
+    #[allow(dead_code)] // The pre-pass in `prepass` replaces it; removed in the next commit.
     fn collect(&mut self, body: &[Stmt]) {
         for stmt in body {
             match &stmt.kind {
@@ -460,7 +458,7 @@ impl Walk<'_, '_> {
         }
     }
 
-    fn quiet(&mut self, e: &Expr) -> Ty {
+    pub(super) fn quiet(&mut self, e: &Expr) -> Ty {
         let kept = self.ctx.diags.len();
         let ty = self.ty(e);
         self.ctx.diags.truncate(kept);
@@ -470,6 +468,7 @@ impl Walk<'_, '_> {
     /// Registers a variable at its first `set` or `ask`. A type that was an
     /// error (it read a variable not yet collected) is replaced once known, but
     /// only by the statement that made the variable.
+    #[allow(dead_code)]
     fn first(&mut self, line: Line, name: &str, ty: Ty) {
         let ty = ty.norm();
         if self.ctx.declared_as(name).is_some() {
@@ -492,6 +491,7 @@ impl Walk<'_, '_> {
         }
     }
 
+    #[allow(dead_code)]
     fn scoped(&mut self, var: &str, ty: Ty, body: &[Stmt]) {
         let hidden = self.vars.insert(var.into(), ty);
         self.collect(body);
