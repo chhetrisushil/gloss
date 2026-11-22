@@ -1,5 +1,5 @@
 pub use super::stmt_sexpr::stmt;
-use crate::ast::{ArithOp, CompareOp, Conversion, Expr, ExprKind as K, Fact, item_type_text};
+use crate::ast::{CompareOp, Conversion, Expr, ExprKind as K, Fact, item_type_text};
 
 pub fn sexpr(e: &Expr) -> String {
     match &e.kind {
@@ -16,7 +16,7 @@ pub fn sexpr(e: &Expr) -> String {
         K::Remainder { of, by } => form("remainder", &[of, by]),
         K::Negate(x) => form("-", &[x]),
         K::Convert { value, to } => form(&conversion_name(*to), &[value]),
-        K::Binary { op, left, right } => form(arith_op(*op), &[left, right]),
+        K::Binary { op, left, right } => form(op.symbol(), &[left, right]),
         K::Call { feature, inputs } => list(&format!("call {feature}"), inputs),
         K::BuildRecord { record, fields } => {
             let fs: String = fields
@@ -47,15 +47,6 @@ fn fact_name(f: Fact) -> &'static str {
         Fact::First => "first",
         Fact::Last => "last",
         Fact::Whole => "whole",
-    }
-}
-
-fn arith_op(op: ArithOp) -> &'static str {
-    match op {
-        ArithOp::Add => "+",
-        ArithOp::Sub => "-",
-        ArithOp::Mul => "*",
-        ArithOp::Div => "/",
     }
 }
 
@@ -90,7 +81,7 @@ fn list(head: &str, xs: &[Expr]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{ExprId, ItemType};
+    use crate::ast::{ArithOp, ExprId, ItemType};
     use crate::number::Number;
 
     fn e(kind: K) -> Expr {

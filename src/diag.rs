@@ -47,14 +47,6 @@ impl Diagnostic {
         }
     }
 
-    /// A warning about the program as a whole, with no line.
-    pub fn program_warning(problem: impl Into<String>) -> Self {
-        Diagnostic {
-            severity: Severity::Warning,
-            ..Diagnostic::program(problem)
-        }
-    }
-
     pub fn suggest(mut self, form: impl Into<String>) -> Self {
         self.suggestion = Some(form.into());
         self
@@ -134,13 +126,6 @@ mod tests {
             p.render(),
             "This program has no feature start, so it has nowhere to begin."
         );
-    }
-
-    #[test]
-    fn renders_a_program_level_warning() {
-        let w = Diagnostic::program_warning("Two files differ only in case");
-        assert_eq!(w.render(), "warning: Two files differ only in case.");
-        assert!(!w.is_error());
     }
 
     #[test]

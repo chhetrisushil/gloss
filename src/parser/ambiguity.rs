@@ -3,7 +3,7 @@
 //! suggestions keep everything around the ambiguous part.
 
 use super::Parser;
-use super::expr::{number_fact_on_right_edge, op_text};
+use super::expr::number_fact_on_right_edge;
 use crate::ast::print;
 use crate::ast::{ArithOp, Expr, ExprId, ExprKind as K};
 use crate::diag::Diagnostic;
@@ -48,7 +48,7 @@ impl Parser<'_> {
         level: fn(&mut Self) -> Result<Expr, Diagnostic>,
     ) -> Result<Expr, Diagnostic> {
         if matches!(self.peek(), Some(Tok::Newline) | None) {
-            return Err(self.err(format!("{} needs a value after it", op_text(op))));
+            return Err(self.err(format!("{} needs a value after it", op.symbol())));
         }
         let right = level(self)?;
         let Some(fact) = number_fact_on_right_edge(&left).cloned() else {
@@ -63,7 +63,7 @@ impl Parser<'_> {
         let short = format!(
             "{} {} {}",
             print::expr(&fact),
-            op_text(op),
+            op.symbol(),
             print::expr(&right)
         );
         let node = self.binary(op, default, right);

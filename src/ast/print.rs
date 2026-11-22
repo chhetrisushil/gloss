@@ -1,4 +1,4 @@
-use crate::ast::{ArithOp, CompareOp, Conversion, Expr, ExprKind as K, Fact, item_type_text};
+use crate::ast::{Conversion, Expr, ExprKind as K, Fact, item_type_text};
 
 pub fn expr(e: &Expr) -> String {
     match &e.kind {
@@ -16,7 +16,7 @@ pub fn expr(e: &Expr) -> String {
         K::Negate(x) => format!("-{}", expr(x)),
         K::Convert { value, to } => format!("{} as {}", expr(value), conversion_text(*to)),
         K::Binary { op, left, right } => {
-            format!("{} {} {}", expr(left), symbol(*op), expr(right))
+            format!("{} {} {}", expr(left), op.symbol(), expr(right))
         }
         K::Call { feature, inputs } if inputs.is_empty() => feature.clone(),
         K::Call { feature, inputs } => format!("{feature} with {}", join(inputs, ", ")),
@@ -26,7 +26,7 @@ pub fn expr(e: &Expr) -> String {
         }
         K::BuildList(xs) => format!("list of {}", join(xs, ", ")),
         K::Compare { op, left, right } => {
-            format!("{} {} {}", expr(left), words(*op), expr(right))
+            format!("{} {} {}", expr(left), op.words(), expr(right))
         }
         K::IsNumber { value, negated } => {
             let not = if *negated { "not " } else { "" };
@@ -67,30 +67,10 @@ fn conversion_text(c: Conversion) -> String {
     }
 }
 
-fn symbol(op: ArithOp) -> &'static str {
-    match op {
-        ArithOp::Add => "+",
-        ArithOp::Sub => "-",
-        ArithOp::Mul => "*",
-        ArithOp::Div => "/",
-    }
-}
-
-fn words(op: CompareOp) -> &'static str {
-    match op {
-        CompareOp::Is => "is",
-        CompareOp::IsNot => "is not",
-        CompareOp::Greater => "is greater than",
-        CompareOp::Less => "is less than",
-        CompareOp::AtLeast => "is at least",
-        CompareOp::AtMost => "is at most",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{ArithOp, Conversion, ExprId, ExprKind as K, Fact, ItemType};
+    use crate::ast::{ArithOp, CompareOp, Conversion, ExprId, ExprKind as K, Fact, ItemType};
     use crate::number::Number;
 
     fn e(kind: K) -> Expr {

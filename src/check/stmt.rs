@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::expr::{self, Env};
+use super::rules::target_text;
 use super::{Ctx, FeatureInfo, Ty, similar};
 use crate::ast::print;
 use crate::ast::stmt::{Stmt, StmtKind, Target};
@@ -24,16 +25,6 @@ struct Walk<'a, 'b> {
     /// The names of the loops being walked; changing one is reported by the mutation check.
     loop_vars: Vec<String>,
     changed: bool,
-}
-
-fn target_text(t: &Target) -> String {
-    match t {
-        Target::Var(name) => name.clone(),
-        Target::Field { field, of } => format!("{field} of {}", target_text(of)),
-        Target::Item { position, of } => {
-            format!("item {} of {}", print::expr(position), target_text(of))
-        }
-    }
 }
 
 /// Types every statement of a feature or test body, in source order.
