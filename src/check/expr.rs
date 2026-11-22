@@ -10,7 +10,7 @@ pub struct Env<'a> {
     pub results: &'a BTreeMap<String, Ty>,
 }
 
-fn plain(p: PlainType) -> Ty {
+pub fn plain(p: PlainType) -> Ty {
     match p {
         PlainType::Number => Ty::Number,
         PlainType::Text => Ty::Text,
@@ -18,7 +18,7 @@ fn plain(p: PlainType) -> Ty {
     }
 }
 
-fn item_ty(t: &ItemType) -> Ty {
+pub fn item_ty(t: &ItemType) -> Ty {
     match t {
         ItemType::Plain(p) => plain(*p),
         ItemType::Record(name) => Ty::Record(name.clone()),
@@ -120,6 +120,11 @@ fn infer(ctx: &mut Ctx, env: &Env, e: &Expr, types: &mut Vec<Option<Ty>>) -> Ty 
             let pairs: Vec<(&Expr, Ty)> = parts.iter().zip(tys).collect();
             combine::condition_type(ctx, e, word, &pairs)
         }
+        ExprKind::Call { feature, inputs } => {
+            let tys = combine::type_all(ctx, env, inputs, types);
+            let args: Vec<(&Expr, Ty)> = inputs.iter().zip(tys).collect();
+            combine::call_type(ctx, env, e, feature, &args)
+        }
         _ => Ty::Error,
     }
 }
@@ -216,12 +221,16 @@ fn name_type(ctx: &mut Ctx, env: &Env, e: &Expr, name: &str) -> Ty {
             record: t.record.clone(),
         };
     }
-    if let Some(f) = ctx
-        .program
-        .features()
-        .find(|f| f.name == name && f.needs.is_empty())
-    {
-        return env.results.get(&f.name).cloned().unwrap_or(Ty::Error);
+    if let Some(f) = ctx.program.features().find(|f| f.name == name) {
+        if f.needs.is_empty() {
+            return env.results.get(&f.name).cloned().unwrap_or(Ty::Error);
+        }
+        let inputs: Vec<&str> = f.needs.iter().map(|n| n.name.as_str()).collect();
+        let msg = format!(
+            "{}, as in {name} with ...",
+            combine::needs_phrase(name, &inputs)
+        );
+        return report(ctx, e, msg, None);
     }
     let candidates = env
         .vars

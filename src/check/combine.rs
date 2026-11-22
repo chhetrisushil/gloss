@@ -1,7 +1,7 @@
-use super::expr::{Env, report, type_of};
-use super::{Ctx, Ty};
+use super::expr::{Env, item_ty, report, type_of};
+use super::{Ctx, Ty, similar};
 use crate::ast::print;
-use crate::ast::{CompareOp, Expr};
+use crate::ast::{CompareOp, Expr, Type};
 
 pub fn compare_type(ctx: &mut Ctx, e: &Expr, op: CompareOp, l: (&Expr, Ty), r: (&Expr, Ty)) -> Ty {
     if l.1 == Ty::Error || r.1 == Ty::Error {
@@ -81,6 +81,65 @@ pub fn type_all(ctx: &mut Ctx, env: &Env, es: &[Expr], types: &mut Vec<Option<Ty
     es.iter().map(|x| type_of(ctx, env, x, types)).collect()
 }
 
+pub fn names(list: &[&str]) -> String {
+    match list.split_last() {
+        Some((last, head)) if !head.is_empty() => format!("{} and {last}", head.join(", ")),
+        _ => list.join(""),
+    }
+}
+
+/// "f needs 1 input: n", "f needs 2 inputs: n and t" or "f needs no inputs".
+pub fn needs_phrase(feature: &str, inputs: &[&str]) -> String {
+    match inputs.len() {
+        0 => format!("{feature} needs no inputs"),
+        1 => format!("{feature} needs 1 input: {}", inputs[0]),
+        n => format!("{feature} needs {n} inputs: {}", names(inputs)),
+    }
+}
+
+/// A table is accepted where a list of its record is needed.
+fn accepts(want: &Ty, got: &Ty) -> bool {
+    match (want, got) {
+        (Ty::List(item), Ty::Table { record, .. }) => **item == Ty::Record(record.clone()),
+        _ => want == got,
+    }
+}
+
+pub fn call_type(ctx: &mut Ctx, env: &Env, e: &Expr, feature: &str, args: &[(&Expr, Ty)]) -> Ty {
+    let program = ctx.program;
+    let Some(decl) = program.features().find(|f| f.name == feature) else {
+        let near = similar::nearest(feature, program.features().map(|f| f.name.as_str()));
+        let msg = format!("There is no feature named {feature}");
+        return report(ctx, e, msg, near);
+    };
+    let input_names: Vec<&str> = decl.needs.iter().map(|n| n.name.as_str()).collect();
+    if decl.needs.len() != args.len() {
+        let msg = format!(
+            "{}; this call gives {}",
+            needs_phrase(feature, &input_names),
+            args.len()
+        );
+        return report(ctx, e, msg, None);
+    }
+    for (input, (arg, got)) in decl.needs.iter().zip(args) {
+        let want = match &input.ty {
+            Type::Item(t) => item_ty(t),
+            Type::List(t) => Ty::List(Box::new(item_ty(t))),
+        };
+        if *got != Ty::Error && !accepts(&want, got) {
+            let msg = format!(
+                "The input {} of {feature} is {}; {} is {}",
+                input.name,
+                want.described(),
+                print::expr(arg),
+                got.described()
+            );
+            report(ctx, e, msg, None);
+        }
+    }
+    env.results.get(feature).cloned().unwrap_or(Ty::Error)
+}
+
 #[cfg(test)]
 mod tests {
     fn diags(s: &str) -> Vec<String> {
@@ -137,6 +196,56 @@ mod tests {
             src("  show (first of es is first of ss)\n"),
             [
                 "line 8: show (first of es is first of ss). is compares two values of the same type; first of es is E and first of ss is S."
+            ]
+        );
+    }
+
+    #[test]
+    fn calls_and_building() {
+        assert!(with_f("  show (f with 1, \"a\"), (g with es), (g with (list of (E with amount 1, name \"x\")))\n").is_empty());
+        assert_eq!(
+            with_f("  show (f with 1)\n"),
+            ["line 12: show (f with 1). f needs 2 inputs: n and t; this call gives 1."]
+        );
+        assert_eq!(
+            with_f("  show (f with \"a\", \"b\")\n"),
+            ["line 12: show (f with \"a\", \"b\"). The input n of f is a number; \"a\" is text."]
+        );
+        assert_eq!(
+            with_f("  show (h with 1)\n"),
+            ["line 12: show (h with 1). There is no feature named h."]
+        );
+        assert_eq!(
+            with_f("  show f\n"),
+            ["line 12: show f. f needs 2 inputs: n and t, as in f with ...."]
+        );
+    }
+
+    #[test]
+    fn call_arity_and_table_inputs() {
+        let src = |l: &str| {
+            diags(&format!(
+                "record E\n  amount as number\nrecord S\n  b as number\ntable es of E in \"e.csv\"\nfeature one\n  needs n as number\n  give n\nfeature zero\n  give 1\nfeature takes_s\n  needs xs as list of S\n  give 1\nfeature takes_n\n  needs xs as list of number\n  give 1\nfeature start\n{l}"
+            ))
+        };
+        assert_eq!(
+            src("  show one\n"),
+            ["line 18: show one. one needs 1 input: n, as in one with ...."]
+        );
+        assert_eq!(
+            src("  show (zero with 1)\n"),
+            ["line 18: show (zero with 1). zero needs no inputs; this call gives 1."]
+        );
+        assert_eq!(
+            src("  show (takes_s with es)\n"),
+            [
+                "line 18: show (takes_s with es). The input xs of takes_s is list of S; es is table es."
+            ]
+        );
+        assert_eq!(
+            src("  show (takes_n with es)\n"),
+            [
+                "line 18: show (takes_n with es). The input xs of takes_n is list of number; es is table es."
             ]
         );
     }
