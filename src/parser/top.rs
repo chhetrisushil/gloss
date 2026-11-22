@@ -209,6 +209,9 @@ impl Parser<'_> {
             if !self.eat_kw(Kw::As) {
                 return Err(self.input_needs_as(&name));
             }
+            if matches!(self.peek(), Some(Tok::Newline) | None) {
+                return Err(self.err(format!("{name} needs a type after as")));
+            }
             let ty = if self.eat_kw(Kw::List) {
                 self.expect_word("list", Kw::Of)?;
                 Type::List(self.parse_item_type()?)
@@ -423,6 +426,19 @@ mod tests {
         assert_eq!(
             e("feature f\n  needs amount number\n  show 1\n"),
             "line 2: needs amount number. amount needs as, as in needs amount as number."
+        );
+    }
+
+    #[test]
+    fn a_needs_input_with_as_but_no_type_is_reported_on_its_own_line() {
+        let e = |t: &str| parse(t).unwrap_err().render();
+        assert_eq!(
+            e("feature f\n  needs n as\n  show 1\n"),
+            "line 2: needs n as. n needs a type after as."
+        );
+        assert_eq!(
+            e("feature f\n  needs a as number, b as\n  show 1\n"),
+            "line 2: needs a as number, b as. b needs a type after as."
         );
     }
 
