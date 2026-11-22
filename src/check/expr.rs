@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::{Ctx, Ty, combine, similar};
+use super::{Ctx, Ty, combine, features, similar};
 use crate::ast::print;
 use crate::ast::{ArithOp, Conversion, Expr, ExprKind, Fact, ItemType, PlainType};
 use crate::diag::Diagnostic;
@@ -130,7 +130,8 @@ fn infer(ctx: &mut Ctx, env: &Env, e: &Expr, types: &mut Vec<Option<Ty>>) -> Ty 
         ExprKind::Call { feature, inputs } => {
             let tys = combine::type_all(ctx, env, inputs, types);
             let args: Vec<(&Expr, Ty)> = inputs.iter().zip(tys).collect();
-            combine::call_type(ctx, env, e, feature, &args)
+            let ty = combine::call_type(ctx, env, e, feature, &args);
+            features::as_value(ctx, e, feature, ty)
         }
         ExprKind::BuildRecord { record, fields } => {
             let given: Vec<(&str, &Expr, Ty)> = fields
@@ -241,7 +242,8 @@ fn name_type(ctx: &mut Ctx, env: &Env, e: &Expr, name: &str) -> Ty {
     }
     if let Some(f) = ctx.program.features().find(|f| f.name == name) {
         if f.needs.is_empty() {
-            return env.results.get(&f.name).cloned().unwrap_or(Ty::Error);
+            let ty = env.results.get(&f.name).cloned().unwrap_or(Ty::Error);
+            return features::as_value(ctx, e, name, ty);
         }
         let inputs: Vec<&str> = f.needs.iter().map(|n| n.name.as_str()).collect();
         let msg = format!(

@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
-use super::expr::item_ty;
+use super::expr::{item_ty, report};
 use super::{Ctx, FeatureInfo, Ty, stmt};
-use crate::ast::Type;
 use crate::ast::program::FeatureDecl;
 use crate::ast::stmt::{Stmt, StmtKind};
+use crate::ast::{Expr, Line, Type, print};
 use crate::diag::Diagnostic;
 
 /// The declared inputs of a feature with their types.
@@ -103,6 +103,33 @@ pub fn check_gives(ctx: &mut Ctx, f: &FeatureDecl, checked: &FeatureInfo) {
     }
 }
 
+/// A feature used as a value must give one.
+pub fn as_value(ctx: &mut Ctx, e: &Expr, feature: &str, ty: Ty) -> Ty {
+    if ty != Ty::Nothing {
+        return ty;
+    }
+    let msg =
+        format!("{feature} gives nothing, so it cannot be used as a value; use run {feature}");
+    report(ctx, e, msg, None)
+}
+
+/// `run` of a feature that gives a value: say how to use the value, from the user's own call.
+pub fn check_run(ctx: &mut Ctx, line: Line, feature: &str, inputs: &[Expr], ty: &Ty) {
+    if matches!(ty, Ty::Nothing | Ty::Error) {
+        return;
+    }
+    let args: Vec<String> = inputs.iter().map(print::expr).collect();
+    let call = match inputs {
+        [] => feature.to_string(),
+        _ => format!("{feature} with {}", args.join(", ")),
+    };
+    let msg = format!(
+        "{feature} gives {}; use it, as in set result to {call}",
+        ty.described()
+    );
+    ctx.diags.push(Diagnostic::error(ctx.src, line, msg));
+}
+
 #[cfg(test)]
 mod tests {
     fn diags(s: &str) -> Vec<String> {
@@ -142,6 +169,29 @@ mod tests {
         assert_eq!(
             diags("feature start\n  give 1\n"),
             ["line 2: give 1. start cannot give a value; it is where the program begins."]
+        );
+    }
+
+    #[test]
+    fn run_versus_value() {
+        let p = "feature start\n  run total with \"food\"\nfeature total\n  needs k as text\n  give 1\n";
+        assert_eq!(
+            diags(p),
+            [
+                "line 2: run total with \"food\". total gives a number; use it, as in set result to total with \"food\"."
+            ]
+        );
+        let q = "feature start\n  show report\nfeature report\n  show 1\n";
+        assert_eq!(
+            diags(q),
+            [
+                "line 2: show report. report gives nothing, so it cannot be used as a value; use run report."
+            ]
+        );
+        let r = "feature start\n  run nothing_here\n";
+        assert_eq!(
+            diags(r),
+            ["line 2: run nothing_here. There is no feature named nothing_here."]
         );
     }
 }

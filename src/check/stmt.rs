@@ -252,7 +252,11 @@ impl Walk<'_, '_> {
                     results: self.results,
                     in_test: self.in_test,
                 };
-                super::combine::call_type(self.ctx, &env, &at, feature, &args);
+                let kept = self.ctx.diags.len();
+                let ty = super::combine::call_type(self.ctx, &env, &at, feature, &args);
+                if self.ctx.diags.len() == kept {
+                    super::features::check_run(self.ctx, stmt.line, feature, inputs, &ty);
+                }
             }
             StmtKind::If {
                 branches,
