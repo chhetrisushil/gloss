@@ -1,18 +1,19 @@
 use super::{Ctx, Ty};
-use crate::ast::print;
 use crate::ast::stmt::{Stmt, StmtKind, Target};
+use crate::ast::{Expr, ExprKind, print};
 use crate::diag::Diagnostic;
 
 /// What a loop variable stands for: an item of a list, or a count.
 enum Loop<'a> {
-    Item(&'a str, String),
+    /// The loop variable, the printed list, and whether that list comes from an input.
+    Item(&'a str, String, bool),
     Count(&'a str),
 }
 
 impl Loop<'_> {
     fn name(&self) -> &str {
         match self {
-            Loop::Item(name, _) | Loop::Count(name) => name,
+            Loop::Item(name, ..) | Loop::Count(name) => name,
         }
     }
 }
@@ -67,7 +68,8 @@ impl<'a> Mutation<'_, '_, '_> {
                 }
             }
             StmtKind::ForEachIn { var, list, body } => {
-                walking.push(Loop::Item(var, print::expr(list)));
+                let walks_input = self.walks_input(list, walking);
+                walking.push(Loop::Item(var, print::expr(list), walks_input));
                 self.stmts(body, walking);
                 walking.pop();
             }
@@ -81,14 +83,33 @@ impl<'a> Mutation<'_, '_, '_> {
         }
     }
 
+    /// Whether the list a loop walks comes from an input, directly or through another loop.
+    fn walks_input(&self, list: &Expr, walking: &[Loop]) -> bool {
+        let root = match &list.kind {
+            ExprKind::Name(name) => name,
+            ExprKind::FieldOf { of, .. } | ExprKind::ItemOf { of, .. } => {
+                return self.walks_input(of, walking);
+            }
+            _ => return false,
+        };
+        match walking.iter().rev().find(|l| l.name() == root) {
+            Some(Loop::Item(.., walks)) => *walks,
+            Some(Loop::Count(_)) => false,
+            None => self.inputs.iter().any(|(n, _)| n == root),
+        }
+    }
+
     fn protect(&mut self, stmt: &Stmt, name: &str, whole: bool, walking: &[Loop]) {
         let append = matches!(stmt.kind, StmtKind::Append { .. });
         let msg = match walking.iter().rev().find(|l| l.name() == name) {
+            Some(Loop::Item(_, list, true)) if !whole => format!(
+                "{name} stands for an item of {list}, which is an input, so it cannot be changed"
+            ),
             Some(_) if !whole => return,
-            Some(Loop::Item(_, list)) if append => {
+            Some(Loop::Item(_, list, _)) if append => {
                 format!("{name} stands for an item of {list}, so nothing can be appended to it")
             }
-            Some(Loop::Item(_, list)) => format!(
+            Some(Loop::Item(_, list, _)) => format!(
                 "{name} stands for an item of {list} and cannot be set. To change the item, loop with for each i from 1 to count of {list} and set item i of {list}. To work on a copy, set m to {name} first"
             ),
             Some(Loop::Count(_)) => format!("{name} counts the loop and cannot be changed"),
@@ -129,6 +150,30 @@ mod tests {
         let item =
             diags("feature start\n  set ns to list of 1\n  for each n in ns\n    append 2 to n\n");
         assert_eq!(item.len(), 1, "{item:?}");
+    }
+
+    #[test]
+    fn changing_an_input_through_a_loop_variable_is_reported() {
+        let head = "record E\n  amount as number\ntable es of E in \"e.csv\"\nfeature start\n  run zero with es\n";
+        let zero = |body: &str| {
+            diags(&format!(
+                "{head}feature zero\n  needs xs as list of E\n{body}"
+            ))
+        };
+        let msg = "which is an input, so it cannot be changed.";
+        let direct = zero("  for each x in xs\n    set amount of x to 0\n");
+        assert_eq!(direct.len(), 1, "{direct:?}");
+        assert!(
+            direct[0].ends_with(&format!("x stands for an item of xs, {msg}")),
+            "{direct:?}"
+        );
+        let nested =
+            zero("  for each x in xs\n    for each y in (list of x)\n      set amount of y to 0\n");
+        assert!(nested.iter().all(|d| !d.contains("an input")), "{nested:?}");
+        let own = diags(&format!(
+            "{HEAD}feature start\n  set mine to empty list of E\n  for each e in mine\n    set amount of e to 0\n"
+        ));
+        assert!(own.is_empty(), "{own:?}");
     }
 
     #[test]
