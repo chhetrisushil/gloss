@@ -97,6 +97,9 @@ impl Parser<'_> {
                 body,
             });
         }
+        if matches!(self.peek(), Some(Tok::Newline) | None) {
+            return Err(self.err("for each needs in or from after it"));
+        }
         let example = self.fixed_line("in");
         Err(self.err(format!("for each needs in or from, as in {example}")))
     }
@@ -160,6 +163,10 @@ mod tests {
         assert_eq!(
             perr("for each x of xs\n  stop"),
             "line 1: for each x of xs. for each needs in or from, as in for each x in xs."
+        );
+        assert_eq!(
+            perr("for each x\n  stop"),
+            "line 1: for each x. for each needs in or from after it."
         );
         for (name, list) in [("x", "xs"), ("price", "prices")] {
             let line = format!("for {name} in {list}");

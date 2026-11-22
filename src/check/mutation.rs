@@ -121,6 +121,17 @@ mod tests {
     }
 
     #[test]
+    fn appending_to_a_loop_variable_is_one_diagnostic() {
+        assert_eq!(
+            diags("feature start\n  for each i from 1 to 3\n    append 1 to i\n"),
+            ["line 3: append 1 to i. i counts the loop and cannot be changed."]
+        );
+        let item =
+            diags("feature start\n  set ns to list of 1\n  for each n in ns\n    append 2 to n\n");
+        assert_eq!(item.len(), 1, "{item:?}");
+    }
+
+    #[test]
     fn loop_and_input_mutation() {
         assert_eq!(
             diags("feature start\n  set ns to list of 1\n  for each n in ns\n    add 1 to n\n"),

@@ -52,7 +52,8 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
 
 fn build(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let mut diagnostics = check_source(text);
-    diagnostics.extend(executable_clashes(name, text));
+    let clashes = executable_clashes(name, text, &diagnostics);
+    diagnostics.extend(clashes);
     crate::diag::sort(&mut diagnostics);
     for d in &diagnostics {
         let _ = writeln!(err, "{}", d.render());
@@ -68,14 +69,18 @@ fn build(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i3
 }
 
 /// A table file named like the program's executable (the source name without `.gloss`)
-/// would be overwritten by the build, so it is refused on the table's line.
-fn executable_clashes(name: &str, text: &str) -> Vec<Diagnostic> {
+/// would be overwritten by the build, so it is refused on the table's line. A table whose
+/// line already has an error (a bad or repeated file name) is left to that error.
+fn executable_clashes(name: &str, text: &str, found: &[Diagnostic]) -> Vec<Diagnostic> {
     let source = Source::new(text);
     let Ok(program) = parse_source(&source) else {
         return Vec::new();
     };
     let executable = name.strip_suffix(".gloss").unwrap_or(name);
-    let clashing = program.tables().filter(|t| t.path == executable);
+    let has_error = |line| found.iter().any(|d| d.is_error() && d.line == Some(line));
+    let clashing = program
+        .tables()
+        .filter(|t| t.path == executable && !has_error(t.line));
     clashing
         .map(|t| {
             let msg = format!(

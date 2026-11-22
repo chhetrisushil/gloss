@@ -262,3 +262,16 @@ fn a_table_file_named_like_the_executable_is_refused() {
         "line 3: table es of E in \"clash\". clash is the name of this program's executable; choose another file name.\n"
     );
 }
+
+#[test]
+fn a_table_with_a_path_error_gets_no_executable_clash() {
+    // The first table is only a clash; the second also repeats the file, which is its one error.
+    let text = "record E\n  a as text\ntable es of E in \"dup\"\ntable fs of E in \"dup\"\nfeature start\n  show 1\n";
+    let p = temp_file("dup", text);
+    let (code, _, err) = gloss(&["build", p.to_str().unwrap()]);
+    assert_eq!(code, 3);
+    assert_eq!(
+        err,
+        "line 3: table es of E in \"dup\". dup is the name of this program's executable; choose another file name.\nline 4: table fs of E in \"dup\". dup is already the file of table es (line 3); one file belongs to one table.\n"
+    );
+}
