@@ -30,11 +30,18 @@ impl Parser<'_> {
                 attached,
             });
         }
-        if !self.eat_kw(Kw::Record) {
-            let all = "Only record, table, feature, test and note can start a line";
-            return Err(self.err(format!("{all} at the top level")));
-        }
-        Ok(Item::Record(self.record(line)?))
+        let word = match self.peek() {
+            Some(Tok::Kw(k @ (Kw::Record | Kw::Table))) => *k,
+            _ => {
+                let all = "Only record, table, feature, test and note can start a line";
+                return Err(self.err(format!("{all} at the top level")));
+            }
+        };
+        self.pos += 1;
+        Ok(match word {
+            Kw::Record => Item::Record(self.record(line)?),
+            _ => Item::Table(self.table(line)?),
+        })
     }
 
     /// Consumes a note and the end of its line, if one is next.
@@ -86,6 +93,38 @@ impl Parser<'_> {
             name,
             entries,
         })
+    }
+
+    fn table(&mut self, line: u32) -> Result<TableDecl, Diagnostic> {
+        let name = self.parse_name("table")?;
+        self.expect_word("table", Kw::Of)?;
+        let record = self.record_name("table")?;
+        self.expect_word("table", Kw::In)?;
+        let Some(Tok::Text(path)) = self.peek().cloned() else {
+            return Err(self.table_path_error(&name));
+        };
+        self.pos += 1;
+        self.end_line()?;
+        Ok(TableDecl {
+            line,
+            name,
+            record,
+            path,
+        })
+    }
+
+    /// Quotes the word that stands where the file name belongs, or, when there
+    /// is none, a file name made from the table's own name.
+    fn table_path_error(&self, name: &str) -> Diagnostic {
+        let Some(found) = self.peek().filter(|t| **t != Tok::Newline) else {
+            let example = self.example_line(self.pos, &format!("\"{name}.csv\""), false);
+            return self.err(format!(
+                "table needs a file name in quotes, as in {example}"
+            ));
+        };
+        let example = self.example_line(self.pos, &format!("\"{found}\""), true);
+        let problem = "The file name is written in quotes";
+        self.err(problem).suggest(example)
     }
 
     fn plain_type(&mut self) -> Result<PlainType, Diagnostic> {
@@ -159,6 +198,14 @@ mod tests {
     }
 
     #[test]
+    fn tables() {
+        let p = parse("table s of S in \"s.csv\"\n").unwrap();
+        let t = p.tables().next().unwrap();
+        let table = (t.name.as_str(), t.record.as_str(), t.path.as_str());
+        assert_eq!(table, ("s", "S", "s.csv"));
+    }
+
+    #[test]
     fn top_level_errors() {
         let e = |t: &str| parse(t).unwrap_err().render();
         assert_eq!(
@@ -172,6 +219,17 @@ mod tests {
         assert_eq!(
             e("record E\n  a\n"),
             "line 2: a. a field needs as, as in a as."
+        );
+        assert_eq!(
+            e("table t of E in data\n"),
+            "line 1: table t of E in data. The file name is written in quotes. Did you mean table t of E in \"data\"?"
+        );
+        let missing = "line 1: table t of E in. table needs a file name in quotes, as in table t of E in \"t.csv\".";
+        assert_eq!(e("table t of E in\n"), missing);
+        assert_eq!(e("table t of E in"), missing);
+        assert_eq!(
+            e("table expenses of E in\n"),
+            "line 1: table expenses of E in. table needs a file name in quotes, as in table expenses of E in \"expenses.csv\"."
         );
         assert_eq!(
             e("record E\n  note x\n"),

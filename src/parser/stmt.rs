@@ -210,7 +210,7 @@ impl Parser<'_> {
             .iter()
             .map(|t| t.tok.to_string())
             .collect();
-        if replace {
+        if replace && at - start < words.len() {
             words[at - start] = word.to_string();
         } else {
             words.insert(at - start, word.to_string());
@@ -254,8 +254,11 @@ fn join_words(words: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::Parser;
     use crate::ast::sexpr::stmt;
+    use crate::lexer::{Tok, lex};
     use crate::parser::parse_stmts_str;
+    use crate::source::Source;
 
     fn ss(t: &str) -> Vec<String> {
         parse_stmts_str(t).unwrap().iter().map(stmt).collect()
@@ -319,6 +322,16 @@ note hi there"#),
                 r#"(note "hi there")"#
             ]
         );
+    }
+
+    #[test]
+    fn example_line_replacing_past_the_end_inserts() {
+        let src = Source::new("table t of E in");
+        let toks = lex(&src).unwrap();
+        let end = toks.iter().position(|t| t.tok == Tok::Newline);
+        let at = end.unwrap_or(toks.len());
+        let parser = Parser::new(&toks, &src);
+        assert_eq!(parser.example_line(at, "x", true), "table t of E in x");
     }
 
     #[test]
