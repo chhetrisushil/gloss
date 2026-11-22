@@ -21,7 +21,12 @@ impl Parser<'_> {
         let line = self.line();
         let blank_before = self.toks.get(self.pos).is_some_and(|t| t.blank_before);
         let kind = self.stmt_kind()?;
+        let is_block = matches!(
+            kind,
+            S::If { .. } | S::ForEachIn { .. } | S::ForEachRange { .. } | S::RepeatWhile { .. }
+        );
         match self.peek() {
+            _ if is_block => {}
             Some(Tok::Newline) => self.pos += 1,
             None => {}
             Some(other) => {
@@ -45,9 +50,7 @@ impl Parser<'_> {
                 self.pos += 1;
                 Ok(S::Note(Note::Block(lines)))
             }
-            Some(Tok::Kw(Kw::If | Kw::Otherwise | Kw::For | Kw::Repeat)) => {
-                Err(self.err("Blocks are not supported yet"))
-            }
+            Some(Tok::Kw(Kw::If | Kw::Otherwise | Kw::For | Kw::Repeat)) => self.block_stmt(),
             Some(Tok::Kw(word)) => {
                 self.pos += 1;
                 self.keyword_stmt(word)
@@ -156,7 +159,7 @@ impl Parser<'_> {
     }
 
     /// A lowercase name; the verb is only used in the message.
-    fn parse_name(&mut self, verb: &str) -> Result<String, Diagnostic> {
+    pub(super) fn parse_name(&mut self, verb: &str) -> Result<String, Diagnostic> {
         match self.peek().cloned() {
             Some(Tok::Name(name)) => {
                 self.pos += 1;
@@ -181,7 +184,7 @@ impl Parser<'_> {
             .suggest(self.example_line(self.pos, &lowered, true))
     }
 
-    fn expect_word(&mut self, verb: &str, word: Kw) -> Result<(), Diagnostic> {
+    pub(super) fn expect_word(&mut self, verb: &str, word: Kw) -> Result<(), Diagnostic> {
         if self.eat_kw(word) {
             return Ok(());
         }
@@ -192,7 +195,7 @@ impl Parser<'_> {
 
     /// The statement's tokens as one line, with `word` replacing the token at
     /// index `at` or inserted before it.
-    fn example_line(&self, at: usize, word: &str, replace: bool) -> String {
+    pub(super) fn example_line(&self, at: usize, word: &str, replace: bool) -> String {
         let start = self.toks[..at]
             .iter()
             .rposition(|t| t.tok == Tok::Newline)
@@ -215,7 +218,7 @@ impl Parser<'_> {
 
     /// The statement with `word` where parsing stopped: replacing a wrong
     /// connecting word such as `into`, else inserted before the next token.
-    fn fixed_line(&self, word: &str) -> String {
+    pub(super) fn fixed_line(&self, word: &str) -> String {
         let wrong_word = matches!(
             self.peek(),
             Some(Tok::Kw(
