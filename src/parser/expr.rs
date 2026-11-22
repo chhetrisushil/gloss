@@ -104,6 +104,11 @@ impl Parser<'_> {
         if !self.eat_sym(Sym::Minus) {
             return self.fact();
         }
+        if let Some(Tok::Number(n)) = self.peek().cloned().filter(is_lowest) {
+            // The minus belongs to the literal: the most negative number has no positive twin.
+            self.pos += 1;
+            return Ok(self.mk(line, K::Number(n)));
+        }
         let operand = self.fact()?;
         Ok(self.mk(line, K::Negate(Box::new(operand))))
     }
@@ -202,6 +207,9 @@ impl Parser<'_> {
     fn primary(&mut self) -> Result<Expr, Diagnostic> {
         let line = self.line();
         let kind = match self.bump().map(|t| t.tok) {
+            Some(Tok::Number(n)) if n.0 == i64::MIN => {
+                return Err(self.err_at(line, crate::number::OUT_OF_RANGE));
+            }
             Some(Tok::Number(n)) => K::Number(n),
             Some(Tok::Text(t)) => K::Text(t),
             Some(Tok::Kw(Kw::Yes)) => K::Truth(true),
@@ -264,6 +272,11 @@ impl Parser<'_> {
             _ => Err(self.err_at(line, "Expected number, text, truth or a record name")),
         }
     }
+}
+
+/// The token the lexer makes of a minus sign followed by the most negative number.
+fn is_lowest(tok: &Tok) -> bool {
+    matches!(tok, Tok::Number(n) if n.0 == i64::MIN)
 }
 
 pub(super) fn op_text(op: ArithOp) -> &'static str {
