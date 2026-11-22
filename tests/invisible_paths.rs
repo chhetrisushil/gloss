@@ -42,12 +42,20 @@ fn invisible_and_space_like_characters_are_rejected() {
         '\u{205F}',
         '\u{FEFF}',
         '\u{2066}',
+        '\u{2028}',
+        '\u{2029}',
+        '\u{FFF9}',
+        '\u{FFFA}',
+        '\u{FFFB}',
+        '\u{FFFC}',
     ];
     for c in hidden {
         let found = errors(&format!("a{c}b.csv"));
         assert_eq!(found.len(), 1, "U+{:04X}: {found:?}", c as u32);
         assert!(
-            found[0].contains("a character that cannot be shown"),
+            found[0].ends_with(
+                "contains a character that cannot be shown, such as a tab, a control character or an invisible character"
+            ),
             "{found:?}"
         );
     }
