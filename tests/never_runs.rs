@@ -48,3 +48,37 @@ fn a_give_in_the_middle_of_a_block_counts_as_giving() {
         "{out:?}"
     );
 }
+
+#[test]
+fn a_line_after_an_if_whose_every_branch_gives_is_a_warning() {
+    let out = render(
+        "feature f\n  needs n as number\n  if n is 1\n    give 1\n  otherwise\n    give 2\n  show 3\nfeature start\n  show (f with 1)\n",
+    );
+    assert_eq!(
+        out,
+        [
+            "line 7: warning: show 3. this line never runs; every branch of the if on line 3 ends the feature."
+        ]
+    );
+}
+
+#[test]
+fn a_line_after_an_if_whose_every_branch_stops_or_skips_is_a_warning() {
+    let out = render(
+        "feature start\n  for each i from 1 to 3\n    if i is 1\n      stop\n    otherwise if i is 2\n      skip\n    otherwise\n      stop\n    show i\n",
+    );
+    assert_eq!(
+        out,
+        [
+            "line 9: warning: show i. this line never runs; every branch of the if on line 3 ends the loop."
+        ]
+    );
+}
+
+#[test]
+fn an_if_with_a_branch_that_continues_or_no_otherwise_is_quiet() {
+    let open = "feature start\n  for each i from 1 to 3\n    if i is 1\n      stop\n    otherwise\n      show i\n    show i\n";
+    assert!(render(open).is_empty(), "{:?}", render(open));
+    let bare = "feature start\n  for each i from 1 to 3\n    if i is 1\n      stop\n    show i\n";
+    assert!(render(bare).is_empty());
+}
