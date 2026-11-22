@@ -1,5 +1,5 @@
-use super::call;
-use crate::ir::{Cond, Function, Inst, IntOp, Label, Module, Reg, Shift};
+use super::{call, run};
+use crate::ir::{Cond, Data, Function, Global, Inst, IntOp, Label, Module, Reg, Shift};
 use Inst::*;
 use Reg::{A, B};
 
@@ -199,4 +199,129 @@ fn b_and_slots_survive_a_call() {
 #[should_panic(expected = "wrong number of arguments")]
 fn calling_with_the_wrong_number_of_arguments_panics() {
     call(&single(vec![Return]), "f", &[1]);
+}
+
+#[test]
+fn words_and_bytes_round_trip_through_a_global() {
+    let out = Data::Global(Global::OutBuf);
+    let word = single(vec![
+        AddressOf(B, out),
+        Const(A, -0x1122_3344_5566_7788),
+        Store {
+            base: B,
+            offset: 8,
+            from: A,
+        },
+        Const(A, 0),
+        Load {
+            to: A,
+            base: B,
+            offset: 8,
+        },
+        Return,
+    ]);
+    assert_eq!(call(&word, "f", &[]), -0x1122_3344_5566_7788);
+    let byte = single(vec![
+        AddressOf(B, out),
+        Const(A, 0x1ff),
+        StoreByte {
+            base: B,
+            offset: 3,
+            from: A,
+        },
+        Load {
+            to: A,
+            base: B,
+            offset: 0,
+        },
+        Return,
+    ]);
+    assert_eq!(call(&byte, "f", &[]), 0xff << 24);
+    let back = single(vec![
+        AddressOf(B, out),
+        Const(A, -1),
+        StoreByte {
+            base: B,
+            offset: 0,
+            from: A,
+        },
+        LoadByte {
+            to: A,
+            base: B,
+            offset: 0,
+        },
+        Return,
+    ]);
+    assert_eq!(call(&back, "f", &[]), 255);
+}
+
+#[test]
+fn a_text_address_leads_to_its_length_and_then_its_bytes() {
+    let mut m = single(vec![
+        AddressOf(B, Data::Text(0)),
+        LoadByte {
+            to: A,
+            base: B,
+            offset: 8,
+        },
+        Return,
+    ]);
+    m.text(b"xyz");
+    assert_eq!(call(&m, "f", &[]), i64::from(b'x'));
+}
+
+#[test]
+fn a_call_lowers_the_stack_pointer_by_the_arguments_and_the_frame() {
+    let callee = function(
+        "callee",
+        1,
+        1,
+        vec![StackPointer(A), LoadArg(B, 1), Int(IntOp::Sub), Return],
+    );
+    let caller = function(
+        "caller",
+        0,
+        0,
+        vec![StackPointer(A), Push(A), Call("callee".to_string()), Return],
+    );
+    let m = two_functions(callee, caller);
+    let drop = call(&m, "caller", &[]);
+    assert!(
+        -drop >= 8 * (1 + 1 + 2),
+        "the stack pointer fell by only {}",
+        -drop
+    );
+}
+
+#[test]
+fn stack_check_jumps_when_the_frame_would_not_fit() {
+    let fail = Label(0);
+    let limit = i64::try_from(0x7fff_0000_0000u64 - 100).unwrap();
+    let with_bytes = |bytes| {
+        single(vec![
+            AddressOf(B, Data::Global(Global::StackLimit)),
+            Const(A, limit),
+            Store {
+                base: B,
+                offset: 0,
+                from: A,
+            },
+            StackCheck { bytes, fail },
+            Const(A, 0),
+            Return,
+            Mark(fail),
+            Const(A, 1),
+            Return,
+        ])
+    };
+    assert_eq!(call(&with_bytes(50), "f", &[]), 0);
+    assert_eq!(call(&with_bytes(200), "f", &[]), 1);
+}
+
+#[test]
+fn run_calls_the_entry_with_no_output() {
+    let m = single(vec![Return]);
+    let outcome = run(&m, "f", b"");
+    assert_eq!(outcome.status, 0);
+    assert!(outcome.stdout.is_empty() && outcome.stderr.is_empty());
 }

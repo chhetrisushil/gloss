@@ -64,15 +64,35 @@ impl Machine<'_> {
             }
             Inst::Jump(label) => self.jump(*label),
             Inst::Call(name) => self.enter(name),
+            Inst::AddressOf(r, data) => {
+                let addr = self.memory.address_of(*data);
+                self.set(*r, addr as i64);
+            }
+            Inst::StackPointer(r) => self.set(*r, self.sp as i64),
+            Inst::Load { to, base, offset } => {
+                let value = self.memory.read(self.effective(*base, *offset));
+                self.set(*to, value);
+            }
+            Inst::Store { base, offset, from } => {
+                let addr = self.effective(*base, *offset);
+                self.memory.write(addr, self.reg(*from));
+            }
+            // A loaded byte is zero-extended.
+            Inst::LoadByte { to, base, offset } => {
+                let value = self.memory.read_byte(self.effective(*base, *offset));
+                self.set(*to, i64::from(value));
+            }
+            Inst::StoreByte { base, offset, from } => {
+                let addr = self.effective(*base, *offset);
+                self.memory.write_byte(addr, self.reg(*from) as u8);
+            }
+            Inst::StackCheck { bytes, fail } => {
+                if self.stack_overflows(*bytes) {
+                    self.jump(*fail);
+                }
+            }
             Inst::Return => return self.leave(),
             Inst::Enter(n) => assert_eq!(*n as usize, self.frame().slots.len()),
-            Inst::AddressOf(..)
-            | Inst::StackPointer(_)
-            | Inst::Load { .. }
-            | Inst::Store { .. }
-            | Inst::LoadByte { .. }
-            | Inst::StoreByte { .. }
-            | Inst::StackCheck { .. } => todo!("a later commit"),
             Inst::NumAdd { .. }
             | Inst::NumSub { .. }
             | Inst::NumNeg { .. }
