@@ -5,6 +5,7 @@ mod flow;
 mod mutation;
 pub mod names;
 pub mod rules;
+mod saving;
 pub mod similar;
 pub mod stmt;
 mod types;
@@ -94,5 +95,6 @@ fn check_bodies(ctx: &mut Ctx) -> TypeInfo {
         mutation::check_mutation(ctx, &[], &t.body);
     }
     walking::check_walking(ctx);
+    saving::check_saving(ctx);
     info
 }
