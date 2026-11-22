@@ -70,3 +70,47 @@ fn very_long_chains_and_minus_signs_give_a_diagnostic() {
         assert!(format_source(&text).is_err());
     }
 }
+
+fn target_chain(parts: usize) -> String {
+    format!("feature start\n  set {}x to 1\n", "a of ".repeat(parts))
+}
+
+fn item_target_chain(parts: usize) -> String {
+    format!(
+        "feature start\n  set {}x to 1\n",
+        "item 1 of ".repeat(parts)
+    )
+}
+
+fn remainder_chain(parts: usize) -> String {
+    format!(
+        "feature start\n  show {}7{}\n",
+        "remainder of ".repeat(parts),
+        " by 2".repeat(parts)
+    )
+}
+
+const TOO_DEEP: &str = "This expression is nested too deeply";
+
+#[test]
+fn nested_assignment_targets_stop_at_one_hundred() {
+    for build in [target_chain, item_target_chain] {
+        let err = format_source(&build(101)).unwrap_err();
+        assert_eq!(err.problem, TOO_DEEP);
+        assert_eq!(check_source(&build(101)).len(), 1);
+        assert_eq!(check_source(&build(300_000)).len(), 1);
+        let ok = build(100);
+        check_source(&ok);
+        assert_eq!(format_source(&ok).unwrap(), ok);
+    }
+}
+
+#[test]
+fn nested_remainders_stop_at_one_hundred() {
+    let err = format_source(&remainder_chain(101)).unwrap_err();
+    assert_eq!(err.problem, TOO_DEEP);
+    assert_eq!(check_source(&remainder_chain(200_000)).len(), 1);
+    let ok = remainder_chain(100);
+    check_source(&ok);
+    assert_eq!(format_source(&ok).unwrap(), ok);
+}
