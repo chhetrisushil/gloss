@@ -23,7 +23,8 @@ pub enum Item {
 #[derive(Clone, Debug, PartialEq)]
 pub enum RecordEntry {
     Field(FieldDecl),
-    Note(Note),
+    /// A note inside a record; the flag is true when a blank line came before it.
+    Note(Note, bool),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -38,6 +39,8 @@ pub struct FieldDecl {
     pub line: Line,
     pub name: String,
     pub ty: PlainType,
+    /// True when a blank line came before this field.
+    pub blank_before: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -60,6 +63,8 @@ pub struct FeatureDecl {
     pub line: Line,
     pub name: String,
     pub needs: Vec<InputDecl>,
+    /// How many leading statements of `body` (all notes) were written before `needs`.
+    pub notes_before_needs: usize,
     pub body: Vec<Stmt>,
 }
 
@@ -74,7 +79,7 @@ impl RecordDecl {
     pub fn fields(&self) -> impl Iterator<Item = &FieldDecl> {
         self.entries.iter().filter_map(|e| match e {
             RecordEntry::Field(f) => Some(f),
-            RecordEntry::Note(_) => None,
+            RecordEntry::Note(..) => None,
         })
     }
 }
@@ -119,12 +124,13 @@ mod tests {
             line: 2,
             name: name.into(),
             ty: PlainType::Text,
+            blank_before: false,
         };
         let record = RecordDecl {
             line: 1,
             name: "S".into(),
             entries: vec![
-                RecordEntry::Note(Note::Line("why".into())),
+                RecordEntry::Note(Note::Line("why".into()), false),
                 RecordEntry::Field(field("name")),
             ],
         };
@@ -132,6 +138,7 @@ mod tests {
             line: 3,
             name: "f".into(),
             needs: vec![],
+            notes_before_needs: 0,
             body: vec![],
         };
         let test = TestDecl {
