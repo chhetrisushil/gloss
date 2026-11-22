@@ -1,7 +1,7 @@
-use super::Ctx;
+use super::{Ctx, Ty};
 use crate::ast::print;
 use crate::ast::stmt::{Stmt, StmtKind, Target};
-use crate::ast::{ArithOp, Expr, ExprKind};
+use crate::ast::{ArithOp, CompareOp, Expr, ExprKind};
 use crate::diag::Diagnostic;
 
 /// The verb form of a `set` whose value is its own target combined with one other value.
@@ -32,6 +32,26 @@ pub fn set_rewrite(stmt: &StmtKind) -> Option<StmtKind> {
         ArithOp::Mul if own_right => Some(StmtKind::Multiply { target, by: left }),
         ArithOp::Div if own_left => Some(StmtKind::Divide { target, by: right }),
         _ => None,
+    }
+}
+
+/// The form of `X is yes`, `X is not no` and the like that uses X directly.
+pub fn truth_rewrite(e: &Expr) -> Option<ExprKind> {
+    let ExprKind::Compare { op, left, right } = &e.kind else {
+        return None;
+    };
+    if !matches!(op, CompareOp::Is | CompareOp::IsNot) {
+        return None;
+    }
+    let (x, yes) = match (&left.kind, &right.kind) {
+        (_, ExprKind::Truth(b)) => (left, *b),
+        (ExprKind::Truth(b), _) => (right, *b),
+        _ => return None,
+    };
+    if *op == CompareOp::Is && yes || *op == CompareOp::IsNot && !yes {
+        Some(x.kind.clone())
+    } else {
+        Some(ExprKind::Not(x.clone()))
     }
 }
 
@@ -81,34 +101,112 @@ fn form_text(kind: &StmtKind) -> Option<(String, &'static str, &'static str)> {
     })
 }
 
-/// Rejects arithmetic `set`s that have a verb form.
-pub fn check_rules(ctx: &mut Ctx, body: &[Stmt]) {
+/// Rejects arithmetic `set`s and truth comparisons that have a shorter form.
+pub fn check_rules(ctx: &mut Ctx, types: &[Option<Ty>], body: &[Stmt]) {
     for stmt in body {
         if let Some((form, verb, sign)) = set_rewrite(&stmt.kind).as_ref().and_then(form_text) {
             let msg = format!("set with {sign} on its own target is written with {verb}");
             ctx.diags
                 .push(Diagnostic::error(ctx.src, stmt.line, msg).suggest(form));
         }
-        nested(&stmt.kind)
-            .into_iter()
-            .for_each(|b| check_rules(ctx, b));
+        let mut exprs = Vec::new();
+        let mut nested: Vec<&[Stmt]> = Vec::new();
+        parts(&stmt.kind, &mut exprs, &mut nested);
+        exprs.into_iter().for_each(|e| check_truth(ctx, types, e));
+        nested.into_iter().for_each(|b| check_rules(ctx, types, b));
     }
 }
 
-/// The blocks inside a statement.
-fn nested(kind: &StmtKind) -> Vec<&[Stmt]> {
+fn check_truth(ctx: &mut Ctx, types: &[Option<Ty>], e: &Expr) {
+    if let Some(kind) = truth_rewrite(e).filter(|_| compares_a_truth(types, e)) {
+        let better = print::expr(&Expr {
+            id: e.id,
+            line: e.line,
+            kind,
+        });
+        let msg = format!(
+            "A truth is used directly: write {better} instead of {}",
+            print::expr(e)
+        );
+        ctx.diags.push(Diagnostic::error(ctx.src, e.line, msg));
+    }
+    children(e)
+        .into_iter()
+        .for_each(|c| check_truth(ctx, types, c));
+}
+
+/// True when the non-literal side of the comparison is a truth; other types
+/// already have their own error.
+fn compares_a_truth(types: &[Option<Ty>], e: &Expr) -> bool {
+    let ExprKind::Compare { left, right, .. } = &e.kind else {
+        return false;
+    };
+    [left, right].iter().any(|x| {
+        let known = types.get(x.id.0 as usize).cloned().flatten();
+        !matches!(x.kind, ExprKind::Truth(_)) && known == Some(Ty::Truth)
+    })
+}
+
+/// The expressions a statement holds directly, and the blocks inside it.
+fn parts<'a>(kind: &'a StmtKind, exprs: &mut Vec<&'a Expr>, nested: &mut Vec<&'a [Stmt]>) {
     match kind {
+        StmtKind::Set { value, .. } => exprs.push(value),
+        StmtKind::Add { value, .. } | StmtKind::Subtract { value, .. } => exprs.push(value),
+        StmtKind::Multiply { by, .. } | StmtKind::Divide { by, .. } => exprs.push(by),
+        StmtKind::Append { value, .. } => exprs.push(value),
+        StmtKind::Ask { question, .. } => exprs.push(question),
+        StmtKind::Show(xs) | StmtKind::Input(xs) | StmtKind::Run { inputs: xs, .. } => {
+            exprs.extend(xs);
+        }
+        StmtKind::Give(e) | StmtKind::Expect(e) => exprs.push(e),
         StmtKind::If {
             branches,
             otherwise,
-        } => branches
-            .iter()
-            .map(|(_, b)| b.as_slice())
-            .chain(otherwise.as_deref())
-            .collect(),
-        StmtKind::ForEachIn { body, .. }
-        | StmtKind::ForEachRange { body, .. }
-        | StmtKind::RepeatWhile { body, .. } => vec![body],
+        } => {
+            for (cond, b) in branches {
+                exprs.push(cond);
+                nested.push(b);
+            }
+            nested.extend(otherwise.as_deref());
+        }
+        StmtKind::ForEachIn { list, body, .. } => {
+            exprs.push(list);
+            nested.push(body);
+        }
+        StmtKind::ForEachRange { from, to, body, .. } => {
+            exprs.extend([from, to]);
+            nested.push(body);
+        }
+        StmtKind::RepeatWhile { cond, body } => {
+            exprs.push(cond);
+            nested.push(body);
+        }
+        _ => {}
+    }
+}
+
+fn children(e: &Expr) -> Vec<&Expr> {
+    match &e.kind {
+        ExprKind::Paren(x)
+        | ExprKind::FieldOf { of: x, .. }
+        | ExprKind::Fact { of: x, .. }
+        | ExprKind::Negate(x)
+        | ExprKind::Convert { value: x, .. }
+        | ExprKind::IsNumber { value: x, .. }
+        | ExprKind::Not(x) => vec![x],
+        ExprKind::ItemOf { position: a, of: b }
+        | ExprKind::Remainder { of: a, by: b }
+        | ExprKind::Binary {
+            left: a, right: b, ..
+        }
+        | ExprKind::Compare {
+            left: a, right: b, ..
+        } => vec![a, b],
+        ExprKind::Call { inputs: xs, .. }
+        | ExprKind::BuildList(xs)
+        | ExprKind::And(xs)
+        | ExprKind::Or(xs) => xs.iter().collect(),
+        ExprKind::BuildRecord { fields, .. } => fields.iter().map(|(_, x)| x).collect(),
         _ => Vec::new(),
     }
 }
@@ -120,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn rule_two_sets() {
+    fn rule_two() {
         assert_eq!(
             diags("feature start\n  set t to 1\n  set t to t + 2\n  show t\n"),
             [
@@ -138,6 +236,16 @@ mod tests {
                 "feature start\n  set t to 1\n  set t to 3 - t\n  set t to t * 2 + 1\n  show t\n"
             )
             .is_empty()
+        );
+        assert_eq!(
+            diags("feature start\n  set d to yes\n  if d is yes\n    show 1\n"),
+            ["line 3: if d is yes. A truth is used directly: write d instead of d is yes."]
+        );
+        assert_eq!(
+            diags("feature start\n  set d to yes\n  if d is not yes\n    show 1\n"),
+            [
+                "line 3: if d is not yes. A truth is used directly: write not d instead of d is not yes."
+            ]
         );
     }
     #[test]
@@ -173,5 +281,28 @@ mod tests {
             diags("feature start\n  set t to 1\n  set t to (t + 2)\n  set t to 2 - t\n  show t\n")
                 .is_empty()
         );
+    }
+    #[test]
+    fn other_truth_forms() {
+        let d = "feature start\n  set d to yes\n";
+        assert_eq!(
+            diags(&format!("{d}  if yes is d\n    show 1\n")),
+            ["line 3: if yes is d. A truth is used directly: write d instead of yes is d."]
+        );
+        assert_eq!(
+            diags(&format!("{d}  if d is no\n    show 1\n")),
+            ["line 3: if d is no. A truth is used directly: write not d instead of d is no."]
+        );
+        assert_eq!(
+            diags(&format!("{d}  if d is not no\n    show 1\n")),
+            ["line 3: if d is not no. A truth is used directly: write d instead of d is not no."]
+        );
+    }
+
+    #[test]
+    fn a_non_truth_gets_only_its_type_error() {
+        let got = diags("feature start\n  set n to 1\n  if n is yes\n    show 1\n");
+        assert_eq!(got.len(), 1);
+        assert!(!got[0].contains("A truth is used directly"));
     }
 }
