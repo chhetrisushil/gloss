@@ -11,6 +11,7 @@ struct Flow<'a, 'b> {
     ctx: &'a mut Ctx<'b>,
     origins: BTreeMap<String, Origin>,
     used: BTreeSet<String>,
+    reported: BTreeSet<(String, Line)>,
 }
 
 type Defined = BTreeSet<String>;
@@ -25,6 +26,7 @@ pub fn check_flow(ctx: &mut Ctx, inputs: &[(String, Ty)], body: &[Stmt]) {
         ctx,
         origins: found.iter().cloned().collect(),
         used: BTreeSet::new(),
+        reported: BTreeSet::new(),
     };
     let mut defined: Defined = inputs.iter().map(|(n, _)| n.clone()).collect();
     flow.stmts(body, &mut defined);
@@ -44,6 +46,9 @@ impl Flow<'_, '_> {
             return;
         };
         if !defined.insert(name.into()) {
+            return;
+        }
+        if !self.reported.insert((name.into(), line)) {
             return;
         }
         let (first, fix) = origin.describe();
@@ -239,6 +244,18 @@ mod tests {
                 "line 3: show a. a may not have a value here; it is first set inside the loop on line 2. Set it before the loop."
             ]
         );
+    }
+
+    #[test]
+    fn a_read_is_reported_once_per_line() {
+        let p = "feature start\n  if 1 is 1\n    show x\n  otherwise\n    show x\n  show x\n  set x to 1\n";
+        let all = diags(p);
+        let said = |l: &str| all.iter().filter(|d| d.starts_with(l)).count();
+        assert_eq!(
+            (said("line 3:"), said("line 5:"), said("line 6:")),
+            (1, 1, 0)
+        );
+        assert_eq!(all.len(), 2);
     }
 
     #[test]

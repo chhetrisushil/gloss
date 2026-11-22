@@ -156,7 +156,15 @@ mod tests {
             "feature f\n  needs a as number\n  set a to a + 1\n  if a is yes\n    show 1\n";
         let wrapped = format!("feature g\n  set l to list of {long}\n  run f with {long}\n");
         let nots = "feature f\n  if not d is no\n    show 1\n  if a and not e is no\n    show 2\n";
-        for src in [expenses(), rewrites.into(), wrapped, nots.into()] {
+        let parens =
+            "feature f\n  if not (d is yes)\n    show 1\n  if (d is yes) and e\n    show 2\n";
+        for src in [
+            expenses(),
+            rewrites.into(),
+            wrapped,
+            nots.into(),
+            parens.into(),
+        ] {
             let out = fmt(&src);
             assert_eq!(super::format_program(&parsed(&out)), out);
             assert_eq!(fmt(&out), out);
@@ -173,6 +181,16 @@ mod tests {
             fmt("feature f\n  if a and not e is no\n    show 1\n"),
             "feature f\n  if a and e\n    show 1\n"
         );
+    }
+
+    #[test]
+    fn a_rewrite_that_leaves_a_bare_value_drops_its_parentheses() {
+        assert_eq!(
+            fmt("feature f\n  if not (d is yes)\n    show 1\n  if (d is yes) and e\n    show 2\n"),
+            "feature f\n  if not d\n    show 1\n  if d and e\n    show 2\n"
+        );
+        let own = "feature f\n  show (d)\n";
+        assert_eq!(fmt(own), own);
     }
 
     #[test]

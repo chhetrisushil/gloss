@@ -27,7 +27,8 @@ impl Ty {
     /// The type with its article, as in "n is a number".
     pub fn described(&self) -> String {
         match self {
-            Ty::Number | Ty::Truth => format!("a {}", self.describe()),
+            Ty::Number | Ty::Truth | Ty::List(_) => format!("a {}", self.describe()),
+            Ty::Table { .. } => format!("the {}", self.describe()),
             _ => self.describe(),
         }
     }
@@ -52,5 +53,7 @@ mod tests {
         assert_eq!(Ty::Text.item(), None);
         assert_eq!(Ty::Number.described(), "a number");
         assert_eq!(Ty::Text.described(), "text");
+        assert_eq!(list.described(), "a list of number");
+        assert_eq!(table.described(), "the table es");
     }
 }
