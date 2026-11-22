@@ -56,6 +56,10 @@ impl Parser<'_> {
 
     /// Negations joined by `and` or by `or`, never both.
     pub fn parse_expr(&mut self) -> Result<Expr, Diagnostic> {
+        self.outermost(Self::joined)
+    }
+
+    fn joined(&mut self) -> Result<Expr, Diagnostic> {
         let line = self.line();
         let first = self.negation()?;
         let Some(joiner) = self.joiner() else {

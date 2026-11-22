@@ -1,15 +1,17 @@
 use super::Parser;
-use crate::ast::print;
 use crate::ast::{ArithOp, Conversion, Expr, ExprKind as K, Fact, ItemType, PlainType};
 use crate::diag::Diagnostic;
 use crate::lexer::{Kw, Sym, Tok};
 
 impl Parser<'_> {
     pub fn parse_arith(&mut self) -> Result<Expr, Diagnostic> {
+        self.outermost(Self::arith)
+    }
+
+    fn arith(&mut self) -> Result<Expr, Diagnostic> {
         let mut left = self.product()?;
         while let Some(op) = self.arith_op(Sym::Plus, Sym::Minus, ArithOp::Add, ArithOp::Sub) {
-            let right = self.right_operand(op, &left, Self::product)?;
-            left = self.binary(op, left, right);
+            left = self.extend(op, left, Self::product)?;
         }
         Ok(left)
     }
@@ -17,8 +19,7 @@ impl Parser<'_> {
     fn product(&mut self) -> Result<Expr, Diagnostic> {
         let mut left = self.converted()?;
         while let Some(op) = self.arith_op(Sym::Star, Sym::Slash, ArithOp::Mul, ArithOp::Div) {
-            let right = self.right_operand(op, &left, Self::converted)?;
-            left = self.binary(op, left, right);
+            left = self.extend(op, left, Self::converted)?;
         }
         Ok(left)
     }
@@ -34,28 +35,7 @@ impl Parser<'_> {
         }
     }
 
-    /// Parses the operand after `op`, rejecting a `whole` or `remainder`
-    /// fact on the right edge of `left`, which could be read two ways.
-    fn right_operand(
-        &mut self,
-        op: ArithOp,
-        left: &Expr,
-        level: fn(&mut Self) -> Result<Expr, Diagnostic>,
-    ) -> Result<Expr, Diagnostic> {
-        if matches!(self.peek(), Some(Tok::Newline) | None) {
-            return Err(self.err(format!("{} needs a value after it", op_text(op))));
-        }
-        let right = level(self)?;
-        match number_fact_on_right_edge(left) {
-            Some(fact) => {
-                let message = ambiguity(&print::expr(left), fact, op_text(op), &right);
-                Err(Diagnostic::error(self.src, fact.line, message))
-            }
-            None => Ok(right),
-        }
-    }
-
-    fn binary(&mut self, op: ArithOp, left: Expr, right: Expr) -> Expr {
+    pub(super) fn binary(&mut self, op: ArithOp, left: Expr, right: Expr) -> Expr {
         let line = left.line;
         let kind = K::Binary {
             op,
@@ -266,7 +246,7 @@ impl Parser<'_> {
     }
 }
 
-fn op_text(op: ArithOp) -> &'static str {
+pub(super) fn op_text(op: ArithOp) -> &'static str {
     match op {
         ArithOp::Add => "+",
         ArithOp::Sub => "-",
@@ -277,7 +257,7 @@ fn op_text(op: ArithOp) -> &'static str {
 
 /// The `whole` or `remainder` fact that ends `e`, looking through
 /// negation and the right side of arithmetic.
-fn number_fact_on_right_edge(e: &Expr) -> Option<&Expr> {
+pub(super) fn number_fact_on_right_edge(e: &Expr) -> Option<&Expr> {
     match &e.kind {
         K::Fact {
             fact: Fact::Whole, ..
@@ -287,25 +267,6 @@ fn number_fact_on_right_edge(e: &Expr) -> Option<&Expr> {
         K::Binary { right, .. } => number_fact_on_right_edge(right),
         _ => None,
     }
-}
-
-/// The message for `left op right`, where `fact` ends `left`; both ways of reading it are
-/// written out with everything that comes before the fact kept in place.
-fn ambiguity(left: &str, fact: &Expr, op: &str, right: &Expr) -> String {
-    let (f, r) = (print::expr(fact), print::expr(right));
-    let before = left.strip_suffix(f.as_str()).unwrap_or_default();
-    let second = match &fact.kind {
-        K::Fact { of, .. } => format!("whole of ({} {op} {r})", print::expr(of)),
-        K::Remainder { of, by } => {
-            format!(
-                "remainder of {} by ({} {op} {r})",
-                print::expr(of),
-                print::expr(by)
-            )
-        }
-        _ => String::new(),
-    };
-    format!("{f} {op} {r} can be read two ways. Write {before}({f}) {op} {r} or {before}{second}")
 }
 
 fn built_in_fact(k: Kw) -> Option<Fact> {
