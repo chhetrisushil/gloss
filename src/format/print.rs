@@ -1,3 +1,4 @@
+use super::wrap::wrap;
 use crate::ast::Expr;
 use crate::ast::print::expr;
 use crate::ast::stmt::{Note, Stmt, StmtKind as S, Target};
@@ -21,8 +22,7 @@ pub fn stmts(body: &[Stmt], level: usize) -> Vec<String> {
 
 /// One statement, with its block, as lines at `level`.
 pub fn stmt(s: &Stmt, level: usize) -> Vec<String> {
-    let pad = indent(level);
-    let head = |text: String| format!("{pad}{text}");
+    let head = |text: String| wrap(level, &text);
     match &s.kind {
         S::Note(note) => note_lines(note, level),
         S::If {
@@ -32,11 +32,11 @@ pub fn stmt(s: &Stmt, level: usize) -> Vec<String> {
             let mut lines = Vec::new();
             for (i, (cond, body)) in branches.iter().enumerate() {
                 let word = if i == 0 { "if" } else { "otherwise if" };
-                lines.push(head(format!("{word} {}", expr(cond))));
+                lines.extend(head(format!("{word} {}", expr(cond))));
                 lines.extend(stmts(body, level + 1));
             }
             if let Some(body) = otherwise {
-                lines.push(head("otherwise".into()));
+                lines.extend(head("otherwise".into()));
                 lines.extend(stmts(body, level + 1));
             }
             lines
@@ -58,12 +58,12 @@ pub fn stmt(s: &Stmt, level: usize) -> Vec<String> {
         S::RepeatWhile { cond, body } => {
             block(head(format!("repeat while {}", expr(cond))), body, level)
         }
-        _ => vec![head(simple(&s.kind))],
+        _ => head(simple(&s.kind)),
     }
 }
 
-fn block(first: String, body: &[Stmt], level: usize) -> Vec<String> {
-    let mut lines = vec![first];
+fn block(first: Vec<String>, body: &[Stmt], level: usize) -> Vec<String> {
+    let mut lines = first;
     lines.extend(stmts(body, level + 1));
     lines
 }

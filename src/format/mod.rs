@@ -1,9 +1,11 @@
 pub mod print;
 mod rewrite;
+mod wrap;
 
 use crate::ast::program::{Item, Program, RecordEntry};
 use crate::ast::{ItemType, Type, type_text};
 use print::{note_lines, stmts};
+use wrap::wrap;
 
 /// The canonical source text of a program.
 pub fn format_program(program: &Program) -> String {
@@ -50,7 +52,7 @@ fn item_lines(item: &Item) -> Vec<String> {
                     .iter()
                     .map(|i| format!("{} as {}", i.name, type_text(&i.ty)))
                     .collect();
-                lines.push(format!("  needs {}", inputs.join(", ")));
+                lines.extend(wrap(1, &format!("needs {}", inputs.join(", "))));
             }
             lines.extend(stmts(&f.body, 1));
             lines
@@ -97,6 +99,68 @@ mod tests {
             fmt("feature start\n  set d to yes\n  if d is no\n    show 1\n"),
             "feature start\n  set d to yes\n  if not d\n    show 1\n"
         );
+    }
+
+    fn parsed(s: &str) -> crate::ast::program::Program {
+        crate::parse_source(&crate::source::Source::new(s)).unwrap()
+    }
+
+    #[test]
+    fn wraps_long_lines_after_commas() {
+        let long = format!(
+            "feature start\n  show {}\n",
+            (1..=30)
+                .map(|i| format!("\"item{i:02}\""))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let out = fmt(&long);
+        assert!(out.lines().all(|l| l.len() <= 100), "{out}");
+        assert!(out.lines().nth(2).unwrap().starts_with("    \"item"));
+        parsed(&out);
+        assert_eq!(fmt(&out), fmt(&long));
+        assert_eq!(fmt(&out), out);
+    }
+
+    #[test]
+    fn never_breaks_inside_text_or_loops_on_a_long_item() {
+        let item = format!("\"{}, b\"", "a".repeat(120));
+        let src = format!("feature start\n  show \"a, b\", {item}, \"c, d\"\n");
+        let out = fmt(&src);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines[1], "  show \"a, b\",");
+        assert_eq!(lines[2], format!("    {item},"));
+        assert_eq!(lines[3], "    \"c, d\"");
+        assert_eq!(fmt(&out), out);
+    }
+
+    #[test]
+    fn width_counts_characters_not_bytes() {
+        let items = (1..=12)
+            .map(|i| format!("\"éé{i:02}éééé\""))
+            .collect::<Vec<_>>();
+        let out = fmt(&format!("feature start\n  show {}\n", items.join(", ")));
+        let widths: Vec<usize> = out.lines().skip(1).map(|l| l.chars().count()).collect();
+        assert!(widths.iter().all(|w| *w <= 100), "{out}");
+        assert!(widths[0] >= 90, "{out}");
+        assert!(out.lines().nth(1).unwrap().len() > 100, "bytes exceed 100");
+    }
+
+    #[test]
+    fn formatting_is_stable_and_keeps_meaning() {
+        let long = (1..=40)
+            .map(|i| format!("n{i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let rewrites =
+            "feature f\n  needs a as number\n  set a to a + 1\n  if a is yes\n    show 1\n";
+        let wrapped = format!("feature g\n  set l to list of {long}\n  run f with {long}\n");
+        let nots = "feature f\n  if not d is no\n    show 1\n  if a and not e is no\n    show 2\n";
+        for src in [expenses(), rewrites.into(), wrapped, nots.into()] {
+            let out = fmt(&src);
+            assert_eq!(super::format_program(&parsed(&out)), out);
+            assert_eq!(fmt(&out), out);
+        }
     }
 
     #[test]
