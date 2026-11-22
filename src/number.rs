@@ -1,5 +1,9 @@
 pub const SCALE: i64 = 10_000;
 
+/// What a number literal beyond the range says.
+pub const OUT_OF_RANGE: &str =
+    "This number is outside the range Gloss can hold, about 922 trillion either way";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Number(pub i64);
 

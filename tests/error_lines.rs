@@ -95,3 +95,38 @@ fn places_is_one_digit_from_zero_to_four_written_as_such() {
     let ok = "feature start\n  show 1 as text with 4 places\n";
     assert!(format_source(ok).is_ok());
 }
+
+#[test]
+fn an_empty_test_title_is_refused() {
+    let out = first_error("feature start\n  show 1\ntest \"\"\n  show 1\n");
+    assert_eq!(
+        out,
+        "line 3: test \"\". A test title is a sentence in quotes."
+    );
+}
+
+const LOWEST: &str = "922337203685477.5808";
+const RANGE: &str = "This number is outside the range Gloss can hold";
+
+#[test]
+fn the_most_negative_number_is_a_literal_with_its_minus() {
+    let text = format!("feature start\n  show -{LOWEST}\n");
+    assert!(check_source(&text).is_empty());
+    assert_eq!(format_source(&text).unwrap(), text);
+    let spaced = format!("feature start\n  show - {LOWEST}\n");
+    assert_eq!(format_source(&spaced).unwrap(), text);
+}
+
+#[test]
+fn the_most_negative_magnitude_alone_is_out_of_range() {
+    for show in [
+        LOWEST.to_string(),
+        format!("3 - {LOWEST}"),
+        "922337203685477.5809".into(),
+    ] {
+        let out = first_error(&format!("feature start\n  show {show}\n"));
+        assert!(out.contains(RANGE), "{show}: {out}");
+    }
+    let past = first_error("feature start\n  show -922337203685477.5809\n");
+    assert!(past.contains(RANGE), "{past}");
+}

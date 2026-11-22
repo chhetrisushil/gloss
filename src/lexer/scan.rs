@@ -1,6 +1,6 @@
 use super::token::{Kw, Sym, Tok, Token};
 use crate::diag::Diagnostic;
-use crate::number::{Number, NumberError};
+use crate::number::{Number, NumberError, OUT_OF_RANGE};
 use crate::source::Source;
 
 /// Scans one line of text into tokens. Indentation, notes and continuation
@@ -31,11 +31,21 @@ pub fn scan_line(src: &Source, line: u32, text: &str) -> Result<Vec<Token>, Diag
                     .find(|c: char| !(c.is_ascii_digit() || c == '.'))
                     .unwrap_or(text.len() - i);
                 let lexeme = &text[start..i];
-                let n = Number::parse_literal(lexeme).map_err(|e| {
+                // The most negative number cannot be written without its minus sign.
+                let lowest = || match out.last().map(|t: &Token| &t.tok) {
+                    Some(Tok::Sym(Sym::Minus)) => Number::parse_text(&format!("-{lexeme}")).ok(),
+                    _ => None,
+                };
+                let parsed = Number::parse_literal(lexeme);
+                let n = parsed.or_else(|e| lowest().ok_or(e)).map_err(|e| {
                     err(match e {
-                        NumberError::Malformed => format!("{lexeme} is not a number Gloss can read"),
-                        NumberError::TooManyPlaces => "Numbers have at most four decimal places".into(),
-                        NumberError::OutOfRange => "This number is outside the range Gloss can hold, about 922 trillion either way".into(),
+                        NumberError::Malformed => {
+                            format!("{lexeme} is not a number Gloss can read")
+                        }
+                        NumberError::TooManyPlaces => {
+                            "Numbers have at most four decimal places".into()
+                        }
+                        NumberError::OutOfRange => OUT_OF_RANGE.into(),
                     })
                 })?;
                 if text[i..].chars().next().is_some_and(is_word) {

@@ -228,7 +228,11 @@ impl Parser<'_> {
     }
 
     fn test(&mut self, line: u32) -> Result<TestDecl, Diagnostic> {
-        let Some(Tok::Text(title)) = self.peek().cloned() else {
+        let title = self.peek().cloned();
+        let Some(Tok::Text(title)) = title.filter(|t| *t != Tok::Text(String::new())) else {
+            if self.peek() == Some(&Tok::Text(String::new())) {
+                return Err(self.err("A test title is a sentence in quotes"));
+            }
             let rest = self.toks[self.pos..]
                 .iter()
                 .take_while(|t| t.tok != Tok::Newline)
