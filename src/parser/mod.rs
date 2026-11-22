@@ -1,3 +1,4 @@
+mod block;
 pub mod expr;
 mod stmt;
 mod value;
