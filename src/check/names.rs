@@ -135,7 +135,10 @@ fn path_problem(path: &str) -> Option<String> {
         Some(String::from(
             "The file name contains a character that cannot be shown, such as a tab or a control character",
         ))
-    } else if parts.next_back().is_some_and(|p| p.ends_with(".gloss-new")) {
+    } else if parts
+        .next_back()
+        .is_some_and(|p| ends_with_ignoring_case(p, ".gloss-new"))
+    {
         Some(String::from(
             "The file name must not end in .gloss-new; that ending is kept for files Gloss writes while saving",
         ))
@@ -161,10 +164,15 @@ fn later_path_problem(path: &str) -> Option<String> {
     let last = path.rsplit('/').next().unwrap_or_default();
     let ending = [".gloss", ".allow", ".trace", ".svg"]
         .into_iter()
-        .find(|e| last.ends_with(e))?;
+        .find(|e| ends_with_ignoring_case(last, e))?;
     Some(format!(
         "The file name must not end in {ending}; that ending is kept for files Gloss reads or writes"
     ))
+}
+
+/// Case-insensitive, because a case-insensitive file system treats `x.GLOSS` as `x.gloss`.
+fn ends_with_ignoring_case(name: &str, ending: &str) -> bool {
+    name.to_lowercase().ends_with(ending)
 }
 
 /// Control characters and invisible formatting characters.
@@ -353,6 +361,13 @@ mod tests {
                 )]
             );
         }
+        assert_eq!(
+            t("x.GLOSS"),
+            [
+                r#"line 5: table t of E in "x.GLOSS". The file name must not end in .gloss; that ending is kept for files Gloss reads or writes."#
+            ]
+        );
+        assert_eq!(t("x.Gloss-New").len(), 1);
         assert!(t("data/expenses.csv").is_empty());
         assert!(t("a..b.csv").is_empty());
         let two = format!(

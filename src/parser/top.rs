@@ -54,6 +54,7 @@ impl Parser<'_> {
             _ => return Ok(None),
         };
         self.pos += 1;
+        // The lexer always follows a note with a Newline, so this error is only defensive.
         self.end_line()?;
         Ok(Some(note))
     }
