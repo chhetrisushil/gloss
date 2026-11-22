@@ -85,9 +85,19 @@ fn target(t: &mut Target) {
 }
 
 fn expr(e: &mut Expr) {
+    let mut drop_paren = false;
     match &mut e.kind {
-        K::Paren(x)
-        | K::FieldOf { of: x, .. }
+        K::Paren(x) => {
+            let before = std::mem::discriminant(&x.kind);
+            expr(x);
+            // A rewrite that leaves a bare value inside makes the parentheses redundant.
+            let bare = matches!(
+                x.kind,
+                K::Name(_) | K::Number(_) | K::Text(_) | K::Truth(_) | K::Shown | K::Paren(_)
+            );
+            drop_paren = bare && std::mem::discriminant(&x.kind) != before;
+        }
+        K::FieldOf { of: x, .. }
         | K::Fact { of: x, .. }
         | K::Negate(x)
         | K::Convert { value: x, .. }
@@ -109,6 +119,12 @@ fn expr(e: &mut Expr) {
         }
         K::BuildRecord { fields, .. } => fields.iter_mut().for_each(|(_, x)| expr(x)),
         _ => {}
+    }
+    if drop_paren {
+        if let K::Paren(x) = &e.kind {
+            let inner = (**x).clone();
+            *e = inner;
+        }
     }
     if let Some(kind) = truth_rewrite(e) {
         e.kind = kind;

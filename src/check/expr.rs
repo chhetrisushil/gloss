@@ -402,6 +402,14 @@ mod tests {
             ["line 7: show amount of n. n is a number, so it has no field amount."]
         );
         assert_eq!(
+            body("  set xs to list of 1\n  show amount of xs\n"),
+            ["line 7: show amount of xs. xs is a list of number, so it has no field amount."]
+        );
+        assert_eq!(
+            body("  show amount of es\n"),
+            ["line 6: show amount of es. es is the table es, so it has no field amount."]
+        );
+        assert_eq!(
             body("  set n to 1\n  show count of n\n"),
             ["line 7: show count of n. count of works on lists and tables; n is a number."]
         );

@@ -150,6 +150,7 @@ pub fn record_type(ctx: &mut Ctx, e: &Expr, record: &str, given: &[(&str, &Expr,
     for &(field, arg, ref got) in given {
         if seen.contains(&field) {
             report(ctx, e, format!("{field} is given twice"), None);
+            continue;
         }
         seen.push(field);
         let Some(f) = decl.fields().find(|f| f.name == field) else {
@@ -205,7 +206,7 @@ pub fn list_type(ctx: &mut Ctx, e: &Expr, items: &[(&Expr, Ty)]) -> Ty {
         format!(
             "A list holds numbers, text, truths or records; {} is {}",
             print::expr(first.0),
-            first.1.describe()
+            first.1.described()
         )
     } else if let Some((x, t)) = items.iter().find(|(_, t)| *t != first.1) {
         format!(
@@ -348,14 +349,22 @@ mod tests {
         assert_eq!(
             src("  show (takes_s with es)\n"),
             [
-                "line 18: show (takes_s with es). The input xs of takes_s is list of S; es is table es."
+                "line 18: show (takes_s with es). The input xs of takes_s is a list of S; es is the table es."
             ]
         );
         assert_eq!(
             src("  show (takes_n with es)\n"),
             [
-                "line 18: show (takes_n with es). The input xs of takes_n is list of number; es is table es."
+                "line 18: show (takes_n with es). The input xs of takes_n is a list of number; es is the table es."
             ]
+        );
+    }
+
+    #[test]
+    fn a_field_given_twice_is_reported_once() {
+        assert_eq!(
+            with_f("  show (E with amount 1, amount \"x\", name \"x\")\n"),
+            ["line 12: show (E with amount 1, amount \"x\", name \"x\"). amount is given twice."]
         );
     }
 
@@ -364,7 +373,7 @@ mod tests {
         assert_eq!(
             with_f("  show (list of es)\n"),
             [
-                "line 12: show (list of es). A list holds numbers, text, truths or records; es is table es."
+                "line 12: show (list of es). A list holds numbers, text, truths or records; es is the table es."
             ]
         );
         assert_eq!(

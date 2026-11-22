@@ -82,8 +82,12 @@ impl<'a> Mutation<'_, '_, '_> {
     }
 
     fn protect(&mut self, stmt: &Stmt, name: &str, whole: bool, walking: &[Loop]) {
+        let append = matches!(stmt.kind, StmtKind::Append { .. });
         let msg = match walking.iter().rev().find(|l| l.name() == name) {
             Some(_) if !whole => return,
+            Some(Loop::Item(_, list)) if append => {
+                format!("{name} stands for an item of {list}, so nothing can be appended to it")
+            }
             Some(Loop::Item(_, list)) => format!(
                 "{name} stands for an item of {list} and cannot be set. To change the item, loop with for each i from 1 to count of {list} and set item i of {list}. To work on a copy, set m to {name} first"
             ),
@@ -104,6 +108,16 @@ mod tests {
 
     fn diags(s: &str) -> Vec<String> {
         crate::check_source(s).iter().map(|d| d.render()).collect()
+    }
+
+    #[test]
+    fn appending_to_a_loop_variable_is_worded_for_append() {
+        let all =
+            diags("feature start\n  set ns to list of 1\n  for each n in ns\n    append 2 to n\n");
+        let msg =
+            "line 4: append 2 to n. n stands for an item of ns, so nothing can be appended to it.";
+        assert!(all.contains(&msg.to_string()), "{all:?}");
+        assert!(!all.iter().any(|d| d.contains("cannot be set")), "{all:?}");
     }
 
     #[test]
