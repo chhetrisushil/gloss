@@ -65,6 +65,9 @@ impl Parser<'_> {
         while self.eat_kw(joiner) {
             parts.push(self.negation()?);
         }
+        if let Some(other) = self.joiner() {
+            return Err(self.mixing_error(joiner, other, &parts));
+        }
         let kind = if joiner == Kw::And {
             K::And(parts)
         } else {
@@ -78,6 +81,36 @@ impl Parser<'_> {
             Some(Tok::Kw(k @ (Kw::And | Kw::Or))) => Some(*k),
             _ => None,
         }
+    }
+
+    /// Reads the parts after the other joiner, to show them in the message.
+    fn mixing_error(&mut self, joiner: Kw, other: Kw, parts: &[Expr]) -> Diagnostic {
+        self.pos += 1;
+        let mut rest = Vec::new();
+        loop {
+            match self.negation() {
+                Ok(next) => rest.push(next),
+                Err(error) => return error,
+            }
+            if !self.eat_kw(other) {
+                break;
+            }
+        }
+        if self.joiner() == Some(joiner) {
+            return self.err(
+                "and and or cannot be mixed without parentheses; \
+                 put parentheses around the parts that belong together",
+            );
+        }
+        let (word, other) = (joiner.as_str(), other.as_str());
+        let (last, before) = parts.split_last().expect("at least two parts");
+        let rest = join_parts(&rest, other);
+        let (all, head) = (join_parts(parts, word), join_parts(before, word));
+        let tail = format!("({} {other} {rest})", print::expr(last));
+        self.err(format!(
+            "and and or cannot be mixed without parentheses. \
+             Write ({all}) {other} {rest}, or {head} {word} {tail}"
+        ))
     }
 
     fn negation(&mut self) -> Result<Expr, Diagnostic> {
@@ -114,6 +147,9 @@ impl Parser<'_> {
             let right = Box::new(self.parse_value()?);
             K::Compare { op, left, right }
         };
+        if self.peek() == Some(&Tok::Kw(Kw::Is)) {
+            return Err(self.err("Comparisons cannot be chained; join two comparisons with and"));
+        }
         Ok(self.mk(line, kind))
     }
 
@@ -153,6 +189,11 @@ impl Parser<'_> {
             print::expr(&right)
         )))
     }
+}
+
+fn join_parts(parts: &[Expr], word: &str) -> String {
+    let shown: Vec<String> = parts.iter().map(print::expr).collect();
+    shown.join(&format!(" {word} "))
 }
 
 #[cfg(test)]
@@ -207,8 +248,32 @@ mod tests {
     #[test]
     fn logic_errors() {
         assert_eq!(
+            perr("a is b is c"),
+            "Comparisons cannot be chained; join two comparisons with and"
+        );
+        assert_eq!(
+            perr("a and b or c"),
+            "and and or cannot be mixed without parentheses. \
+             Write (a and b) or c, or a and (b or c)"
+        );
+        assert_eq!(
             perr("a is greater b"),
             "is greater needs than, as in a is greater than b"
+        );
+        assert_eq!(
+            perr("a and b or c or d"),
+            "and and or cannot be mixed without parentheses. \
+             Write (a and b) or c or d, or a and (b or c or d)"
+        );
+        assert_eq!(
+            perr("a and b or c and d"),
+            "and and or cannot be mixed without parentheses; \
+             put parentheses around the parts that belong together"
+        );
+        assert_eq!(
+            perr("a or b and c"),
+            "and and or cannot be mixed without parentheses. \
+             Write (a or b) and c, or a or (b and c)"
         );
         assert_eq!(
             perr("x is greater y + 1"),
