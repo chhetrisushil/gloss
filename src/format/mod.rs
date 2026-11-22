@@ -3,7 +3,11 @@ mod rewrite;
 mod wrap;
 
 use crate::ast::program::{Item, Program, RecordEntry};
+use crate::ast::sexpr;
+use crate::ast::stmt::Stmt;
 use crate::ast::{ItemType, Type, type_text};
+use crate::diag::Diagnostic;
+use crate::source::Source;
 use print::{note_lines, stmts};
 use wrap::wrap;
 
@@ -20,6 +24,59 @@ pub fn format_program(program: &Program) -> String {
         lines.extend(item_lines(item));
     }
     lines.iter().map(|l| format!("{l}\n")).collect()
+}
+
+/// Hands back `formatted` only if reading it again gives the program that was meant to be
+/// written (the original with the spec's rewrites), ignoring ids, lines and blank lines.
+pub fn verified(program: &Program, formatted: String) -> Result<String, Diagnostic> {
+    let again = crate::parse_source(&Source::new(&formatted));
+    match again {
+        Ok(read) if shape(&read) == shape(&rewrite::rewrite(program)) => Ok(formatted),
+        _ => Err(Diagnostic::program(
+            "format would change this program; please report it",
+        )),
+    }
+}
+
+/// The program as text that leaves out ids, lines and blank-line flags.
+fn shape(program: &Program) -> String {
+    let body = |stmts: &[Stmt]| stmts.iter().map(sexpr::stmt).collect::<Vec<_>>().join(" ");
+    let item = |item: &Item| match item {
+        Item::Note { note, .. } => format!("{note:?}"),
+        Item::Record(r) => {
+            let entries = r.entries.iter().map(|e| match e {
+                RecordEntry::Field(f) => format!("{} {:?}", f.name, f.ty),
+                RecordEntry::Note(note, _) => format!("{note:?}"),
+            });
+            format!(
+                "record {} {}",
+                r.name,
+                entries.collect::<Vec<_>>().join(" ")
+            )
+        }
+        Item::Table(t) => format!("table {} {} {:?}", t.name, t.record, t.path),
+        Item::Feature(f) => {
+            let needs = f
+                .needs
+                .iter()
+                .map(|n| format!("{} {}", n.name, type_text(&n.ty)));
+            let needs: Vec<String> = needs.collect();
+            let before = f.notes_before_needs;
+            format!(
+                "feature {} {} {before} {}",
+                f.name,
+                needs.join(" "),
+                body(&f.body)
+            )
+        }
+        Item::Test(t) => format!("test {:?} {}", t.title, body(&t.body)),
+    };
+    program
+        .items
+        .iter()
+        .map(item)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn item_lines(item: &Item) -> Vec<String> {
@@ -90,6 +147,20 @@ mod tests {
             fmt(messy),
             "note top\nfeature start\n  set total to 1 + 2\n\n  show total, \"x\"\n\nrecord E\n  a as text\n"
         );
+    }
+
+    #[test]
+    fn a_format_that_would_change_the_program_is_refused() {
+        let program = parsed("feature start\n  show 1\n  set t to 1\n  set t to t + 2\n  show t\n");
+        let good = crate::format::format_program(&program);
+        assert_eq!(super::verified(&program, good.clone()), Ok(good));
+        let wrong = "feature start\n  show 2\n  set t to 1\n  add 2 to t\n  show t\n";
+        let err = super::verified(&program, wrong.into()).unwrap_err();
+        assert_eq!(
+            err.problem,
+            "format would change this program; please report it"
+        );
+        assert!(super::verified(&program, "feature start\n  show\n".into()).is_err());
     }
 
     #[test]

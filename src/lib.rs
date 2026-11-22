@@ -30,7 +30,7 @@ pub fn parse_source(src: &Source) -> Result<Program, Diagnostic> {
 /// Rewrites a program in the canonical layout.
 pub fn format_source(text: &str) -> Result<String, Diagnostic> {
     let program = parse_source(&Source::new(text))?;
-    Ok(format::format_program(&program))
+    format::verified(&program, format::format_program(&program))
 }
 
 /// Parses and checks a program; returns the parse error alone if parsing
