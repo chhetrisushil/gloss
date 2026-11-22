@@ -29,7 +29,7 @@ fn restructures(kind: &StmtKind) -> Option<&str> {
 }
 
 /// Every feature a statement runs or an expression of it calls, not looking inside blocks.
-fn called<'a>(kind: &'a StmtKind, out: &mut Vec<&'a str>) {
+pub(super) fn called<'a>(kind: &'a StmtKind, out: &mut Vec<&'a str>) {
     if let StmtKind::Run { feature, .. } = kind {
         out.push(feature);
     }

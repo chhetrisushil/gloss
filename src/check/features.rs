@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::expr::{item_ty, report};
-use super::walking::blocks;
+use super::walking::{blocks, called};
 use super::{Ctx, FeatureInfo, Ty, stmt};
 use crate::ast::program::FeatureDecl;
 use crate::ast::stmt::{Stmt, StmtKind};
@@ -65,12 +65,49 @@ fn gives_in(body: &[Stmt]) -> usize {
 /// Reports a feature whose result is still unknown with nothing else wrong.
 pub fn check_result(ctx: &mut Ctx, f: &FeatureDecl, checked: &FeatureInfo, kept: usize) {
     // A cycle is reported even beside unrelated errors, unless a give already has its own.
-    if checked.cycle || (checked.result == Ty::Error && ctx.diags.len() == kept) {
+    // A feature merely waiting on a broken one is not in a cycle; the broken one reports itself.
+    let unknown = checked.cycle || (checked.result == Ty::Error && ctx.diags.len() == kept);
+    if unknown && reaches_itself(ctx, &f.name) {
         let name = &f.name;
         let msg =
             format!("cannot work out what {name} gives; add a give that does not call {name}");
         ctx.diags.push(Diagnostic::error(ctx.src, f.line, msg));
     }
+}
+
+/// Every feature called anywhere in a body, nested blocks included.
+fn calls_in<'a>(body: &'a [Stmt], out: &mut Vec<&'a str>) {
+    for stmt in body {
+        called(&stmt.kind, out);
+        blocks(&stmt.kind)
+            .into_iter()
+            .for_each(|b| calls_in(b, out));
+    }
+}
+
+/// True when `name` can call itself, directly or through other features. Any call counts,
+/// not only those in gives, because a give can use a value set from a call.
+fn reaches_itself(ctx: &Ctx, name: &str) -> bool {
+    let program = ctx.program;
+    let mut todo = vec![name];
+    let mut seen = Vec::new();
+    while let Some(current) = todo.pop() {
+        let Some(feature) = program.features().find(|f| f.name == current) else {
+            continue;
+        };
+        let mut calls = Vec::new();
+        calls_in(&feature.body, &mut calls);
+        for next in calls {
+            if next == name {
+                return true;
+            }
+            if !seen.contains(&next) {
+                seen.push(next);
+                todo.push(next);
+            }
+        }
+    }
+    false
 }
 
 /// True when the last statement gives, or an if with an otherwise whose every branch does.
@@ -182,6 +219,26 @@ mod tests {
         );
         let own = "feature start\n  show (f with 1)\nfeature f\n  needs n as number\n  give f with n + \"a\"\n";
         assert_eq!(diags(own).len(), 1);
+    }
+
+    #[test]
+    fn a_feature_waiting_on_a_broken_feature_is_not_a_cycle() {
+        let p = "feature start\n  show (f with 1)\nfeature f\n  needs n as number\n  give g with n\nfeature g\n  needs n as number\n  give n + \"a\"\n";
+        assert_eq!(
+            diags(p),
+            ["line 8: give n + \"a\". + needs numbers on both sides; \"a\" is text."]
+        );
+        let late = "feature start\n  show (g with 1)\nfeature g\n  needs n as number\n  give n + \"a\"\nfeature f\n  needs n as number\n  give g with n\n";
+        assert_eq!(diags(late).len(), 1);
+    }
+
+    #[test]
+    fn a_cycle_through_a_helper_is_still_reported() {
+        let p = "feature start\n  show (f with 1)\nfeature f\n  needs n as number\n  set x to f with n\n  give x\n";
+        assert_eq!(
+            diags(p),
+            ["line 3: feature f. cannot work out what f gives; add a give that does not call f."]
+        );
     }
 
     #[test]
