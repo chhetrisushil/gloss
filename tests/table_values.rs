@@ -41,3 +41,12 @@ fn a_feature_can_give_a_table_and_a_list() {
     let out: Vec<String> = check_source(&text).iter().map(|d| d.render()).collect();
     assert!(out.is_empty(), "{out:?}");
 }
+
+#[test]
+fn a_table_and_its_copy_are_accepted_where_a_list_is_needed() {
+    let text = format!(
+        "{HEAD}feature total\n  needs xs as list of E\n  give count of xs\nfeature start\n  set mine to es\n  show (total with es), (total with mine)\n"
+    );
+    let out: Vec<String> = check_source(&text).iter().map(|d| d.render()).collect();
+    assert!(out.is_empty(), "{out:?}");
+}
