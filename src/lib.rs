@@ -14,9 +14,17 @@ use ast::program::Program;
 use diag::Diagnostic;
 use source::Source;
 
+/// Lexes and parses a whole program. The source returned with it reads a statement written
+/// over several lines as one line, which is how diagnostics echo it.
+fn front_end(src: &Source) -> Result<(Program, Source), Diagnostic> {
+    let toks = lexer::lex(src)?;
+    let src = src.with_statements(&lexer::statement_spans(&toks));
+    Ok((parser::parse(&toks, &src)?, src))
+}
+
 /// Lexes and parses a whole program.
 pub fn parse_source(src: &Source) -> Result<Program, Diagnostic> {
-    parser::parse(&lexer::lex(src)?, src)
+    front_end(src).map(|(program, _)| program)
 }
 
 /// Rewrites a program in the canonical layout.
@@ -28,9 +36,8 @@ pub fn format_source(text: &str) -> Result<String, Diagnostic> {
 /// Parses and checks a program; returns the parse error alone if parsing
 /// fails, else the sorted check diagnostics.
 pub fn check_source(text: &str) -> Vec<Diagnostic> {
-    let src = Source::new(text);
-    match parse_source(&src) {
-        Ok(program) => check::check(&program, &src).diagnostics,
+    match front_end(&Source::new(text)) {
+        Ok((program, src)) => check::check(&program, &src).diagnostics,
         Err(d) => vec![d],
     }
 }

@@ -94,6 +94,21 @@ pub fn lex(src: &Source) -> Result<Vec<Token>, Diagnostic> {
     Ok(out)
 }
 
+/// The first and last line of each statement written over more than one line.
+pub fn statement_spans(toks: &[Token]) -> Vec<(u32, u32)> {
+    let mut spans = Vec::new();
+    let mut first = None;
+    for t in toks {
+        if t.tok == Tok::Newline {
+            spans.extend(first.take().filter(|&f| f < t.line).map(|f| (f, t.line)));
+        } else if first.is_none() && !matches!(t.tok, Tok::Indent | Tok::Dedent | Tok::NoteBlock(_))
+        {
+            first = Some(t.line);
+        }
+    }
+    spans
+}
+
 /// A tab anywhere in a comment is rejected, like a tab anywhere else.
 fn reject_tabs_in_notes(
     src: &Source,
