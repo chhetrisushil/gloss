@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::Ctx;
 use crate::ast::Line;
 use crate::ast::stmt::{Stmt, StmtKind};
-use crate::ast::walk::blocks;
+use crate::ast::walk::{blocks, for_each_stmt};
 use crate::diag::Diagnostic;
 
 /// Rejects a table that is saved but never loaded or cleared, and warns when a
@@ -25,14 +25,11 @@ pub fn check_saving(ctx: &mut Ctx) {
 }
 
 fn loaded_in<'a>(body: &'a [Stmt], out: &mut BTreeSet<&'a str>) {
-    for stmt in body {
+    for_each_stmt(body, &mut |stmt| {
         if let StmtKind::Load(t) | StmtKind::Clear(t) = &stmt.kind {
             out.insert(t);
         }
-        blocks(&stmt.kind)
-            .into_iter()
-            .for_each(|b| loaded_in(b, out));
-    }
+    });
 }
 
 fn unloaded_saves<'a>(

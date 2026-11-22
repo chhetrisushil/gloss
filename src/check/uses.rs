@@ -1,4 +1,5 @@
 use crate::ast::stmt::{Stmt, StmtKind, Target};
+use crate::ast::walk::for_each_expr;
 use crate::ast::{Expr, ExprKind, Line};
 
 /// Where a variable is first set, and the outermost if or loop around that set.
@@ -97,37 +98,11 @@ pub fn firsts(
 
 /// Every variable name an expression reads.
 pub fn reads<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
-    match &e.kind {
-        ExprKind::Name(n) => out.push(n),
-        ExprKind::Paren(x)
-        | ExprKind::FieldOf { of: x, .. }
-        | ExprKind::Fact { of: x, .. }
-        | ExprKind::Negate(x)
-        | ExprKind::Convert { value: x, .. }
-        | ExprKind::IsNumber { value: x, .. }
-        | ExprKind::Not(x) => reads(x, out),
-        ExprKind::ItemOf { position: a, of: b }
-        | ExprKind::Remainder { of: a, by: b }
-        | ExprKind::Binary {
-            left: a, right: b, ..
+    for_each_expr(e, &mut |x| {
+        if let ExprKind::Name(n) = &x.kind {
+            out.push(n);
         }
-        | ExprKind::Compare {
-            left: a, right: b, ..
-        } => {
-            reads(a, out);
-            reads(b, out);
-        }
-        ExprKind::Call { inputs: xs, .. } | ExprKind::BuildList(xs) => {
-            xs.iter().for_each(|x| reads(x, out));
-        }
-        ExprKind::And(xs) | ExprKind::Or(xs) => xs.iter().for_each(|x| reads(x, out)),
-        ExprKind::BuildRecord { fields, .. } => fields.iter().for_each(|(_, x)| reads(x, out)),
-        ExprKind::Number(_)
-        | ExprKind::Text(_)
-        | ExprKind::Truth(_)
-        | ExprKind::Shown
-        | ExprKind::EmptyList(_) => {}
-    }
+    });
 }
 
 #[cfg(test)]
