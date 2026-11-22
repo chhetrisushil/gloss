@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use super::expr::{item_ty, report};
 use super::walking::{blocks, called};
@@ -88,11 +88,10 @@ fn calls_in<'a>(body: &'a [Stmt], out: &mut Vec<&'a str>) {
 /// True when `name` can call itself, directly or through other features. Any call counts,
 /// not only those in gives, because a give can use a value set from a call.
 fn reaches_itself(ctx: &Ctx, name: &str) -> bool {
-    let program = ctx.program;
     let mut todo = vec![name];
-    let mut seen = Vec::new();
+    let mut seen = HashSet::new();
     while let Some(current) = todo.pop() {
-        let Some(feature) = program.features().find(|f| f.name == current) else {
+        let Some(feature) = ctx.feature(current) else {
             continue;
         };
         let mut calls = Vec::new();
@@ -101,8 +100,7 @@ fn reaches_itself(ctx: &Ctx, name: &str) -> bool {
             if next == name {
                 return true;
             }
-            if !seen.contains(&next) {
-                seen.push(next);
+            if seen.insert(next) {
                 todo.push(next);
             }
         }

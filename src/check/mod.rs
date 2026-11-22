@@ -12,9 +12,9 @@ mod types;
 pub mod uses;
 mod walking;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
-use crate::ast::program::Program;
+use crate::ast::program::{FeatureDecl, Program};
 use crate::diag::{self, Diagnostic};
 use crate::source::Source;
 
@@ -57,16 +57,48 @@ pub struct Ctx<'a> {
     pub diags: Vec<Diagnostic>,
     /// How many times a feature result that is still unknown was looked up.
     pub pending: usize,
+    features: HashMap<&'a str, &'a FeatureDecl>,
+    declared: HashMap<&'a str, &'static str>,
+}
+
+impl<'a> Ctx<'a> {
+    pub fn new(program: &'a Program, src: &'a Source) -> Self {
+        let mut features = HashMap::new();
+        let mut declared = HashMap::new();
+        for t in program.tables() {
+            declared.entry(t.name.as_str()).or_insert("a table");
+        }
+        for f in program.features() {
+            features.entry(f.name.as_str()).or_insert(f);
+            declared.entry(f.name.as_str()).or_insert("a feature");
+        }
+        for r in program.records() {
+            declared.entry(r.name.as_str()).or_insert("a record");
+        }
+        Ctx {
+            program,
+            src,
+            diags: Vec::new(),
+            pending: 0,
+            features,
+            declared,
+        }
+    }
+
+    /// The first feature declared with this name.
+    pub fn feature(&self, name: &str) -> Option<&'a FeatureDecl> {
+        self.features.get(name).copied()
+    }
+
+    /// What a name is already used for ("a feature", "a table" or "a record"), if anything.
+    pub fn declared_as(&self, name: &str) -> Option<&'static str> {
+        self.declared.get(name).copied()
+    }
 }
 
 /// Runs every check pass; `types` is `Some` only when no errors were found.
 pub fn check(program: &Program, src: &Source) -> CheckResult {
-    let mut ctx = Ctx {
-        program,
-        src,
-        diags: Vec::new(),
-        pending: 0,
-    };
+    let mut ctx = Ctx::new(program, src);
     names::check_program(&mut ctx);
     let info = check_bodies(&mut ctx);
     diag::sort(&mut ctx.diags);

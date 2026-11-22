@@ -91,9 +91,8 @@ fn collides(a: &str, ka: Kind, b: &str, kb: Kind) -> bool {
 
 /// An input is a name inside its feature, so it cannot reuse a feature, table or record name.
 fn input_names(ctx: &mut Ctx) {
-    let program = ctx.program;
-    for need in program.features().flat_map(|f| &f.needs) {
-        if let Some(noun) = program.declared_as(&need.name) {
+    for need in ctx.program.features().flat_map(|f| &f.needs) {
+        if let Some(noun) = ctx.declared_as(&need.name) {
             let msg = format!("{} is {noun}; an input cannot reuse its name", need.name);
             ctx.diags.push(Diagnostic::error(ctx.src, need.line, msg));
         }
