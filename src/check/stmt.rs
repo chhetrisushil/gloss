@@ -241,6 +241,9 @@ impl Walk<'_, '_> {
                 self.ty(i);
             }),
             StmtKind::Give(value) => {
+                if self.in_test {
+                    self.error(stmt.line, "give can only be used inside a feature".into());
+                }
                 let (kept, pending) = (self.ctx.diags.len(), self.ctx.pending);
                 let ty = self.ty(value);
                 let own_error = self.ctx.diags.len() > kept;

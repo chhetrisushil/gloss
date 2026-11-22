@@ -55,3 +55,13 @@ fn empty_list_of_at_the_end_of_a_line_is_reported_on_that_line() {
     );
     assert!(check_source("feature start\n  show 1\n").is_empty());
 }
+
+#[test]
+fn give_inside_a_test_is_an_error() {
+    let text = "feature start\n  show 1\ntest \"t\"\n  give 1\n";
+    let out: Vec<String> = check_source(text).iter().map(|d| d.render()).collect();
+    assert_eq!(
+        out,
+        ["line 4: give 1. give can only be used inside a feature."]
+    );
+}
