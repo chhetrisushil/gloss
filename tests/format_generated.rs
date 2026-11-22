@@ -103,6 +103,47 @@ fn program(rng: &mut Rng) -> String {
     lines.join("\n") + "\n"
 }
 
+/// For each logical line (a wrapped statement counts once): whether a blank line comes
+/// right before it, and whether it is a note. Blank lines at the top of a block and at the
+/// top level are not kept by the formatter, so they are not recorded; every other blank
+/// line, and every note, must come out where it went in.
+fn layout(text: &str) -> Vec<(bool, bool)> {
+    let mut logical: Vec<(bool, String)> = Vec::new();
+    let (mut blank, mut joining) = (false, false);
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            blank = true;
+        } else if joining {
+            logical.last_mut().unwrap().1.push_str(line.trim());
+        } else {
+            logical.push((blank, line.to_string()));
+        }
+        joining = !line.trim().is_empty() && line.ends_with(',');
+        blank = blank && line.trim().is_empty();
+    }
+    let opens = |l: &str| {
+        let word = l.trim().split(' ').next().unwrap();
+        [
+            "feature",
+            "if",
+            "for",
+            "repeat",
+            "otherwise",
+            "test",
+            "record",
+        ]
+        .contains(&word)
+    };
+    let mut result = Vec::new();
+    let mut previous_opens = true;
+    for (blank, line) in logical {
+        let kept = blank && !previous_opens && line.starts_with(' ');
+        result.push((kept, line.trim().starts_with("note ")));
+        previous_opens = opens(&line);
+    }
+    result
+}
+
 #[test]
 fn formatting_generated_programs_is_stable() {
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
@@ -112,6 +153,11 @@ fn formatting_generated_programs_is_stable() {
         assert!(
             parse_source(&Source::new(&out)).is_ok(),
             "#{n} re-parse\n{out}"
+        );
+        assert_eq!(
+            layout(&out),
+            layout(&src),
+            "#{n} blank lines or notes moved\n{src}\n{out}"
         );
         let again = format_source(&out).unwrap();
         assert_eq!(again, out, "#{n} not idempotent\n{src}");
