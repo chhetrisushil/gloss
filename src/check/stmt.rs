@@ -669,12 +669,22 @@ mod tests {
 
     #[test]
     fn variables_can_be_read_above_their_first_set() {
-        assert!(diags("feature start\n  show a\n  set a to 1\n").is_empty());
+        assert_eq!(
+            diags("feature start\n  show a\n  set a to 1\n"),
+            [
+                "line 2: show a. a may not have a value here; it is first set on line 3. Set it before this line."
+            ]
+        );
         assert_eq!(
             diags("feature start\n  show b\n  set a to 1\n  show a\n"),
             ["line 2: show b. b has no value."]
         );
-        assert!(start("  for each e in es\n    set t to amount of e\n  show t\n").is_empty());
+        assert_eq!(
+            start("  for each e in es\n    set t to amount of e\n  show t\n"),
+            [
+                "line 7: show t. t may not have a value here; it is first set inside the loop on line 5. Set it before the loop."
+            ]
+        );
     }
 
     #[test]
@@ -682,6 +692,7 @@ mod tests {
         assert_eq!(
             start("  set a to b\n  set b to 1\n  set a to \"x\"\n  show a, b\n"),
             [
+                "line 5: set a to b. b may not have a value here; it is first set on line 6. Set it before this line.",
                 "line 7: set a to \"x\". a is a number, so it cannot be set to text (line 5 made it a number)."
             ]
         );
