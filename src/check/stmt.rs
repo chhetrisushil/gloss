@@ -17,6 +17,7 @@ struct Walk<'a, 'b> {
     result: Option<Ty>,
     in_test: bool,
     loops: u32,
+    changed: bool,
 }
 
 fn target_text(t: &Target) -> String {
@@ -48,7 +49,15 @@ pub fn check_body(
         result: None,
         in_test,
         loops: 0,
+        changed: false,
     };
+    for _ in 0..=body.len() + 1 {
+        walk.changed = false;
+        walk.collect(body);
+        if !walk.changed {
+            break;
+        }
+    }
     walk.stmts(body);
     FeatureInfo {
         inputs: inputs.to_vec(),
@@ -383,6 +392,77 @@ impl Walk<'_, '_> {
         }
     }
 
+    /// Pre-pass: each variable gets the type of its first `set` or `ask`, so a
+    /// body can read a variable above the line that sets it. Loop variables
+    /// are in scope only while their body is collected. Reports nothing.
+    fn collect(&mut self, body: &[Stmt]) {
+        for stmt in body {
+            match &stmt.kind {
+                StmtKind::Set {
+                    target: Target::Var(name),
+                    value,
+                } => {
+                    let ty = self.quiet(value);
+                    self.first(stmt.line, name, ty);
+                }
+                StmtKind::Ask { into, .. } => self.first(stmt.line, into, Ty::Text),
+                StmtKind::If {
+                    branches,
+                    otherwise,
+                } => {
+                    branches.iter().for_each(|(_, b)| self.collect(b));
+                    self.collect(otherwise.as_deref().unwrap_or_default());
+                }
+                StmtKind::RepeatWhile { body, .. } => self.collect(body),
+                StmtKind::ForEachIn { var, list, body } => {
+                    let item = self.quiet(list).item().unwrap_or(Ty::Error);
+                    self.scoped(var, item, body);
+                }
+                StmtKind::ForEachRange { var, body, .. } => self.scoped(var, Ty::Number, body),
+                _ => {}
+            }
+        }
+    }
+
+    fn quiet(&mut self, e: &Expr) -> Ty {
+        let kept = self.ctx.diags.len();
+        let ty = self.ty(e);
+        self.ctx.diags.truncate(kept);
+        ty
+    }
+
+    /// Registers a variable at its first `set` or `ask`. A type that was an
+    /// error (it read a variable not yet collected) is replaced once known, but
+    /// only by the statement that made the variable.
+    fn first(&mut self, line: Line, name: &str, ty: Ty) {
+        if self.ctx.program.tables().any(|t| t.name == name) {
+            return;
+        }
+        match self.made.iter_mut().find(|(n, ..)| n == name) {
+            None if self.vars.contains_key(name) => {}
+            None => {
+                self.vars.insert(name.into(), ty.clone());
+                self.made.push((name.into(), ty, line));
+                self.changed = true;
+            }
+            Some((_, have, at)) if *at == line && *have == Ty::Error && ty != Ty::Error => {
+                *have = ty.clone();
+                self.vars.insert(name.into(), ty);
+                self.changed = true;
+            }
+            Some(_) => {}
+        }
+    }
+
+    fn scoped(&mut self, var: &str, ty: Ty, body: &[Stmt]) {
+        let hidden = self.vars.insert(var.into(), ty);
+        self.collect(body);
+        match hidden {
+            Some(old) => self.vars.insert(var.into(), old),
+            None => self.vars.remove(var),
+        };
+    }
+
     /// Creates `name` at its first `set` or `ask`; later ones must match its type.
     fn bind(&mut self, line: Line, name: &str, ty: Ty, action: &str) {
         let program = self.ctx.program;
@@ -391,8 +471,6 @@ impl Walk<'_, '_> {
             return self.error(line, msg);
         }
         let Some(have) = self.vars.get(name).cloned() else {
-            self.vars.insert(name.into(), ty.clone());
-            self.made.push((name.into(), ty, line));
             return;
         };
         if ty == Ty::Error || have == Ty::Error || have == ty {
@@ -575,6 +653,26 @@ mod tests {
         assert_eq!(
             start("  repeat while no\n    stop\n  stop\n"),
             ["line 7: stop. stop can only be used inside a loop."]
+        );
+    }
+
+    #[test]
+    fn variables_can_be_read_above_their_first_set() {
+        assert!(diags("feature start\n  show a\n  set a to 1\n").is_empty());
+        assert_eq!(
+            diags("feature start\n  show b\n  set a to 1\n  show a\n"),
+            ["line 2: show b. b has no value."]
+        );
+        assert!(start("  for each e in es\n    set t to amount of e\n  show t\n").is_empty());
+    }
+
+    #[test]
+    fn pre_pass_resolves_forward_reads() {
+        assert_eq!(
+            start("  set a to b\n  set b to 1\n  set a to \"x\"\n  show a, b\n"),
+            [
+                "line 7: set a to \"x\". a is a number, so it cannot be set to text (line 5 made it a number)."
+            ]
         );
     }
 }
