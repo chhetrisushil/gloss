@@ -20,7 +20,7 @@ pub fn check_saving(ctx: &mut Ctx) {
     let mut reported = BTreeSet::new();
     for body in bodies {
         unloaded_saves(ctx, body, &loaded, &mut reported);
-        load_after_append(ctx, body);
+        load_after_append(ctx, body, &mut BTreeMap::new());
     }
 }
 
@@ -57,8 +57,9 @@ fn unloaded_saves<'a>(
     }
 }
 
-fn load_after_append(ctx: &mut Ctx, body: &[Stmt]) {
-    let mut appended: BTreeMap<&str, Line> = BTreeMap::new();
+/// `appended` is shared with the blocks inside `body`, so an append anywhere earlier in the
+/// feature counts, including one inside an if or a loop.
+fn load_after_append<'a>(ctx: &mut Ctx, body: &'a [Stmt], appended: &mut BTreeMap<&'a str, Line>) {
     for stmt in body {
         match &stmt.kind {
             StmtKind::Append { list, .. } => {
@@ -77,7 +78,7 @@ fn load_after_append(ctx: &mut Ctx, body: &[Stmt]) {
         }
         blocks(&stmt.kind)
             .into_iter()
-            .for_each(|b| load_after_append(ctx, b));
+            .for_each(|b| load_after_append(ctx, b, appended));
     }
 }
 
@@ -111,6 +112,17 @@ mod tests {
             )),
             ["line 6: warning: load es. load es replaces the rows appended on line 5."]
         );
+        let warns = |body: &str| diags(&format!("{HEAD}feature start\n{body}  save es\n"));
+        let msg = "line 7: warning: load es. load es replaces the rows appended on line 6.";
+        let inside_if = "  if 1 is 1\n    append (E with amount 1) to es\n  load es\n";
+        assert_eq!(
+            warns(inside_if),
+            ["line 7: warning: load es. load es replaces the rows appended on line 6."]
+        );
+        let in_loop = "  for each i from 1 to 2\n    append (E with amount i) to es\n  load es\n";
+        assert_eq!(warns(in_loop), [msg]);
+        let load_inside = "  append (E with amount 1) to es\n  if 1 is 1\n    load es\n";
+        assert_eq!(warns(load_inside).len(), 1);
         assert!(
             diags(&format!(
                 "{HEAD}feature start\n  clear es\n  append (E with amount 1) to es\n  save es\n"
