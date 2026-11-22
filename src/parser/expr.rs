@@ -191,13 +191,13 @@ impl Parser<'_> {
         if !self.eat_kw(Kw::Of) {
             return Err(self.err("remainder needs of, as in remainder of n by 2"));
         }
-        let of = self.fact()?;
+        let of = self.nested(Self::fact)?;
         if !self.eat_kw(Kw::By) {
             return Err(self.err("remainder needs by after its first value"));
         }
         Ok(K::Remainder {
             of: Box::new(of),
-            by: Box::new(self.fact()?),
+            by: Box::new(self.nested(Self::fact)?),
         })
     }
 

@@ -144,7 +144,7 @@ impl Parser<'_> {
             if !self.eat_kw(Kw::Of) {
                 return Err(self.err("item needs of after its position"));
             }
-            let of = Box::new(self.parse_target(verb)?);
+            let of = Box::new(self.nested(|p| p.parse_target(verb))?);
             return Ok(Target::Item {
                 position: Box::new(position),
                 of,
@@ -154,7 +154,7 @@ impl Parser<'_> {
         if !self.eat_kw(Kw::Of) {
             return Ok(Target::Var(name));
         }
-        let of = Box::new(self.parse_target(verb)?);
+        let of = Box::new(self.nested(|p| p.parse_target(verb))?);
         Ok(Target::Field { field: name, of })
     }
 
