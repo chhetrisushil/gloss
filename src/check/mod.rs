@@ -1,3 +1,4 @@
+pub mod combine;
 pub mod expr;
 pub mod names;
 pub mod similar;

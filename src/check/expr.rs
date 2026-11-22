@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::{Ctx, Ty, similar};
+use super::{Ctx, Ty, combine, similar};
 use crate::ast::print;
 use crate::ast::{ArithOp, Conversion, Expr, ExprKind, Fact, ItemType, PlainType};
 use crate::diag::Diagnostic;
@@ -25,7 +25,7 @@ fn item_ty(t: &ItemType) -> Ty {
     }
 }
 
-fn report(ctx: &mut Ctx, e: &Expr, problem: String, suggest: Option<&str>) -> Ty {
+pub fn report(ctx: &mut Ctx, e: &Expr, problem: String, suggest: Option<&str>) -> Ty {
     let mut d = Diagnostic::error(ctx.src, e.line, problem);
     if let Some(s) = suggest {
         d = d.suggest(s);
@@ -94,6 +94,31 @@ fn infer(ctx: &mut Ctx, env: &Env, e: &Expr, types: &mut Vec<Option<Ty>>) -> Ty 
                 type_of(ctx, env, right, types),
             );
             binary_type(ctx, e, *op, (left, l), (right, r))
+        }
+        ExprKind::Compare { op, left, right } => {
+            let (l, r) = (
+                type_of(ctx, env, left, types),
+                type_of(ctx, env, right, types),
+            );
+            combine::compare_type(ctx, e, *op, (left, l), (right, r))
+        }
+        ExprKind::IsNumber { value, negated } => {
+            let t = type_of(ctx, env, value, types);
+            combine::is_number_type(ctx, e, value, *negated, t)
+        }
+        ExprKind::Not(inner) => {
+            let t = type_of(ctx, env, inner, types);
+            combine::condition_type(ctx, e, "not works on a condition", &[(inner, t)])
+        }
+        ExprKind::And(parts) | ExprKind::Or(parts) => {
+            let word = if matches!(e.kind, ExprKind::And(_)) {
+                "and joins conditions"
+            } else {
+                "or joins conditions"
+            };
+            let tys = combine::type_all(ctx, env, parts, types);
+            let pairs: Vec<(&Expr, Ty)> = parts.iter().zip(tys).collect();
+            combine::condition_type(ctx, e, word, &pairs)
         }
         _ => Ty::Error,
     }
