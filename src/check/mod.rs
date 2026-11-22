@@ -76,6 +76,7 @@ fn check_bodies(ctx: &mut Ctx) -> TypeInfo {
         let checked =
             stmt::check_body(ctx, &results, &inputs, &f.body, false, &mut info.expr_types);
         features::check_result(ctx, f, &checked, kept);
+        features::check_gives(ctx, f, &checked);
         info.features.insert(f.name.clone(), checked);
     }
     for t in program.tests() {
