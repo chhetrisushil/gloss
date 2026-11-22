@@ -48,7 +48,7 @@ impl Parser<'_> {
         let right = level(self)?;
         match number_fact_on_right_edge(left) {
             Some(fact) => {
-                let message = ambiguity(fact, op_text(op), &right);
+                let message = ambiguity(&print::expr(left), fact, op_text(op), &right);
                 Err(Diagnostic::error(self.src, fact.line, message))
             }
             None => Ok(right),
@@ -289,8 +289,11 @@ fn number_fact_on_right_edge(e: &Expr) -> Option<&Expr> {
     }
 }
 
-fn ambiguity(fact: &Expr, op: &str, right: &Expr) -> String {
+/// The message for `left op right`, where `fact` ends `left`; both ways of reading it are
+/// written out with everything that comes before the fact kept in place.
+fn ambiguity(left: &str, fact: &Expr, op: &str, right: &Expr) -> String {
     let (f, r) = (print::expr(fact), print::expr(right));
+    let before = left.strip_suffix(f.as_str()).unwrap_or_default();
     let second = match &fact.kind {
         K::Fact { of, .. } => format!("whole of ({} {op} {r})", print::expr(of)),
         K::Remainder { of, by } => {
@@ -302,7 +305,7 @@ fn ambiguity(fact: &Expr, op: &str, right: &Expr) -> String {
         }
         _ => String::new(),
     };
-    format!("{f} {op} {r} can be read two ways. Write ({f}) {op} {r} or {second}")
+    format!("{f} {op} {r} can be read two ways. Write {before}({f}) {op} {r} or {before}{second}")
 }
 
 fn built_in_fact(k: Kw) -> Option<Fact> {
@@ -339,15 +342,15 @@ mod tests {
         );
         assert_eq!(
             perr("2 * whole of x + 1"),
-            "whole of x + 1 can be read two ways. Write (whole of x) + 1 or whole of (x + 1)"
+            "whole of x + 1 can be read two ways. Write 2 * (whole of x) + 1 or 2 * whole of (x + 1)"
         );
         assert_eq!(
             perr("-whole of a / b"),
-            "whole of a / b can be read two ways. Write (whole of a) / b or whole of (a / b)"
+            "whole of a / b can be read two ways. Write -(whole of a) / b or -whole of (a / b)"
         );
         assert_eq!(
             perr("a - whole of x + 1"),
-            "whole of x + 1 can be read two ways. Write (whole of x) + 1 or whole of (x + 1)"
+            "whole of x + 1 can be read two ways. Write a - (whole of x) + 1 or a - whole of (x + 1)"
         );
         assert_eq!(
             perr("item i + 1 of prices"),

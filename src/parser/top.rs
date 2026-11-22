@@ -340,7 +340,7 @@ mod tests {
         );
         assert_eq!(
             e("record E\n  a\n"),
-            "line 2: a. a field needs as, as in a as."
+            "line 2: a. a field needs as and a type after it."
         );
         assert_eq!(
             e("table t of E in data\n"),

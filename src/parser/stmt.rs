@@ -20,11 +20,7 @@ impl Parser<'_> {
     pub fn parse_stmt(&mut self) -> Result<Stmt, Diagnostic> {
         let line = self.line();
         let blank_before = self.toks.get(self.pos).is_some_and(|t| t.blank_before);
-        let kind = self.stmt_kind()?;
-        let is_block = matches!(
-            kind,
-            S::If { .. } | S::ForEachIn { .. } | S::ForEachRange { .. } | S::RepeatWhile { .. }
-        );
+        let (kind, is_block) = self.stmt_kind()?;
         match self.peek() {
             _ if is_block => {}
             Some(Tok::Newline) => self.pos += 1,
@@ -40,20 +36,24 @@ impl Parser<'_> {
         })
     }
 
-    fn stmt_kind(&mut self) -> Result<S, Diagnostic> {
+    /// Parses one statement's content; the flag is true for a block statement, which
+    /// ends with its block rather than with a newline.
+    fn stmt_kind(&mut self) -> Result<(S, bool), Diagnostic> {
         match self.peek().cloned() {
             Some(Tok::Note(text)) => {
                 self.pos += 1;
-                Ok(S::Note(Note::Line(text)))
+                Ok((S::Note(Note::Line(text)), false))
             }
             Some(Tok::NoteBlock(lines)) => {
                 self.pos += 1;
-                Ok(S::Note(Note::Block(lines)))
+                Ok((S::Note(Note::Block(lines)), false))
             }
-            Some(Tok::Kw(Kw::If | Kw::Otherwise | Kw::For | Kw::Repeat)) => self.block_stmt(),
+            Some(Tok::Kw(Kw::If | Kw::Otherwise | Kw::For | Kw::Repeat)) => {
+                Ok((self.block_stmt()?, true))
+            }
             Some(Tok::Kw(word)) => {
                 self.pos += 1;
-                self.keyword_stmt(word)
+                Ok((self.keyword_stmt(word)?, false))
             }
             Some(other) => Err(self.not_a_statement(other)),
             None => Err(self.err("Expected a statement")),
@@ -188,7 +188,11 @@ impl Parser<'_> {
         if self.eat_kw(word) {
             return Ok(());
         }
+        let ends_here = matches!(self.peek(), Some(Tok::Newline) | None);
         let word = word.as_str();
+        if let Some(next) = ends_here.then(|| after_word(verb, word)).flatten() {
+            return Err(self.err(format!("{verb} needs {word} and {next} after it")));
+        }
         let example = self.fixed_line(word);
         Err(self.err(format!("{verb} needs {word}, as in {example}")))
     }
@@ -218,6 +222,16 @@ impl Parser<'_> {
         join_words(&words)
     }
 
+    /// The tokens from `start` to the end of the line, written as one line.
+    pub(super) fn words_from(&self, start: usize) -> String {
+        let words: Vec<String> = self.toks[start..]
+            .iter()
+            .take_while(|t| t.tok != Tok::Newline)
+            .map(|t| t.tok.to_string())
+            .collect();
+        join_words(&words)
+    }
+
     /// The statement with `word` where parsing stopped: replacing a wrong
     /// connecting word such as `into`, else inserted before the next token.
     pub(super) fn fixed_line(&self, word: &str) -> String {
@@ -237,6 +251,17 @@ impl Parser<'_> {
         );
         self.example_line(self.pos, word, wrong_word)
     }
+}
+
+/// What follows the connecting `word` of `verb`, for a statement that ends before it.
+fn after_word(verb: &str, word: &str) -> Option<&'static str> {
+    Some(match (verb, word) {
+        ("set" | "multiply" | "divide" | "for each", _) => "a value",
+        ("add" | "append" | "subtract" | "ask", _) => "a name",
+        ("a field" | "needs" | "list", _) => "a type",
+        ("table", "of") => "a record name",
+        _ => return None,
+    })
 }
 
 /// Joins tokens with single spaces, none after `(` or before `)` and `,`.
@@ -340,6 +365,22 @@ note hi there"#),
         assert_eq!(
             error.render(),
             "line 1: add (f with a, b) total. add needs to, as in add (f with a, b) to total."
+        );
+    }
+
+    #[test]
+    fn a_missing_word_at_the_end_has_no_dangling_example() {
+        assert_eq!(
+            perr("add 1"),
+            "line 1: add 1. add needs to and a name after it."
+        );
+        assert_eq!(
+            perr("set total"),
+            "line 1: set total. set needs to and a value after it."
+        );
+        assert_eq!(
+            perr("add 1 total"),
+            "line 1: add 1 total. add needs to, as in add 1 to total."
         );
     }
 
