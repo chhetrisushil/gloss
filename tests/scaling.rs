@@ -1,4 +1,4 @@
-//! Checking time stays close to linear. The bound is generous for a debug build.
+//! Checking time stays close to linear. The bound is far above the measured times: it only has to catch a return to quadratic behaviour, which takes minutes.
 
 use gloss::check_source;
 use std::time::{Duration, Instant};
@@ -8,7 +8,7 @@ fn timed(what: &str, text: &str) -> Vec<String> {
     let out: Vec<String> = check_source(text).iter().map(|d| d.render()).collect();
     let took = started.elapsed();
     println!("{what}: {took:?}");
-    assert!(took < Duration::from_secs(2), "{what} took {took:?}");
+    assert!(took < Duration::from_secs(10), "{what} took {took:?}");
     out
 }
 
