@@ -1,7 +1,7 @@
 //! The interpreter's state: registers, the stack and the call frames.
 
 use super::memory::Memory;
-use crate::ir::{Cond, Function, Inst, Label, Module, Reg};
+use crate::ir::{Cond, Data, Function, Global, Inst, Label, Module, Reg};
 use std::collections::HashMap;
 
 /// The top of the simulated stack, which grows down.
@@ -21,11 +21,11 @@ pub struct Frame {
 
 pub struct Machine<'m> {
     pub module: &'m Module,
-    memory: Memory,
+    pub memory: Memory,
     /// Each function's label positions, by function index.
     labels: Vec<HashMap<Label, usize>>,
     frames: Vec<Frame>,
-    sp: u64,
+    pub sp: u64,
     pub a: i64,
     pub b: i64,
     /// The operands of the last `Compare`.
@@ -59,6 +59,19 @@ impl<'m> Machine<'m> {
     pub fn push(&mut self, value: i64) {
         self.sp -= 8;
         self.memory.write(self.sp, value);
+    }
+
+    /// The address `base` plus `offset` names.
+    pub fn effective(&self, base: Reg, offset: i32) -> u64 {
+        (self.reg(base) as u64).wrapping_add(offset as i64 as u64)
+    }
+
+    /// Whether a callee frame of `bytes` would lie below `Global::StackLimit` (unsigned).
+    pub fn stack_overflows(&self, bytes: u32) -> bool {
+        let limit = self
+            .memory
+            .read(self.memory.address_of(Data::Global(Global::StackLimit)));
+        self.sp.wrapping_sub(bytes as u64) < limit as u64
     }
 
     pub fn pop(&mut self) -> i64 {
