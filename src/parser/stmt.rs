@@ -62,6 +62,9 @@ impl Parser<'_> {
         match word {
             Kw::Set => {
                 let target = self.parse_target(verb)?;
+                if self.peek() == Some(&Tok::Kw(Kw::As)) {
+                    return Err(self.err("set needs to").suggest(self.fixed_line("to")));
+                }
                 self.expect_word(verb, Kw::To)?;
                 let value = self.parse_expr()?;
                 Ok(S::Set { target, value })
@@ -124,6 +127,9 @@ impl Parser<'_> {
         let feature = self.parse_name("run")?;
         let mut inputs = Vec::new();
         if self.eat_kw(Kw::With) {
+            if matches!(self.peek(), Some(Tok::Newline) | None) {
+                return Err(self.err("with needs at least one input after it"));
+            }
             inputs = self.comma_list()?;
         }
         Ok(S::Run { feature, inputs })
@@ -156,8 +162,23 @@ impl Parser<'_> {
                 self.pos += 1;
                 Ok(name)
             }
+            Some(Tok::RecordName(name)) => Err(self.capital_name_error(verb, &name)),
             _ => Err(self.err(format!("{verb} needs a name after it"))),
         }
+    }
+
+    /// Lowercases the offending token, wherever it is in the statement.
+    fn capital_name_error(&self, verb: &str, name: &str) -> Diagnostic {
+        let mut chars = name.chars();
+        let first = chars.next().map(|c| c.to_ascii_lowercase());
+        let lowered: String = first.into_iter().chain(chars).collect();
+        let role = match verb {
+            "run" => "Feature",
+            "load" | "save" | "clear" | "append" => "Table and list",
+            _ => "Variable",
+        };
+        self.err(format!("{role} names start with a lowercase letter"))
+            .suggest(self.example_line(self.pos, &lowered, true))
     }
 
     fn expect_word(&mut self, verb: &str, word: Kw) -> Result<(), Diagnostic> {
@@ -329,5 +350,53 @@ note hi there"#),
         for (text, problem) in rows {
             assert_eq!(perr(text), format!("line 1: {text}. {problem}."));
         }
+    }
+
+    #[test]
+    fn statement_errors() {
+        assert_eq!(
+            perr("set total as 0"),
+            "line 1: set total as 0. set needs to. Did you mean set total to 0?"
+        );
+        assert_eq!(
+            perr("total = 0"),
+            "line 1: total = 0. = is not part of Gloss. Comparisons are written in words, such as is."
+        );
+        assert_eq!(
+            perr("total to 0"),
+            "line 1: total to 0. Every statement starts with a keyword, such as set or show; total is not one."
+        );
+        assert_eq!(
+            perr("add 1 into total"),
+            "line 1: add 1 into total. add needs to, as in add 1 to total."
+        );
+        assert_eq!(
+            perr(r#"show "a", f with b"#),
+            "line 1: show \"a\", f with b. f with ... must be in parentheses here, because it is inside arithmetic or a comma list."
+        );
+        assert_eq!(
+            perr("run f with"),
+            "line 1: run f with. with needs at least one input after it."
+        );
+        assert_eq!(
+            perr("set Total to 1"),
+            "line 1: set Total to 1. Variable names start with a lowercase letter. Did you mean set total to 1?"
+        );
+    }
+
+    #[test]
+    fn capital_names_are_lowercased_by_role() {
+        assert_eq!(
+            perr(r#"ask "What Name" into Name"#),
+            r#"line 1: ask "What Name" into Name. Variable names start with a lowercase letter. Did you mean ask "What Name" into name?"#
+        );
+        assert_eq!(
+            perr("run Report"),
+            "line 1: run Report. Feature names start with a lowercase letter. Did you mean run report?"
+        );
+        assert_eq!(
+            perr("save Expenses"),
+            "line 1: save Expenses. Table and list names start with a lowercase letter. Did you mean save expenses?"
+        );
     }
 }
