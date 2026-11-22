@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use super::expr::{self, Env};
 use super::{Ctx, FeatureInfo, Ty};
 use crate::ast::stmt::{Stmt, StmtKind, Target};
-use crate::ast::{Expr, Line};
+use crate::ast::{Expr, ExprId, ExprKind, Line};
 use crate::diag::Diagnostic;
 
 /// The state of walking one body: variables in scope and what made them.
@@ -78,6 +78,40 @@ impl Walk<'_, '_> {
             StmtKind::Show(items) => items.iter().for_each(|i| {
                 self.ty(i);
             }),
+            StmtKind::Give(value) => {
+                let ty = self.ty(value);
+                self.result.get_or_insert(ty);
+            }
+            StmtKind::Run { feature, inputs } => {
+                let args: Vec<(&Expr, Ty)> = inputs.iter().map(|i| (i, self.ty(i))).collect();
+                let at = Expr {
+                    id: ExprId(u32::MAX),
+                    line: stmt.line,
+                    kind: ExprKind::Call {
+                        feature: feature.clone(),
+                        inputs: Vec::new(),
+                    },
+                };
+                let env = Env {
+                    vars: &self.vars,
+                    results: self.results,
+                };
+                super::combine::call_type(self.ctx, &env, &at, feature, &args);
+            }
+            StmtKind::If {
+                branches,
+                otherwise,
+            } => {
+                for (cond, body) in branches {
+                    self.ty(cond);
+                    self.stmts(body);
+                }
+                self.stmts(otherwise.as_deref().unwrap_or_default());
+            }
+            StmtKind::RepeatWhile { cond, body } => {
+                self.ty(cond);
+                self.stmts(body);
+            }
             _ => {}
         }
     }
@@ -138,5 +172,22 @@ mod tests {
             start("  set es to 1\n"),
             ["line 5: set es to 1. es is a table; a variable cannot reuse its name."]
         );
+    }
+
+    #[test]
+    fn gives_runs_and_branches() {
+        let f = "feature f\n  needs n as number\n  give n\n";
+        let at = |lines: &str| diags(&format!("{HEAD}{f}feature start\n{lines}"));
+        assert_eq!(
+            at("  set x to f with 1\n  set x to \"a\"\n  show x\n"),
+            [
+                "line 9: set x to \"a\". x is a number, so it cannot be set to text (line 8 made it a number)."
+            ]
+        );
+        assert_eq!(
+            at("  run f\n"),
+            ["line 8: run f. f needs 1 input: n; this call gives 0."]
+        );
+        assert!(at("  if yes\n    set y to 1\n  otherwise\n    set y to 2\n  repeat while no\n    show y\n").is_empty());
     }
 }
