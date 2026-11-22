@@ -106,6 +106,20 @@ impl Program {
         })
     }
 
+    /// What a name is already used for ("a feature", "a table" or "a record"), if anything.
+    pub fn declared_as(&self, name: &str) -> Option<&'static str> {
+        let table = self.tables().any(|t| t.name == name);
+        let feature = self.features().any(|f| f.name == name);
+        let record = self.records().any(|r| r.name == name);
+        [
+            (table, "a table"),
+            (feature, "a feature"),
+            (record, "a record"),
+        ]
+        .into_iter()
+        .find_map(|(found, noun)| found.then_some(noun))
+    }
+
     pub fn tests(&self) -> impl Iterator<Item = &TestDecl> {
         self.items.iter().filter_map(|i| match i {
             Item::Test(t) => Some(t),
