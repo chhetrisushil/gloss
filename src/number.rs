@@ -41,7 +41,9 @@ fn in_range(v: i128) -> Result<Number, NumFail> {
 fn divide_rounded(numerator: i128, denominator: i128) -> i128 {
     let (n, d) = (numerator.abs(), denominator.abs());
     let sign = numerator.signum() * denominator.signum();
-    sign * ((2 * n + d) / (2 * d))
+    let (q, r) = (n / d, n % d);
+    // Round up when the remainder is at least half the divisor, without doubling n.
+    sign * (q + i128::from(r >= d - r))
 }
 
 impl Number {
@@ -324,5 +326,22 @@ mod tests {
                 .map_err(|_| NumFail::OutOfRange);
             assert_eq!(n(a).mul_round(n(b)), expected, "{a} * {b}");
         }
+    }
+
+    #[test]
+    fn extremes_are_out_of_range_not_a_panic() {
+        let min = n(i64::MIN);
+        let out = Err(NumFail::OutOfRange);
+        assert_eq!(min.mul_round(min), out);
+        assert_eq!(min.mul_round(MAX), out);
+        assert_eq!(MAX.mul_round(min), out);
+        assert_eq!(MAX.mul_round(MAX), out);
+        assert_eq!(MAX.mul_round(n(10_000)), Ok(MAX));
+        assert_eq!(min.mul_round(n(10_000)), Ok(min));
+        assert_eq!(min.div_round(n(1)), out);
+        assert_eq!(MAX.div_round(n(1)), out);
+        assert_eq!(n(0).div_round(n(1)), Ok(n(0)));
+        assert_eq!(min.div_round(min), Ok(n(10_000)));
+        assert_eq!(MAX.div_round(MAX), Ok(n(10_000)));
     }
 }
