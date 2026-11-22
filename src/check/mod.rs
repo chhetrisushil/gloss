@@ -81,12 +81,13 @@ fn check_bodies(ctx: &mut Ctx) -> TypeInfo {
                 (n.name.clone(), ty)
             })
             .collect();
-        let checked = stmt::check_body(ctx, &results, &inputs, &f.body, &mut info.expr_types);
+        let checked =
+            stmt::check_body(ctx, &results, &inputs, &f.body, false, &mut info.expr_types);
         results.insert(f.name.clone(), checked.result.clone());
         info.features.insert(f.name.clone(), checked);
     }
     for t in program.tests() {
-        stmt::check_body(ctx, &results, &[], &t.body, &mut info.expr_types);
+        stmt::check_body(ctx, &results, &[], &t.body, true, &mut info.expr_types);
     }
     info
 }
