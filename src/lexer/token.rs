@@ -8,7 +8,7 @@ macro_rules! keywords {
         pub enum Kw { $($v),* }
 
         impl Kw {
-            pub const ALL: [Kw; 62] = [$(Kw::$v),*];
+            pub const ALL: [Kw; 63] = [$(Kw::$v),*];
 
             /// Matches lowercase words only.
             pub fn from_word(s: &str) -> Option<Kw> {
@@ -23,7 +23,7 @@ macro_rules! keywords {
 }
 
 keywords! {
-    And => "and", Append => "append", As => "as", Ask => "ask", At => "at", By => "by",
+    Add => "add", And => "and", Append => "append", As => "as", Ask => "ask", At => "at", By => "by",
     Clear => "clear", Count => "count", Divide => "divide", Each => "each", Empty => "empty",
     Expect => "expect", Feature => "feature", First => "first", For => "for", From => "from",
     Give => "give", Greater => "greater", If => "if", In => "in", Input => "input",
