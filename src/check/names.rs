@@ -145,7 +145,12 @@ fn path_problem(path: &str) -> Option<String> {
             "The file name must not use ..; table files stay inside the folder the program runs in",
         ))
     } else if parts.clone().any(|p| p == ".") {
-        Some("The file name must not use . as a folder; write x.csv".into())
+        let without_dots: Vec<&str> = path.split('/').filter(|p| *p != ".").collect();
+        let fixed = without_dots.join("/");
+        let example = if fixed.is_empty() { "x.csv" } else { &fixed };
+        Some(format!(
+            "The file name must not use . as a folder; write {example}"
+        ))
     } else if parts.clone().any(str::is_empty) {
         Some("The file name has an empty part; write folders as data/expenses.csv".into())
     } else if path.chars().any(unshowable) {
@@ -434,6 +439,23 @@ mod tests {
                 r#"line 6: table u of E in "x.csv". x.csv is already the file of table t (line 5); one file belongs to one table."#
             ]
         );
+    }
+
+    #[test]
+    fn a_dot_part_is_fixed_from_the_users_own_path() {
+        let t = |path: &str| {
+            diags(&format!(
+                "{START}record E\n  a as text\ntable t of E in \"{path}\"\n"
+            ))
+        };
+        let wrote = |path: &str, fixed: &str| {
+            format!(
+                "line 5: table t of E in \"{path}\". The file name must not use . as a folder; write {fixed}."
+            )
+        };
+        assert_eq!(t("./data/y.csv"), [wrote("./data/y.csv", "data/y.csv")]);
+        assert_eq!(t("data/./y.csv"), [wrote("data/./y.csv", "data/y.csv")]);
+        assert_eq!(t("."), [wrote(".", "x.csv")]);
     }
 
     #[test]
