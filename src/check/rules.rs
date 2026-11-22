@@ -1,5 +1,6 @@
 use super::{Ctx, Ty};
 use crate::ast::print;
+use crate::ast::sexpr::sexpr;
 use crate::ast::stmt::{Stmt, StmtKind, Target};
 use crate::ast::{ArithOp, CompareOp, Expr, ExprKind};
 use crate::diag::Diagnostic;
@@ -57,7 +58,17 @@ pub fn truth_rewrite(e: &Expr) -> Option<ExprKind> {
 
 /// True when the expression names the target, ignoring ids and lines.
 fn is_target(t: &Target, e: &Expr) -> bool {
-    target_text(t) == print::expr(e)
+    let bare = e.without_parens();
+    match (t, &bare.kind) {
+        (Target::Var(name), ExprKind::Name(other)) => name == other,
+        (Target::Field { field, of }, ExprKind::FieldOf { field: f, of: o }) => {
+            field == f && is_target(of, o)
+        }
+        (Target::Item { position, of }, ExprKind::ItemOf { position: p, of: o }) => {
+            sexpr(&position.without_parens()) == sexpr(p) && is_target(of, o)
+        }
+        _ => false,
+    }
 }
 
 pub fn target_text(t: &Target) -> String {
