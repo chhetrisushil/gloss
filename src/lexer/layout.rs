@@ -115,8 +115,15 @@ fn table_file_hint(error: Diagnostic, line: &str) -> Diagnostic {
     let parts = line
         .strip_prefix("table ")
         .and_then(|t| t.split_once(" in "));
+    // The scanner stops at the first odd character, so its first occurrence is the culprit.
+    let culprit = error.problem.chars().next().and_then(|c| line.find(c));
     match parts {
-        Some((head, file)) if unquoted && !file.trim().is_empty() && !file.starts_with('"') => {
+        Some((head, file))
+            if unquoted
+                && !file.trim().is_empty()
+                && !file.contains(['"', '\''])
+                && culprit.is_some_and(|at| at >= "table ".len() + head.len() + " in ".len()) =>
+        {
             let fixed = format!("table {} in \"{}\"", head.trim(), file.trim());
             Diagnostic {
                 problem: "The file name is written in quotes".into(),
@@ -360,5 +367,15 @@ mod tests {
             "line 1: table t of E in data.csv. The file name is written in quotes. Did you mean table t of E in \"data.csv\"?"
         );
         assert_eq!(problem("set x to 1 # 2\n").1, "# is not part of Gloss");
+    }
+
+    #[test]
+    fn the_file_name_hint_is_only_given_when_it_is_right() {
+        let hash = lex(&Source::new("table t# of E in data.csv\n")).unwrap_err();
+        assert_eq!(hash.problem, "# is not part of Gloss");
+        assert_eq!(hash.suggestion, None);
+        let quoted = lex(&Source::new("table t of E in 'data.csv'\n")).unwrap_err();
+        assert_eq!(quoted.problem, "' is not part of Gloss");
+        assert_eq!(quoted.suggestion, None);
     }
 }
