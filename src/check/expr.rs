@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::{Ctx, Ty, similar};
 use crate::ast::print;
-use crate::ast::{Expr, ExprKind, Fact, ItemType, PlainType};
+use crate::ast::{ArithOp, Conversion, Expr, ExprKind, Fact, ItemType, PlainType};
 use crate::diag::Diagnostic;
 
 pub struct Env<'a> {
@@ -80,7 +80,89 @@ fn infer(ctx: &mut Ctx, env: &Env, e: &Expr, types: &mut Vec<Option<Ty>>) -> Ty 
                 Ty::Number
             }
         }
+        ExprKind::Negate(inner) => {
+            let t = type_of(ctx, env, inner, types);
+            number_only(ctx, e, "negation", inner, t)
+        }
+        ExprKind::Convert { value, to } => {
+            let t = type_of(ctx, env, value, types);
+            convert_type(ctx, e, *to, value, t)
+        }
+        ExprKind::Binary { op, left, right } => {
+            let (l, r) = (
+                type_of(ctx, env, left, types),
+                type_of(ctx, env, right, types),
+            );
+            binary_type(ctx, e, *op, (left, l), (right, r))
+        }
         _ => Ty::Error,
+    }
+}
+
+fn binary_type(ctx: &mut Ctx, e: &Expr, op: ArithOp, l: (&Expr, Ty), r: (&Expr, Ty)) -> Ty {
+    let sym = match op {
+        ArithOp::Add => "+",
+        ArithOp::Sub => "-",
+        ArithOp::Mul => "*",
+        ArithOp::Div => "/",
+    };
+    let bad = [l.clone(), r.clone()]
+        .into_iter()
+        .find(|(_, t)| !matches!(t, Ty::Number | Ty::Error));
+    if let Some((operand, t)) = bad {
+        let msg = format!(
+            "{sym} needs numbers on both sides; {} is {}",
+            print::expr(operand),
+            t.described()
+        );
+        return report(ctx, e, msg, None);
+    }
+    if l.1 == Ty::Error || r.1 == Ty::Error {
+        Ty::Error
+    } else {
+        Ty::Number
+    }
+}
+
+fn convert_type(ctx: &mut Ctx, e: &Expr, to: Conversion, value: &Expr, t: Ty) -> Ty {
+    let shown = print::expr(value);
+    let (result, problem) = match (to, &t) {
+        (_, Ty::Error) => return Ty::Error,
+        (Conversion::ToNumber, Ty::Text) => (Ty::Number, None),
+        (Conversion::ToNumber, Ty::Number) => (
+            Ty::Number,
+            Some(format!(
+                "as number converts text; {shown} is already a number"
+            )),
+        ),
+        (Conversion::ToNumber, _) => (
+            Ty::Number,
+            Some(format!(
+                "as number converts text; {shown} is {}",
+                t.described()
+            )),
+        ),
+        (Conversion::ToText, Ty::Number | Ty::Truth) => (Ty::Text, None),
+        (Conversion::ToText, Ty::Text) => (Ty::Text, Some(format!("{shown} is already text"))),
+        (Conversion::ToText, _) => (
+            Ty::Text,
+            Some(format!(
+                "Only numbers and truths can be converted to text; {shown} is {}",
+                t.described()
+            )),
+        ),
+        (Conversion::ToTextPlaces(_), Ty::Number) => (Ty::Text, None),
+        (Conversion::ToTextPlaces(_), _) => (
+            Ty::Text,
+            Some(format!(
+                "with places works on numbers; {shown} is {}",
+                t.described()
+            )),
+        ),
+    };
+    match problem {
+        None => result,
+        Some(msg) => report(ctx, e, msg, None),
     }
 }
 
@@ -277,6 +359,39 @@ mod tests {
             [
                 "line 6: show item (\"a\") of es. The position in item must be a number; (\"a\") is text."
             ]
+        );
+    }
+
+    #[test]
+    fn arithmetic_and_conversion() {
+        assert_eq!(
+            body("  show 1 + \"a\"\n"),
+            ["line 6: show 1 + \"a\". + needs numbers on both sides; \"a\" is text."]
+        );
+        assert_eq!(
+            body("  show 1 as number\n"),
+            ["line 6: show 1 as number. as number converts text; 1 is already a number."]
+        );
+        assert_eq!(
+            body("  show \"a\" as text\n"),
+            ["line 6: show \"a\" as text. \"a\" is already text."]
+        );
+        assert_eq!(
+            body("  show \"a\" as text with 2 places\n"),
+            [
+                "line 6: show \"a\" as text with 2 places. with places works on numbers; \"a\" is text."
+            ]
+        );
+        assert_eq!(
+            body("  show first of es as text\n"),
+            [
+                "line 6: show first of es as text. Only numbers and truths can be converted to text; first of es is E."
+            ]
+        );
+        assert!(body("  show yes as text, 1 as text with 2 places, \"3\" as number\n").is_empty());
+        assert_eq!(
+            body("  show 1 + (2 + \"a\")\n"),
+            ["line 6: show 1 + (2 + \"a\"). + needs numbers on both sides; \"a\" is text."]
         );
     }
 }
