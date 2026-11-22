@@ -438,20 +438,22 @@ mod tests {
             ))
         };
         let shown = "The file name contains a character that cannot be shown, such as a tab or a control character";
-        for path in [
-            "\0x",
-            "a\rb",
-            "\x1b[2Kx",
-            "a\tb",
-            "\u{202E}x",
-            "x\u{200B}.csv",
-        ] {
+        for path in ["\0x", "\x1b[2Kx", "\u{202E}x", "x\u{200B}.csv"] {
             assert_eq!(
                 t(path),
                 [format!("line 5: table t of E in \"{path}\". {shown}.")],
                 "{path:?}"
             );
         }
+        // A tab or carriage return inside quotes is refused earlier, by the lexer.
+        assert_eq!(
+            t("a\tb"),
+            ["line 5: table t of E in \"a\tb\". Tabs are not allowed; use spaces."]
+        );
+        assert_eq!(
+            t("a\rb"),
+            ["line 5: table t of E in \"a\rb\". A carriage return is not allowed inside text."]
+        );
         let reserved = "The file name must not end in .gloss-new; that ending is kept for files Gloss writes while saving";
         assert_eq!(
             t("x.csv.gloss-new"),

@@ -65,3 +65,15 @@ fn give_inside_a_test_is_an_error() {
         ["line 4: give 1. give can only be used inside a feature."]
     );
 }
+
+#[test]
+fn a_tab_or_carriage_return_inside_a_test_title_is_rejected() {
+    let tab = first_error("feature start\n  show 1\ntest \"a\tb\"\n  show 1\n");
+    assert!(tab.starts_with("line 3: "), "{tab}");
+    assert!(tab.contains("Tabs are not allowed; use spaces"), "{tab}");
+    let cr = first_error("feature start\n  show 1\ntest \"a\rb\"\n  show 1\n");
+    assert!(
+        cr.contains("A carriage return is not allowed inside text"),
+        "{cr}"
+    );
+}
