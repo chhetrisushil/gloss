@@ -169,3 +169,23 @@ fn format_write_failure_keeps_original_and_reports_os_error() {
     assert_eq!(std::fs::read(&p).unwrap(), text.as_bytes());
     assert_eq!(names, ["fmtro.gloss"]);
 }
+
+#[test]
+fn extra_arguments_print_the_usage() {
+    let p = temp_file("extra", "feature start\n  show 1\n");
+    let (code, out, err) = gloss(&["build", p.to_str().unwrap(), "extra"]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert!(err.starts_with("usage: gloss"), "{err}");
+}
+
+#[test]
+fn a_table_file_named_like_the_executable_is_refused() {
+    let text = "record E\n  a as text\ntable es of E in \"clash\"\nfeature start\n  show 1\n";
+    let p = temp_file("clash", text);
+    let (code, _, err) = gloss(&["build", p.to_str().unwrap()]);
+    assert_eq!(code, 3);
+    assert_eq!(
+        err,
+        "line 3: table es of E in \"clash\". clash is the name of this program's executable; choose another file name.\n"
+    );
+}

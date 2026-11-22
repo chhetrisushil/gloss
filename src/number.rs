@@ -3,6 +3,16 @@ pub const SCALE: i64 = 10_000;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Number(pub i64);
 
+/// A count of decimal places, 0 to 4, so showing a number can never be asked for more.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Places(u8);
+
+impl Places {
+    pub fn new(places: u8) -> Option<Places> {
+        (places <= 4).then_some(Places(places))
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NumberError {
     Malformed,
@@ -39,8 +49,8 @@ impl Number {
         s
     }
 
-    pub fn with_places(self, places: u8) -> String {
-        assert!(places <= 4, "places is checked by the parser");
+    pub fn with_places(self, places: Places) -> String {
+        let places = places.0;
         let v = self.0 as i128;
         let unit = 10i128.pow(4 - places as u32);
         let rounded = (v.abs() + unit / 2) / unit;
@@ -99,6 +109,9 @@ mod tests {
     fn n(v: i64) -> Number {
         Number(v)
     }
+    fn pl(p: u8) -> Places {
+        Places::new(p).unwrap()
+    }
 
     #[test]
     fn literals() {
@@ -146,21 +159,27 @@ mod tests {
 
     #[test]
     fn with_places_rounds_half_away_from_zero() {
-        assert_eq!(n(1_205_000).with_places(2), "120.50");
-        assert_eq!(n(1_205_000).with_places(0), "121");
-        assert_eq!(n(-1_205_000).with_places(0), "-121");
-        assert_eq!(n(3_333).with_places(2), "0.33");
-        assert_eq!(n(-4_000).with_places(0), "0");
-        assert_eq!(n(0).with_places(4), "0.0000");
-        assert_eq!(n(i64::MAX).with_places(0), "922337203685478");
+        assert_eq!(n(1_205_000).with_places(pl(2)), "120.50");
+        assert_eq!(n(1_205_000).with_places(pl(0)), "121");
+        assert_eq!(n(-1_205_000).with_places(pl(0)), "-121");
+        assert_eq!(n(3_333).with_places(pl(2)), "0.33");
+        assert_eq!(n(-4_000).with_places(pl(0)), "0");
+        assert_eq!(n(0).with_places(pl(4)), "0.0000");
+        assert_eq!(n(i64::MAX).with_places(pl(0)), "922337203685478");
     }
 
     #[test]
     fn with_places_at_the_edges() {
-        assert_eq!(n(i64::MIN).with_places(0), "-922337203685478");
-        assert_eq!(n(i64::MIN).with_places(4), "-922337203685477.5808");
-        assert_eq!(n(-500).with_places(1), "-0.1");
-        assert_eq!(n(-499).with_places(1), "0.0");
+        assert_eq!(n(i64::MIN).with_places(pl(0)), "-922337203685478");
+        assert_eq!(n(i64::MIN).with_places(pl(4)), "-922337203685477.5808");
+        assert_eq!(n(-500).with_places(pl(1)), "-0.1");
+        assert_eq!(n(-499).with_places(pl(1)), "0.0");
+    }
+
+    #[test]
+    fn places_stop_at_four() {
+        assert!(Places::new(4).is_some());
+        assert_eq!(Places::new(5), None);
     }
 
     #[test]

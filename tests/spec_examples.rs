@@ -9,11 +9,18 @@ const SPEC: &str = include_str!("../spec/v0.md");
 /// The text of every block whose opening fence is ```gloss, possibly indented
 /// inside a list item; the fence's indent is stripped from each block line.
 fn gloss_blocks() -> Vec<String> {
+    blocks_in(SPEC)
+}
+
+fn blocks_in(markdown: &str) -> Vec<String> {
     let mut blocks = Vec::new();
     let mut current: Option<(usize, String)> = None;
-    for line in SPEC.lines() {
+    let mut other_fence = false;
+    for line in markdown.lines() {
         let trimmed = line.trim_start();
         match &mut current {
+            // Inside some other fenced block, a ```gloss line is just text.
+            None if other_fence => other_fence = trimmed != "```",
             None if trimmed == "```gloss" => {
                 current = Some((line.len() - trimmed.len(), String::new()));
             }
@@ -26,7 +33,7 @@ fn gloss_blocks() -> Vec<String> {
                 text.push_str(line.strip_prefix(pad.as_str()).unwrap_or(line.trim_start()));
                 text.push('\n');
             }
-            None => {}
+            None => other_fence = trimmed.starts_with("```"),
         }
     }
     assert!(
@@ -46,12 +53,12 @@ enum Class {
 
 fn classify(block: &str) -> Class {
     let first = block.lines().next().unwrap_or("");
-    let top_starts = ["record ", "table ", "feature ", "test ", "note"];
+    let top_starts = ["record ", "table ", "feature ", "test ", "note "];
     if block.contains("use \"") {
         Class::Future
     } else if block.contains("feature start") {
         Class::Program
-    } else if top_starts.iter().any(|s| first.starts_with(s)) {
+    } else if first == "note" || top_starts.iter().any(|s| first.starts_with(s)) {
         Class::Top
     } else {
         Class::Snippet
@@ -110,4 +117,13 @@ fn every_spec_example_compiles() {
     // [future, program, top, snippet]: adding or removing an example must
     // update these numbers deliberately.
     assert_eq!(counts, [1, 4, 4, 1], "blocks per class");
+}
+
+#[test]
+fn extraction_ignores_gloss_fences_inside_other_blocks() {
+    let md = "```\n```gloss\nfeature a\n```\n\n```gloss\nfeature b\n```\n";
+    assert_eq!(blocks_in(md), ["feature b\n"]);
+    assert_eq!(classify("notebook x\n"), Class::Snippet);
+    assert_eq!(classify("note\n  text\n"), Class::Top);
+    assert_eq!(classify("note a\n"), Class::Top);
 }
