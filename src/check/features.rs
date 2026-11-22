@@ -194,4 +194,34 @@ mod tests {
             ["line 2: run nothing_here. There is no feature named nothing_here."]
         );
     }
+
+    #[test]
+    fn recursive_give_before_the_base_case_resolves() {
+        let p = "feature start\n  show (down with 3)\nfeature down\n  needs n as number\n  if n is 0\n    give down with n\n  give 0\n";
+        assert!(diags(p).is_empty());
+    }
+
+    #[test]
+    fn a_give_inside_a_loop_is_not_on_every_path() {
+        let p = "feature start\n  show (f with 1)\nfeature f\n  needs n as number\n  repeat while n is 1\n    give 1\n";
+        assert_eq!(
+            diags(p),
+            ["line 3: feature f. f can reach its end without giving a value."]
+        );
+    }
+
+    #[test]
+    fn a_trailing_note_after_the_final_give_is_fine() {
+        let p = "feature start\n  show (f with 1)\nfeature f\n  needs n as number\n  give n\n  note done\n";
+        assert!(diags(p).is_empty());
+    }
+
+    #[test]
+    fn run_suggestion_lists_every_input() {
+        let p = "feature start\n  run f with 1, 2\nfeature f\n  needs a as number, b as number\n  give a\n";
+        assert_eq!(
+            diags(p),
+            ["line 2: run f with 1, 2. f gives a number; use it, as in set result to f with 1, 2."]
+        );
+    }
 }
