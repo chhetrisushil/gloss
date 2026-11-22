@@ -15,6 +15,9 @@ pub struct Diagnostic {
     pub suggestion: Option<String>,
 }
 
+/// The most characters of a source line a rendered message repeats.
+const MAX_ECHO: usize = 200;
+
 impl Diagnostic {
     fn at(severity: Severity, src: &Source, line: u32, problem: impl Into<String>) -> Self {
         Diagnostic {
@@ -61,6 +64,17 @@ impl Diagnostic {
         self.severity == Severity::Error
     }
 
+    /// The source line as echoed in a message: cut at `MAX_ECHO` characters, ending in "…".
+    fn echoed_line(&self) -> String {
+        let mut chars = self.source_line.chars();
+        let kept: String = chars.by_ref().take(MAX_ECHO).collect();
+        if chars.next().is_some() {
+            format!("{kept}…")
+        } else {
+            kept
+        }
+    }
+
     pub fn render(&self) -> String {
         // A problem that already ends in a question mark takes no full stop.
         let stop = if self.problem.ends_with('?') { "" } else { "." };
@@ -73,7 +87,8 @@ impl Diagnostic {
             Some(n) => {
                 format!(
                     "line {n}: {tag}{}. {}{stop}",
-                    self.source_line, self.problem
+                    self.echoed_line(),
+                    self.problem
                 )
             }
             None => format!("{tag}{}{stop}", self.problem),
@@ -140,6 +155,18 @@ mod tests {
         sort(&mut v);
         let order: Vec<&str> = v.iter().map(|d| d.problem.as_str()).collect();
         assert_eq!(order, ["p", "e2", "w2", "e3"]);
+    }
+
+    #[test]
+    fn a_very_long_source_line_is_cut() {
+        let long = format!("show {}", "x".repeat(500));
+        let src = Source::new(&format!("feature start\n  {long}\n"));
+        let d = Diagnostic::error(&src, 2, "p");
+        let expected_line = format!("{}…", &long[..200]);
+        assert_eq!(d.render(), format!("line 2: {expected_line}. p."));
+        let exact = "y".repeat(200);
+        let d = Diagnostic::error(&Source::new(&exact), 1, "p");
+        assert_eq!(d.render(), format!("line 1: {exact}. p."));
     }
 
     #[test]

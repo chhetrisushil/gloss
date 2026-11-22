@@ -383,14 +383,14 @@ mod tests {
 
     #[test]
     fn deep_nesting_is_reported_not_a_crash() {
-        // Unoptimised frames are large, so a full 200 levels needs more than a test thread's
-        // default stack; a real run on the main thread has plenty.
+        // The 10 000-level inputs are rejected long before the limit's stack use matters, but
+        // a big stack keeps this test independent of how large debug frames get.
         let run = || {
             let parens = "(".repeat(10_000);
             assert_eq!(perr(&parens), "This expression is nested too deeply");
             let facts = "count of ".repeat(10_000);
             assert_eq!(perr(&facts), "This expression is nested too deeply");
-            let ok = format!("{}1{}", "(".repeat(150), ")".repeat(150));
+            let ok = format!("{}1{}", "(".repeat(100), ")".repeat(100));
             assert!(parse_expr_str(&ok).is_ok());
         };
         let big = std::thread::Builder::new().stack_size(64 << 20);

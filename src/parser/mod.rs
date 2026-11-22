@@ -12,8 +12,11 @@ use crate::diag::Diagnostic;
 use crate::lexer::{Kw, Sym, Tok, Token, lex};
 use crate::source::Source;
 
-/// The deepest an expression may nest (parentheses, negation, facts of facts).
-const MAX_DEPTH: u32 = 200;
+/// The deepest an expression may nest (parentheses, negation, facts of facts), and also the
+/// deepest statement blocks may nest. Assumption: a debug build uses about 4 MB of stack per
+/// 200 levels, the main thread has 8 MB, and the later passes (check, format) add frames of
+/// their own on top of the parser's, so 100 levels leaves a wide margin.
+const MAX_DEPTH: u32 = 100;
 
 pub struct Parser<'a> {
     toks: &'a [Token],
@@ -21,6 +24,7 @@ pub struct Parser<'a> {
     src: &'a Source,
     next_id: u32,
     depth: u32,
+    block_depth: u32,
 }
 
 impl<'a> Parser<'a> {
@@ -31,6 +35,7 @@ impl<'a> Parser<'a> {
             src,
             next_id: 0,
             depth: 0,
+            block_depth: 0,
         }
     }
 
@@ -88,6 +93,20 @@ impl<'a> Parser<'a> {
         self.depth += 1;
         let result = level(self);
         self.depth -= 1;
+        result
+    }
+
+    /// Like `nested`, for statement blocks, which count separately from expressions.
+    pub fn nested_block<T>(
+        &mut self,
+        level: impl FnOnce(&mut Self) -> Result<T, Diagnostic>,
+    ) -> Result<T, Diagnostic> {
+        if self.block_depth >= MAX_DEPTH {
+            return Err(self.err("This block is nested too deeply"));
+        }
+        self.block_depth += 1;
+        let result = level(self);
+        self.block_depth -= 1;
         result
     }
 
