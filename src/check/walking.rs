@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::Ctx;
-use super::rules::{children, parts};
 use crate::ast::stmt::{Stmt, StmtKind, Target};
+use crate::ast::walk::{blocks, children, parts};
 use crate::ast::{Expr, ExprKind, Line};
 use crate::diag::Diagnostic;
 
@@ -43,12 +43,6 @@ fn expr_calls<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
         out.push(feature);
     }
     children(e).into_iter().for_each(|c| expr_calls(c, out));
-}
-
-pub(super) fn blocks(kind: &StmtKind) -> Vec<&[Stmt]> {
-    let (mut exprs, mut nested) = (Vec::new(), Vec::new());
-    parts(kind, &mut exprs, &mut nested);
-    nested
 }
 
 impl<'a> Graph<'a> {

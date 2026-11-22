@@ -2,6 +2,7 @@ use super::{Ctx, Ty};
 use crate::ast::print;
 use crate::ast::sexpr::sexpr;
 use crate::ast::stmt::{Stmt, StmtKind, Target};
+use crate::ast::walk::{children, parts};
 use crate::ast::{ArithOp, CompareOp, Expr, ExprKind};
 use crate::diag::Diagnostic;
 
@@ -156,74 +157,6 @@ fn compares_a_truth(types: &[Option<Ty>], e: &Expr) -> bool {
         let known = types.get(x.id.0 as usize).cloned().flatten();
         !matches!(x.kind, ExprKind::Truth(_)) && known == Some(Ty::Truth)
     })
-}
-
-/// The expressions a statement holds directly, and the blocks inside it.
-pub(super) fn parts<'a>(
-    kind: &'a StmtKind,
-    exprs: &mut Vec<&'a Expr>,
-    nested: &mut Vec<&'a [Stmt]>,
-) {
-    match kind {
-        StmtKind::Set { value, .. } => exprs.push(value),
-        StmtKind::Add { value, .. } | StmtKind::Subtract { value, .. } => exprs.push(value),
-        StmtKind::Multiply { by, .. } | StmtKind::Divide { by, .. } => exprs.push(by),
-        StmtKind::Append { value, .. } => exprs.push(value),
-        StmtKind::Ask { question, .. } => exprs.push(question),
-        StmtKind::Show(xs) | StmtKind::Input(xs) | StmtKind::Run { inputs: xs, .. } => {
-            exprs.extend(xs);
-        }
-        StmtKind::Give(e) | StmtKind::Expect(e) => exprs.push(e),
-        StmtKind::If {
-            branches,
-            otherwise,
-        } => {
-            for (cond, b) in branches {
-                exprs.push(cond);
-                nested.push(b);
-            }
-            nested.extend(otherwise.as_deref());
-        }
-        StmtKind::ForEachIn { list, body, .. } => {
-            exprs.push(list);
-            nested.push(body);
-        }
-        StmtKind::ForEachRange { from, to, body, .. } => {
-            exprs.extend([from, to]);
-            nested.push(body);
-        }
-        StmtKind::RepeatWhile { cond, body } => {
-            exprs.push(cond);
-            nested.push(body);
-        }
-        _ => {}
-    }
-}
-
-pub(super) fn children(e: &Expr) -> Vec<&Expr> {
-    match &e.kind {
-        ExprKind::Paren(x)
-        | ExprKind::FieldOf { of: x, .. }
-        | ExprKind::Fact { of: x, .. }
-        | ExprKind::Negate(x)
-        | ExprKind::Convert { value: x, .. }
-        | ExprKind::IsNumber { value: x, .. }
-        | ExprKind::Not(x) => vec![x],
-        ExprKind::ItemOf { position: a, of: b }
-        | ExprKind::Remainder { of: a, by: b }
-        | ExprKind::Binary {
-            left: a, right: b, ..
-        }
-        | ExprKind::Compare {
-            left: a, right: b, ..
-        } => vec![a, b],
-        ExprKind::Call { inputs: xs, .. }
-        | ExprKind::BuildList(xs)
-        | ExprKind::And(xs)
-        | ExprKind::Or(xs) => xs.iter().collect(),
-        ExprKind::BuildRecord { fields, .. } => fields.iter().map(|(_, x)| x).collect(),
-        _ => Vec::new(),
-    }
 }
 
 #[cfg(test)]
