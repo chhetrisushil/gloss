@@ -183,24 +183,16 @@ fn check_bodies(ctx: &mut Ctx) -> TypeInfo {
 mod tests {
     use super::*;
     use crate::ast::stmt::Stmt;
-    use crate::ast::{Expr, ExprKind};
+    use crate::ast::{ExprKind, walk};
 
     fn names_in(stmts: &[Stmt], out: &mut Vec<(ExprId, String)>) {
-        for s in stmts {
-            let (mut exprs, mut nested) = (Vec::new(), Vec::new());
-            crate::ast::walk::parts(&s.kind, &mut exprs, &mut nested);
-            exprs.into_iter().for_each(|e| name_exprs(e, out));
-            nested.into_iter().for_each(|b| names_in(b, out));
-        }
-    }
-
-    fn name_exprs(e: &Expr, out: &mut Vec<(ExprId, String)>) {
-        if let ExprKind::Name(n) = &e.kind {
-            out.push((e.id, n.clone()));
-        }
-        crate::ast::walk::children(e)
-            .into_iter()
-            .for_each(|c| name_exprs(c, out));
+        walk::for_each_stmt(stmts, &mut |s| {
+            walk::for_each_expr_of(&s.kind, &mut |e| {
+                if let ExprKind::Name(n) = &e.kind {
+                    out.push((e.id, n.clone()));
+                }
+            });
+        });
     }
 
     #[test]

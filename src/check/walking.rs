@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::Ctx;
 use crate::ast::stmt::{Stmt, StmtKind, Target};
-use crate::ast::walk::{blocks, children, parts};
+use crate::ast::walk::{self, blocks};
 use crate::ast::{Expr, ExprKind, Line};
 use crate::diag::Diagnostic;
 
@@ -33,16 +33,11 @@ pub(super) fn called<'a>(kind: &'a StmtKind, out: &mut Vec<&'a str>) {
     if let StmtKind::Run { feature, .. } = kind {
         out.push(feature);
     }
-    let mut exprs = Vec::new();
-    parts(kind, &mut exprs, &mut Vec::new());
-    exprs.into_iter().for_each(|e| expr_calls(e, out));
-}
-
-fn expr_calls<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
-    if let ExprKind::Call { feature, .. } = &e.kind {
-        out.push(feature);
-    }
-    children(e).into_iter().for_each(|c| expr_calls(c, out));
+    walk::for_each_expr_of(kind, &mut |e| {
+        if let ExprKind::Call { feature, .. } = &e.kind {
+            out.push(feature);
+        }
+    });
 }
 
 impl<'a> Graph<'a> {

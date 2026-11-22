@@ -6,7 +6,7 @@ use super::walking::called;
 use super::{Ctx, FeatureInfo, Ty, order, stmt};
 use crate::ast::program::FeatureDecl;
 use crate::ast::stmt::{Stmt, StmtKind};
-use crate::ast::walk::{blocks, children, parts};
+use crate::ast::walk::{for_each_expr_of, for_each_stmt};
 use crate::ast::{Expr, ExprKind, Line, Type, print};
 use crate::diag::Diagnostic;
 
@@ -81,28 +81,25 @@ pub fn infer_results(ctx: &mut Ctx) -> BTreeMap<String, Ty> {
 /// Every name in a body that can make it depend on a feature's result: features it runs or
 /// calls, and any name that may be a feature used as a value.
 fn dependencies<'a>(body: &'a [Stmt], out: &mut Vec<&'a str>) {
-    for stmt in body {
-        called(&stmt.kind, out);
-        let (mut exprs, mut nested) = (Vec::new(), Vec::new());
-        parts(&stmt.kind, &mut exprs, &mut nested);
-        exprs.into_iter().for_each(|e| names_in(e, out));
-        nested.into_iter().for_each(|b| dependencies(b, out));
-    }
-}
-
-fn names_in<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
-    if let ExprKind::Name(name) = &e.kind {
-        out.push(name);
-    }
-    children(e).into_iter().for_each(|c| names_in(c, out));
+    let mut names = Vec::new();
+    for_each_stmt(body, &mut |stmt| {
+        called(&stmt.kind, &mut names);
+        for_each_expr_of(&stmt.kind, &mut |e| {
+            if let ExprKind::Name(name) = &e.kind {
+                names.push(name.as_str());
+            }
+        });
+    });
+    out.extend(names);
 }
 
 /// How many give statements a body holds, nested ones included.
 fn gives_in(body: &[Stmt]) -> usize {
-    let nested = |s: &Stmt| blocks(&s.kind).into_iter().map(gives_in).sum::<usize>();
-    body.iter()
-        .map(|s| usize::from(matches!(s.kind, StmtKind::Give(_))) + nested(s))
-        .sum()
+    let mut gives = 0;
+    for_each_stmt(body, &mut |s| {
+        gives += usize::from(matches!(s.kind, StmtKind::Give(_)))
+    });
+    gives
 }
 
 /// Reports a feature whose result is still unknown with nothing else wrong.
@@ -120,12 +117,7 @@ pub fn check_result(ctx: &mut Ctx, f: &FeatureDecl, checked: &FeatureInfo, kept:
 
 /// Every feature called anywhere in a body, nested blocks included.
 fn calls_in<'a>(body: &'a [Stmt], out: &mut Vec<&'a str>) {
-    for stmt in body {
-        called(&stmt.kind, out);
-        blocks(&stmt.kind)
-            .into_iter()
-            .for_each(|b| calls_in(b, out));
-    }
+    for_each_stmt(body, &mut |stmt| called(&stmt.kind, out));
 }
 
 /// True when `name` can call itself, directly or through other features. Any call counts,

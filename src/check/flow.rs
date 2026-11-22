@@ -5,6 +5,7 @@ use super::uses::{self, Exits, Origin};
 use super::{Ctx, Ty};
 use crate::ast::program::Program;
 use crate::ast::stmt::{Stmt, StmtKind, Target};
+use crate::ast::walk::for_each_stmt;
 use crate::ast::{Expr, Line};
 use crate::diag::Diagnostic;
 
@@ -42,23 +43,11 @@ pub fn check_flow(ctx: &mut Ctx, base: &Known, inputs: &[(String, Ty)], body: &[
 
 /// Every loop variable in the body, which the typo warning treats as an existing name.
 fn loop_vars<'a>(body: &'a [Stmt], out: &mut Vec<&'a str>) {
-    for stmt in body {
-        match &stmt.kind {
-            StmtKind::ForEachIn { var, body, .. } | StmtKind::ForEachRange { var, body, .. } => {
-                out.push(var);
-                loop_vars(body, out);
-            }
-            StmtKind::RepeatWhile { body, .. } => loop_vars(body, out),
-            StmtKind::If {
-                branches,
-                otherwise,
-            } => {
-                branches.iter().for_each(|(_, b)| loop_vars(b, out));
-                loop_vars(otherwise.as_deref().unwrap_or_default(), out);
-            }
-            _ => {}
+    for_each_stmt(body, &mut |stmt| {
+        if let StmtKind::ForEachIn { var, .. } | StmtKind::ForEachRange { var, .. } = &stmt.kind {
+            out.push(var);
         }
-    }
+    });
 }
 
 /// True when the names are the same but for one final `s`.
