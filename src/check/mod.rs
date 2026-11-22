@@ -2,6 +2,7 @@ pub mod combine;
 pub mod expr;
 mod features;
 mod flow;
+mod mutation;
 pub mod names;
 pub mod rules;
 pub mod similar;
@@ -82,12 +83,14 @@ fn check_bodies(ctx: &mut Ctx) -> TypeInfo {
         features::check_gives(ctx, f, &checked);
         flow::check_flow(ctx, &inputs, &f.body);
         rules::check_rules(ctx, &info.expr_types, &f.body);
+        mutation::check_mutation(ctx, &inputs, &f.body);
         info.features.insert(f.name.clone(), checked);
     }
     for t in program.tests() {
         stmt::check_body(ctx, &results, &[], &t.body, true, &mut info.expr_types);
         flow::check_flow(ctx, &[], &t.body);
         rules::check_rules(ctx, &info.expr_types, &t.body);
+        mutation::check_mutation(ctx, &[], &t.body);
     }
     info
 }
