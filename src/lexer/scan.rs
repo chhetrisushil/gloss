@@ -55,6 +55,10 @@ pub fn scan_line(src: &Source, line: u32, text: &str) -> Result<Vec<Token>, Diag
                             i += 1;
                             break;
                         }
+                        Some('\t') => return Err(err("Tabs are not allowed; use spaces".into())),
+                        Some('\r') => {
+                            return Err(err("A carriage return is not allowed inside text".into()));
+                        }
                         Some(ch) => {
                             s.push(ch);
                             i += ch.len_utf8();
@@ -175,6 +179,11 @@ mod tests {
         assert_eq!(problem("set x to 5."), "5. is not a number Gloss can read");
         assert_eq!(problem("show\t1"), "Tabs are not allowed; use spaces");
         assert_eq!(problem("show 1 # 2"), "# is not part of Gloss");
+        assert_eq!(problem("show \"a\tb\""), "Tabs are not allowed; use spaces");
+        assert_eq!(
+            problem("show \"a\rb\""),
+            "A carriage return is not allowed inside text"
+        );
     }
 
     #[test]

@@ -5,10 +5,12 @@ pub struct Source {
 }
 
 impl Source {
-    /// Splits `text` on line breaks. Text that ends in a newline has a final empty line, so
+    /// Splits `text` on line breaks; a UTF-8 byte-order mark at the very start is dropped. Text that ends in a newline has a final empty line, so
     /// `"a\n"` has two lines, `"a"` and `""`.
     pub fn new(text: &str) -> Source {
         let lines = text
+            .strip_prefix('\u{FEFF}')
+            .unwrap_or(text)
             .split('\n')
             .map(|l| l.strip_suffix('\r').unwrap_or(l).to_string())
             .collect();
@@ -38,6 +40,16 @@ mod tests {
         assert_eq!(src.line(1), "one");
         assert_eq!(src.line(2), "two");
         assert_eq!(src.line(99), "");
+    }
+
+    #[test]
+    fn a_byte_order_mark_at_the_start_is_dropped() {
+        assert_eq!(
+            Source::new("\u{FEFF}feature start\n").line(1),
+            "feature start"
+        );
+        assert_eq!(Source::new("a\u{FEFF}b").line(1), "a\u{FEFF}b");
+        assert!(crate::check_source("\u{FEFF}feature start\n  show 1\n").is_empty());
     }
 
     #[test]
