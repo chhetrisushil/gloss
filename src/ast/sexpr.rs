@@ -108,6 +108,20 @@ mod tests {
     fn bx(x: Expr) -> Box<Expr> {
         Box::new(x)
     }
+    fn bin(op: ArithOp, l: Expr, r: Expr) -> Expr {
+        e(K::Binary {
+            op,
+            left: bx(l),
+            right: bx(r),
+        })
+    }
+    fn cmp(op: CompareOp, l: Expr, r: Expr) -> Expr {
+        e(K::Compare {
+            op,
+            left: bx(l),
+            right: bx(r),
+        })
+    }
     fn check(x: Expr, want: &str) {
         assert_eq!(sexpr(&x), want, "{x:?}");
     }
@@ -178,6 +192,65 @@ mod tests {
                 }),
                 want,
             );
+        }
+    }
+
+    #[test]
+    fn prints_every_fact_and_conversion() {
+        let facts = [
+            (Fact::Count, "count"),
+            (Fact::First, "first"),
+            (Fact::Last, "last"),
+            (Fact::Whole, "whole"),
+        ];
+        for (fact, w) in facts {
+            check(
+                e(K::Fact {
+                    fact,
+                    of: bx(name("x")),
+                }),
+                &format!("({w} x)"),
+            );
+        }
+        let mut convs = vec![
+            (Conversion::ToNumber, "as-number".to_string()),
+            (Conversion::ToText, "as-text".to_string()),
+        ];
+        for n in 0..=4 {
+            convs.push((Conversion::ToTextPlaces(n), format!("as-text-{n}")));
+        }
+        for (to, w) in convs {
+            check(
+                e(K::Convert {
+                    value: bx(name("t")),
+                    to,
+                }),
+                &format!("({w} t)"),
+            );
+        }
+    }
+
+    #[test]
+    fn prints_every_arithmetic_and_comparison_op() {
+        let ariths = [
+            (ArithOp::Add, "+"),
+            (ArithOp::Sub, "-"),
+            (ArithOp::Mul, "*"),
+            (ArithOp::Div, "/"),
+        ];
+        for (op, w) in ariths {
+            check(bin(op, name("a"), name("b")), &format!("({w} a b)"));
+        }
+        let cmps = [
+            (CompareOp::Is, "is"),
+            (CompareOp::IsNot, "is-not"),
+            (CompareOp::Greater, "greater"),
+            (CompareOp::Less, "less"),
+            (CompareOp::AtLeast, "at-least"),
+            (CompareOp::AtMost, "at-most"),
+        ];
+        for (op, w) in cmps {
+            check(cmp(op, name("a"), name("b")), &format!("({w} a b)"));
         }
     }
 }
