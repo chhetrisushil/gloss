@@ -1,5 +1,8 @@
 pub mod expr;
+mod stmt;
 mod value;
+
+pub use stmt::parse_stmts_str;
 
 use crate::ast::{Expr, ExprId, ExprKind};
 use crate::diag::Diagnostic;
