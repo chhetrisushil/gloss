@@ -21,21 +21,28 @@ impl Origin {
     }
 }
 
-/// True when the code after a body is never reached from its end: the last
-/// statement gives, stops or skips, or is an if whose every branch does.
-pub fn diverges(body: &[Stmt]) -> bool {
-    let last = body
-        .iter()
-        .rev()
-        .find(|s| !matches!(s.kind, StmtKind::Note(_)));
-    match last.map(|s| &s.kind) {
-        Some(StmtKind::Give(_) | StmtKind::Stop | StmtKind::Skip) => true,
-        Some(StmtKind::If {
+/// Which statements end a block early.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Exits {
+    /// Only a give, which ends the feature.
+    Give,
+    /// A give, and a stop or skip, which end the pass of a loop.
+    Any,
+}
+
+/// True when the code after a body is never reached from its end: a statement of the body
+/// gives (or, for `Exits::Any`, stops or skips), or is an if with an otherwise whose every
+/// branch does.
+pub fn diverges(body: &[Stmt], exits: Exits) -> bool {
+    body.iter().any(|s| match &s.kind {
+        StmtKind::Give(_) => true,
+        StmtKind::Stop | StmtKind::Skip => exits == Exits::Any,
+        StmtKind::If {
             branches,
             otherwise: Some(other),
-        }) => branches.iter().all(|(_, b)| diverges(b)) && diverges(other),
+        } => branches.iter().all(|(_, b)| diverges(b, exits)) && diverges(other, exits),
         _ => false,
-    }
+    })
 }
 
 /// Finds each variable's first `set` or `ask`, in source order.
@@ -161,9 +168,12 @@ mod tests {
         let b = body(
             "feature start\n  if yes\n    give 1\n  otherwise\n    stop\n  if yes\n    give 1\n",
         );
-        assert!(diverges(&b[..1]));
-        assert!(!diverges(&b[1..]));
-        assert!(!diverges(&[]));
+        assert!(diverges(&b[..1], Exits::Any));
+        assert!(!diverges(&b[..1], Exits::Give));
+        assert!(!diverges(&b[1..], Exits::Any));
+        assert!(!diverges(&[], Exits::Any));
+        let early = body("feature start\n  give 1\n  show 2\n");
+        assert!(diverges(&early, Exits::Give));
     }
 
     #[test]
