@@ -24,6 +24,26 @@ pub enum NumberError {
     OutOfRange,
 }
 
+/// Why arithmetic on numbers failed at run time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NumFail {
+    DivideByZero,
+    OutOfRange,
+}
+
+fn in_range(v: i128) -> Result<Number, NumFail> {
+    i64::try_from(v)
+        .map(Number)
+        .map_err(|_| NumFail::OutOfRange)
+}
+
+/// `numerator / denominator` rounded half away from zero; the denominator is not zero.
+fn divide_rounded(numerator: i128, denominator: i128) -> i128 {
+    let (n, d) = (numerator.abs(), denominator.abs());
+    let sign = numerator.signum() * denominator.signum();
+    sign * ((2 * n + d) / (2 * d))
+}
+
 impl Number {
     pub fn parse_literal(s: &str) -> Result<Number, NumberError> {
         parse_digits(s, false)
@@ -35,6 +55,51 @@ impl Number {
             Some(rest) => parse_digits(rest, true),
             None => parse_digits(t, false),
         }
+    }
+
+    pub fn checked_add(self, o: Number) -> Result<Number, NumFail> {
+        in_range(i128::from(self.0) + i128::from(o.0))
+    }
+
+    pub fn checked_sub(self, o: Number) -> Result<Number, NumFail> {
+        in_range(i128::from(self.0) - i128::from(o.0))
+    }
+
+    pub fn checked_neg(self) -> Result<Number, NumFail> {
+        in_range(-i128::from(self.0))
+    }
+
+    /// `self * o`, rounded half away from zero to four places.
+    pub fn mul_round(self, o: Number) -> Result<Number, NumFail> {
+        in_range(divide_rounded(
+            i128::from(self.0) * i128::from(o.0),
+            i128::from(SCALE),
+        ))
+    }
+
+    /// `self / o`, rounded half away from zero to four places.
+    pub fn div_round(self, o: Number) -> Result<Number, NumFail> {
+        if o.0 == 0 {
+            return Err(NumFail::DivideByZero);
+        }
+        in_range(divide_rounded(
+            i128::from(self.0) * i128::from(SCALE),
+            i128::from(o.0),
+        ))
+    }
+
+    /// The exact remainder; its sign follows `self`. Fallible, so not `std::ops::Rem`.
+    #[allow(clippy::should_implement_trait)]
+    pub fn rem(self, o: Number) -> Result<Number, NumFail> {
+        if o.0 == 0 {
+            return Err(NumFail::DivideByZero);
+        }
+        in_range(i128::from(self.0) % i128::from(o.0))
+    }
+
+    /// Drops the fraction, toward zero.
+    pub fn whole(self) -> Number {
+        Number(self.0 / SCALE * SCALE)
     }
 
     pub fn show(self) -> String {
@@ -190,5 +255,74 @@ mod tests {
     fn negative_zero_text_is_zero() {
         assert_eq!(Number::parse_text("-0"), Ok(n(0)));
         assert_eq!(Number::parse_text("-0.0000"), Ok(n(0)));
+    }
+
+    const MAX: Number = Number(i64::MAX);
+
+    #[test]
+    fn add_sub_neg_are_exact_or_out_of_range() {
+        assert_eq!(n(1000).checked_add(n(2000)), Ok(n(3000)));
+        assert_eq!(MAX.checked_add(n(1)), Err(NumFail::OutOfRange));
+        assert_eq!(n(i64::MIN).checked_sub(n(1)), Err(NumFail::OutOfRange));
+        assert_eq!(n(5).checked_sub(n(8)), Ok(n(-3)));
+        assert_eq!(n(i64::MIN).checked_neg(), Err(NumFail::OutOfRange));
+        assert_eq!(n(7).checked_neg(), Ok(n(-7)));
+    }
+
+    #[test]
+    fn division_rounds_half_away_from_zero() {
+        assert_eq!(n(70_000).div_round(n(20_000)), Ok(n(35_000)));
+        assert_eq!(n(10_000).div_round(n(30_000)), Ok(n(3333)));
+        assert_eq!(n(20_000).div_round(n(30_000)), Ok(n(6667)));
+        assert_eq!(n(-20_000).div_round(n(30_000)), Ok(n(-6667)));
+        assert_eq!(n(20_000).div_round(n(-30_000)), Ok(n(-6667)));
+        assert_eq!(n(i64::MIN).div_round(n(-10_000)), Err(NumFail::OutOfRange));
+        assert_eq!(n(5).div_round(n(0)), Err(NumFail::DivideByZero));
+    }
+
+    #[test]
+    fn multiplication_rounds_half_away_from_zero() {
+        assert_eq!(n(1).mul_round(n(5000)), Ok(n(1)));
+        assert_eq!(n(-1).mul_round(n(5000)), Ok(n(-1)));
+        assert_eq!(n(1).mul_round(n(4999)), Ok(n(0)));
+        assert_eq!(n(3333).mul_round(n(30_000)), Ok(n(9999)));
+        assert_eq!(MAX.mul_round(n(20_000)), Err(NumFail::OutOfRange));
+    }
+
+    #[test]
+    fn remainder_and_whole() {
+        assert_eq!(n(70_000).rem(n(20_000)), Ok(n(10_000)));
+        assert_eq!(n(-70_000).rem(n(20_000)), Ok(n(-10_000)));
+        assert_eq!(n(75_000).rem(n(20_000)), Ok(n(15_000)));
+        assert_eq!(n(i64::MIN).rem(n(-1)), Ok(n(0)));
+        assert_eq!(n(5).rem(n(0)), Err(NumFail::DivideByZero));
+        assert_eq!(n(35_000).whole(), n(30_000));
+        assert_eq!(n(-35_000).whole(), n(-30_000));
+    }
+
+    #[test]
+    fn mul_round_matches_an_independent_formula() {
+        let mut x: u64 = 0x2545_F491_4F6C_DD1D;
+        let mut next = move || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x as i64
+        };
+        for i in 0..4000 {
+            let (a, b) = if i % 2 == 0 {
+                (next(), next())
+            } else {
+                (
+                    next().rem_euclid(200_000_001) - 100_000_000,
+                    next().rem_euclid(200_000_001) - 100_000_000,
+                )
+            };
+            let p = i128::from(a) * i128::from(b);
+            let expected = i64::try_from((p + p.signum() * 5000) / 10_000)
+                .map(Number)
+                .map_err(|_| NumFail::OutOfRange);
+            assert_eq!(n(a).mul_round(n(b)), expected, "{a} * {b}");
+        }
     }
 }
