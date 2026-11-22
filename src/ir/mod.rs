@@ -91,6 +91,7 @@ pub enum Inst {
     Const(Reg, i64),
     /// Slots are numbered from 1.
     LoadSlot(Reg, u32),
+    /// Stores a register into a slot; slots are numbered from 1.
     StoreSlot(u32, Reg),
     /// Arguments are numbered from 1, left to right.
     LoadArg(Reg, u32),
@@ -127,11 +128,11 @@ pub enum Inst {
     NumAdd {
         range: Label,
     },
-    /// `a = a - b`, range-checked.
+    /// `a = a - b`; jumps to `range` on overflow.
     NumSub {
         range: Label,
     },
-    /// `a = -a`, range-checked.
+    /// `a = -a`; jumps to `range` on overflow.
     NumNeg {
         range: Label,
     },
@@ -155,7 +156,7 @@ pub enum Inst {
     Int(IntOp),
     /// `r = r + n`.
     AddImm(Reg, i32),
-    /// `a = a << n`, or `a >> n` (arithmetic or logical).
+    /// `a = a << n`, or `a >> n` (arithmetic or logical), with `n` from 0 to 63.
     Shift(Shift, u8),
     /// Compares `a` with `b`, for the next `JumpIf` or `SetIf`.
     Compare,
@@ -173,8 +174,8 @@ pub enum Inst {
     Return,
     /// The first instruction of every function: reserves `n` zeroed 8-byte slots.
     Enter(u32),
-    /// Jumps to `fail` when calling a function whose frame needs `bytes` more bytes would
-    /// pass `Global::StackLimit`.
+    /// Placed just before a call: jumps to `fail` when the stack pointer minus `bytes` is
+    /// below `Global::StackLimit` (unsigned), that is, when the callee's frame would not fit.
     StackCheck {
         bytes: u32,
         fail: Label,
