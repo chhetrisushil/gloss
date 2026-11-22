@@ -107,6 +107,8 @@ pub struct Token {
     pub tok: Tok,
     pub line: u32,
     pub blank_before: bool,
+    /// For a number written as one digit, such as `2` but not `2.0` or `02`, that digit.
+    pub digit: Option<u8>,
 }
 
 #[cfg(test)]

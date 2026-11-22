@@ -90,10 +90,7 @@ impl Parser<'_> {
             return Ok(Conversion::ToText);
         }
         let line = self.line();
-        let places = match self.bump().map(|t| t.tok) {
-            Some(Tok::Number(n)) => n.show().parse::<u8>().ok().filter(|d| *d <= 4),
-            _ => None,
-        };
+        let places = self.bump().and_then(|t| t.digit).filter(|d| *d <= 4);
         let places = places
             .ok_or_else(|| self.err_at(line, "The number of places is a digit from 0 to 4"))?;
         if !self.eat_kw(Kw::Places) {
