@@ -1,3 +1,5 @@
+pub mod sexpr;
+
 pub type Line = u32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
