@@ -121,8 +121,95 @@ mod tests {
             kind,
         }
     }
+    fn var(s: &str) -> Target {
+        Target::Var(s.into())
+    }
     fn check(kind: S, want: &str) {
         assert_eq!(stmt(&st(kind)), want);
+    }
+
+    #[test]
+    fn prints_a_nested_target() {
+        let nested = Target::Field {
+            field: "amount".into(),
+            of: Box::new(Target::Item {
+                position: Box::new(num(3)),
+                of: Box::new(var("expenses")),
+            }),
+        };
+        check(
+            S::Set {
+                target: nested,
+                value: num(150),
+            },
+            "(set (of amount (item 3 expenses)) 150)",
+        );
+    }
+
+    #[test]
+    fn prints_every_simple_statement() {
+        check(
+            S::Note(Note::Line("hi \"x\"".into())),
+            "(note \"hi \"\"x\"\"\")",
+        );
+        check(
+            S::Note(Note::Block(vec!["a".into(), "b".into()])),
+            "(note-block \"a\" \"b\")",
+        );
+        let set = S::Set {
+            target: var("t"),
+            value: num(0),
+        };
+        check(set, "(set t 0)");
+        let add = S::Add {
+            value: name("p"),
+            target: var("t"),
+        };
+        check(add, "(add p t)");
+        let sub = S::Subtract {
+            value: name("d"),
+            target: var("t"),
+        };
+        check(sub, "(subtract d t)");
+        let mul = S::Multiply {
+            target: var("t"),
+            by: num(2),
+        };
+        check(mul, "(multiply t 2)");
+        let div = S::Divide {
+            target: var("t"),
+            by: name("n"),
+        };
+        check(div, "(divide t n)");
+        let append = S::Append {
+            value: name("x"),
+            list: "xs".into(),
+        };
+        check(append, "(append x xs)");
+        check(S::Show(vec![num(1), name("b")]), "(show 1 b)");
+        let ask = S::Ask {
+            question: e(K::Text("Q?".into())),
+            into: "a".into(),
+        };
+        check(ask, "(ask \"Q?\" a)");
+        check(S::Skip, "skip");
+        check(S::Stop, "stop");
+        check(S::Give(name("t")), "(give t)");
+        let run = S::Run {
+            feature: "f".into(),
+            inputs: vec![name("a"), name("b")],
+        };
+        check(run, "(run f a b)");
+        let bare_run = S::Run {
+            feature: "go".into(),
+            inputs: vec![],
+        };
+        check(bare_run, "(run go)");
+        check(S::Load("t".into()), "(load t)");
+        check(S::Save("t".into()), "(save t)");
+        check(S::Clear("t".into()), "(clear t)");
+        check(S::Expect(name("ok")), "(expect ok)");
+        check(S::Input(vec![name("a"), num(2)]), "(input a 2)");
     }
 
     #[test]
