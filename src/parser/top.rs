@@ -1,6 +1,7 @@
 use super::Parser;
 use crate::ast::PlainType;
 use crate::ast::program::*;
+use crate::ast::stmt::Note;
 use crate::diag::Diagnostic;
 use crate::lexer::{Kw, Tok, Token};
 use crate::source::Source;
@@ -21,11 +22,31 @@ pub fn parse(toks: &[Token], src: &Source) -> Result<Program, Diagnostic> {
 impl Parser<'_> {
     fn parse_item(&mut self) -> Result<Item, Diagnostic> {
         let line = self.line();
+        if let Some(note) = self.eat_note() {
+            let attached = self.toks.get(self.pos).is_some_and(|t| !t.blank_before);
+            return Ok(Item::Note {
+                line,
+                note,
+                attached,
+            });
+        }
         if !self.eat_kw(Kw::Record) {
             let all = "Only record, table, feature, test and note can start a line";
             return Err(self.err(format!("{all} at the top level")));
         }
         Ok(Item::Record(self.record(line)?))
+    }
+
+    /// Consumes a note and the end of its line, if one is next.
+    fn eat_note(&mut self) -> Option<Note> {
+        let note = match self.peek()? {
+            Tok::Note(text) => Note::Line(text.clone()),
+            Tok::NoteBlock(lines) => Note::Block(lines.clone()),
+            _ => return None,
+        };
+        self.pos += 1;
+        self.end_line().ok()?;
+        Some(note)
     }
 
     fn end_line(&mut self) -> Result<(), Diagnostic> {
@@ -44,6 +65,10 @@ impl Parser<'_> {
         self.open_block("record")?;
         let mut entries = Vec::new();
         while !matches!(self.peek(), Some(Tok::Dedent) | None) {
+            if let Some(note) = self.eat_note() {
+                entries.push(RecordEntry::Note(note));
+                continue;
+            }
             let line = self.line();
             let name = self.parse_name("a field")?;
             self.expect_word("a field", Kw::As)?;
@@ -52,6 +77,10 @@ impl Parser<'_> {
             entries.push(RecordEntry::Field(FieldDecl { line, name, ty }));
         }
         self.close_block();
+        if !entries.iter().any(|e| matches!(e, RecordEntry::Field(_))) {
+            let problem = format!("record {name} needs at least one field under it");
+            return Err(Diagnostic::error(self.src, line, problem));
+        }
         Ok(RecordDecl {
             line,
             name,
@@ -92,6 +121,7 @@ impl Parser<'_> {
 #[cfg(test)]
 mod tests {
     use crate::ast::program::*;
+    use crate::ast::stmt::Note;
     use crate::source::Source;
 
     fn parse(t: &str) -> Result<Program, crate::diag::Diagnostic> {
@@ -109,6 +139,26 @@ mod tests {
     }
 
     #[test]
+    fn notes_at_the_top_and_in_records() {
+        let text = "note a\nnote b\nrecord S\n  note the name\n  name as text\n\nnote c\n\nrecord T\n  n as truth\n";
+        let p = parse(text).unwrap();
+        assert_eq!(p.items.len(), 5);
+        let attached = |i: usize| match &p.items[i] {
+            Item::Note { attached, .. } => *attached,
+            other => panic!("not a note: {other:?}"),
+        };
+        assert!(attached(0) && attached(1));
+        assert!(!attached(3));
+        let r = p.records().next().unwrap();
+        assert_eq!(r.entries.len(), 2);
+        assert_eq!(
+            r.entries[0],
+            RecordEntry::Note(Note::Line("the name".into()))
+        );
+        assert!(matches!(p.items[3], Item::Note { line: 7, .. }));
+    }
+
+    #[test]
     fn top_level_errors() {
         let e = |t: &str| parse(t).unwrap_err().render();
         assert_eq!(
@@ -122,6 +172,10 @@ mod tests {
         assert_eq!(
             e("record E\n  a\n"),
             "line 2: a. a field needs as, as in a as."
+        );
+        assert_eq!(
+            e("record E\n  note x\n"),
+            "line 1: record E. record E needs at least one field under it."
         );
         assert_eq!(
             e("record E\n  a as list of number\n"),
