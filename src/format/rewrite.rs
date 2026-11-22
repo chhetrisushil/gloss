@@ -1,5 +1,6 @@
 use crate::ast::program::{Item, Program};
-use crate::ast::stmt::{Stmt, StmtKind as S, Target};
+use crate::ast::stmt::Stmt;
+use crate::ast::walk;
 use crate::ast::{Expr, ExprKind as K};
 use crate::check::rules::{set_rewrite, truth_rewrite};
 
@@ -18,108 +19,33 @@ pub fn rewrite(program: &Program) -> Program {
 
 fn body(stmts: &mut [Stmt]) {
     for s in stmts {
-        stmt(&mut s.kind);
+        let (mut exprs, mut nested) = (Vec::new(), Vec::new());
+        walk::parts_mut(&mut s.kind, &mut exprs, &mut nested);
+        exprs.into_iter().for_each(expr);
+        nested.into_iter().for_each(body);
         if let Some(verb) = set_rewrite(&s.kind) {
             s.kind = verb;
         }
     }
 }
 
-fn stmt(kind: &mut S) {
-    match kind {
-        S::Set {
-            target: t,
-            value: x,
-        }
-        | S::Add {
-            value: x,
-            target: t,
-        }
-        | S::Subtract {
-            value: x,
-            target: t,
-        }
-        | S::Multiply { target: t, by: x }
-        | S::Divide { target: t, by: x } => {
-            target(t);
-            expr(x);
-        }
-        S::Append { value: x, .. }
-        | S::Ask { question: x, .. }
-        | S::Give(x)
-        | S::Expect(x)
-        | S::RepeatWhile { cond: x, .. } => expr(x),
-        S::Show(xs) | S::Input(xs) | S::Run { inputs: xs, .. } => xs.iter_mut().for_each(expr),
-        S::ForEachIn { list, .. } => expr(list),
-        S::ForEachRange { from, to, .. } => {
-            expr(from);
-            expr(to);
-        }
-        S::If { branches, .. } => branches.iter_mut().for_each(|(c, _)| expr(c)),
-        _ => {}
-    }
-    match kind {
-        S::If {
-            branches,
-            otherwise,
-        } => {
-            branches.iter_mut().for_each(|(_, b)| body(b));
-            otherwise.iter_mut().for_each(|b| body(b));
-        }
-        S::ForEachIn { body: b, .. }
-        | S::ForEachRange { body: b, .. }
-        | S::RepeatWhile { body: b, .. } => body(b),
-        _ => {}
-    }
-}
-
-fn target(t: &mut Target) {
-    match t {
-        Target::Var(_) => {}
-        Target::Field { of, .. } => target(of),
-        Target::Item { position, of } => {
-            expr(position);
-            target(of);
-        }
-    }
-}
-
 fn expr(e: &mut Expr) {
-    let mut drop_paren = false;
-    match &mut e.kind {
-        K::Paren(x) => {
-            let before = std::mem::discriminant(&x.kind);
-            expr(x);
-            // A rewrite that leaves a bare value inside makes the parentheses redundant.
+    let before = match &e.kind {
+        K::Paren(x) => Some(std::mem::discriminant(&x.kind)),
+        _ => None,
+    };
+    e.children_mut().into_iter().for_each(expr);
+    // A rewrite that leaves a bare value inside makes the parentheses redundant.
+    let drop_paren = match (&e.kind, before) {
+        (K::Paren(x), Some(before)) => {
             let bare = matches!(
                 x.kind,
                 K::Name(_) | K::Number(_) | K::Text(_) | K::Truth(_) | K::Shown | K::Paren(_)
             );
-            drop_paren = bare && std::mem::discriminant(&x.kind) != before;
+            bare && std::mem::discriminant(&x.kind) != before
         }
-        K::FieldOf { of: x, .. }
-        | K::Fact { of: x, .. }
-        | K::Negate(x)
-        | K::Convert { value: x, .. }
-        | K::IsNumber { value: x, .. }
-        | K::Not(x) => expr(x),
-        K::ItemOf { position: a, of: b }
-        | K::Remainder { of: a, by: b }
-        | K::Binary {
-            left: a, right: b, ..
-        }
-        | K::Compare {
-            left: a, right: b, ..
-        } => {
-            expr(a);
-            expr(b);
-        }
-        K::Call { inputs: xs, .. } | K::BuildList(xs) | K::And(xs) | K::Or(xs) => {
-            xs.iter_mut().for_each(expr)
-        }
-        K::BuildRecord { fields, .. } => fields.iter_mut().for_each(|(_, x)| expr(x)),
-        _ => {}
-    }
+        _ => false,
+    };
     if drop_paren {
         if let K::Paren(x) = &e.kind {
             let inner = (**x).clone();
