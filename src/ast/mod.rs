@@ -154,6 +154,20 @@ impl Expr {
         }
     }
 
+    /// A copy with every pair of parentheses removed, for comparing what two expressions mean.
+    pub fn without_parens(&self) -> Expr {
+        let mut copy = self.clone();
+        copy.strip_parens();
+        copy
+    }
+
+    fn strip_parens(&mut self) {
+        while let ExprKind::Paren(inner) = &self.kind {
+            *self = (**inner).clone();
+        }
+        self.children_mut().into_iter().for_each(Expr::strip_parens);
+    }
+
     /// Applies `edit` to the node with this id, if it is in the tree; true when found.
     pub fn edit_node(&mut self, id: ExprId, edit: &mut dyn FnMut(&mut Expr)) -> bool {
         if self.id == id {
