@@ -43,3 +43,22 @@ fn a_long_chain_of_variables_checks_quickly() {
         &out[..out.len().min(3)]
     );
 }
+
+#[test]
+fn a_long_chain_of_variables_declared_in_reverse_checks_quickly() {
+    let n = 8000;
+    let mut text = String::from("feature start\n");
+    for i in 0..n - 1 {
+        text.push_str(&format!("  set v{i} to v{}\n", i + 1));
+    }
+    text.push_str(&format!("  set v{} to 1\n  show v0\n", n - 1));
+    let out = timed("8000 variables in reverse", &text);
+    // Each set reads a variable that is only set below it; no type is in question.
+    let errors: Vec<_> = out.iter().filter(|d| !d.contains("warning:")).collect();
+    assert_eq!(errors.len(), n - 1, "{:?}", &errors[..errors.len().min(3)]);
+    assert!(
+        errors
+            .iter()
+            .all(|d| d.contains("may not have a value here"))
+    );
+}
