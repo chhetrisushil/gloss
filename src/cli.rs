@@ -33,6 +33,14 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
         );
         return 3;
     }
+    let name = Path::new(file)
+        .file_name()
+        .map_or(file.clone(), |n| n.to_string_lossy().into());
+    // The program's executable is named by dropping `.gloss`; without it the two could clash.
+    if name.strip_suffix(".gloss").is_none_or(str::is_empty) {
+        let _ = writeln!(err, "the source file must end in .gloss");
+        return 3;
+    }
     let text = match std::fs::read_to_string(file) {
         Ok(text) => text,
         Err(e) => {
@@ -40,9 +48,6 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
             return 3;
         }
     };
-    let name = Path::new(file)
-        .file_name()
-        .map_or(file.clone(), |n| n.to_string_lossy().into());
     if command == "build" {
         build(&name, &text, out, err)
     } else {

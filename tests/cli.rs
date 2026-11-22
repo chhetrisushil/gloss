@@ -275,3 +275,21 @@ fn a_table_with_a_path_error_gets_no_executable_clash() {
         "line 3: table es of E in \"dup\". dup is the name of this program's executable; choose another file name.\nline 4: table fs of E in \"dup\". dup is already the file of table es (line 3); one file belongs to one table.\n"
     );
 }
+
+#[test]
+fn build_and_format_refuse_a_source_not_ending_in_gloss() {
+    let program = "feature start\n  set  x  to 1\n  show x\n";
+    for (tag, file_name) in [("noext", "prog"), ("txt", "prog.txt"), ("bare", ".gloss")] {
+        let p = temp_named(tag, file_name, program);
+        let path = p.to_str().unwrap();
+        for command in ["build", "format"] {
+            let (code, out, err) = gloss(&[command, path]);
+            assert_eq!(
+                (code, out.as_str(), err.as_str()),
+                (3, "", "the source file must end in .gloss\n"),
+                "{command} {file_name}"
+            );
+        }
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), program);
+    }
+}
