@@ -1,5 +1,6 @@
 pub mod print;
 pub mod sexpr;
+pub mod stmt;
 
 pub type Line = u32;
 
