@@ -17,6 +17,24 @@ impl Source {
         Source { lines }
     }
 
+    /// A copy in which every line of a statement that continues over several lines reads as
+    /// the whole statement: its lines trimmed and joined with single spaces. `spans` are the
+    /// first and last line of each such statement. Diagnostics echo these lines.
+    pub fn with_statements(&self, spans: &[(u32, u32)]) -> Source {
+        let mut lines = self.lines.clone();
+        for &(first, last) in spans {
+            let (from, to) = (first as usize - 1, last as usize);
+            let pieces: Vec<&str> = self.lines[from..to]
+                .iter()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .collect();
+            let whole = pieces.join(" ");
+            lines[from..to].fill(whole);
+        }
+        Source { lines }
+    }
+
     /// The 1-based line `n`, or `""` when out of range.
     pub fn line(&self, n: u32) -> &str {
         n.checked_sub(1)
@@ -50,6 +68,15 @@ mod tests {
         );
         assert_eq!(Source::new("a\u{FEFF}b").line(1), "a\u{FEFF}b");
         assert!(crate::check_source("\u{FEFF}feature start\n  show 1\n").is_empty());
+    }
+
+    #[test]
+    fn a_continued_statement_reads_as_one_line() {
+        let src = Source::new("a,\n  b ,\n\n  c\nd\n");
+        let joined = src.with_statements(&[(1, 4)]);
+        assert_eq!((joined.line(1), joined.line(4)), ("a, b , c", "a, b , c"));
+        assert_eq!(joined.line(5), "d");
+        assert_eq!(src.line(1), "a,");
     }
 
     #[test]
