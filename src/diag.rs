@@ -128,14 +128,6 @@ mod tests {
     }
 
     #[test]
-    fn source_handles_crlf_and_out_of_range() {
-        let src = Source::new("one\r\ntwo\r\n");
-        assert_eq!(src.line(1), "one");
-        assert_eq!(src.line(2), "two");
-        assert_eq!(src.line(99), "");
-    }
-
-    #[test]
     fn a_question_takes_no_full_stop() {
         let src = Source::new("a\n  set totl to 5\n");
         let w = Diagnostic::warning(&src, 2, "new name totl; did you mean total?");

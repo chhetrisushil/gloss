@@ -46,6 +46,7 @@ pub fn lex(src: &Source) -> Result<Vec<Token>, Diagnostic> {
                 }
                 last = k;
             }
+            reject_tabs_in_notes(src, n + 1..=last)?;
             let body = (n + 1..=last)
                 .map(|k| {
                     let text = src.line(k);
@@ -56,9 +57,10 @@ pub fn lex(src: &Source) -> Result<Vec<Token>, Diagnostic> {
                 .collect();
             line = vec![tok(Tok::NoteBlock(body), n)];
         } else if let Some(note) = trimmed.strip_prefix("note ") {
+            reject_tabs_in_notes(src, n..=n)?;
             line = vec![tok(Tok::Note(note.to_string()), n)];
         } else {
-            line = scan_line(src, n, rest)?;
+            line = scan_line(src, n, rest).map_err(|d| table_file_hint(d, rest))?;
             while let Some(&Token {
                 tok: Tok::Sym(Sym::Comma),
                 line: comma,
@@ -66,6 +68,9 @@ pub fn lex(src: &Source) -> Result<Vec<Token>, Diagnostic> {
             }) = line.last()
             {
                 let cont = (last + 1..=count).find(|&k| !is_blank(k));
+                if let Some(k) = cont {
+                    indent(src, k, src.line(k))?;
+                }
                 let Some(k) = cont.filter(|&k| lead(k) == spaces + 2) else {
                     let msg = "This line ends with a comma, so the next line must continue it, indented one level deeper";
                     return Err(Diagnostic::error(src, comma, msg));
@@ -86,6 +91,41 @@ pub fn lex(src: &Source) -> Result<Vec<Token>, Diagnostic> {
         out.push(tok(Tok::Dedent, count));
     }
     Ok(out)
+}
+
+/// A tab anywhere in a comment is rejected, like a tab anywhere else.
+fn reject_tabs_in_notes(
+    src: &Source,
+    lines: std::ops::RangeInclusive<u32>,
+) -> Result<(), Diagnostic> {
+    match lines.into_iter().find(|&k| src.line(k).contains('\t')) {
+        Some(k) => Err(Diagnostic::error(
+            src,
+            k,
+            "Tabs are not allowed; use spaces",
+        )),
+        None => Ok(()),
+    }
+}
+
+/// A table line whose file name is not in quotes stops the scanner at the first odd
+/// character; answer with the quotes rule and the line as it should be written.
+fn table_file_hint(error: Diagnostic, line: &str) -> Diagnostic {
+    let unquoted = error.problem.ends_with("is not part of Gloss");
+    let parts = line
+        .strip_prefix("table ")
+        .and_then(|t| t.split_once(" in "));
+    match parts {
+        Some((head, file)) if unquoted && !file.trim().is_empty() && !file.starts_with('"') => {
+            let fixed = format!("table {} in \"{}\"", head.trim(), file.trim());
+            Diagnostic {
+                problem: "The file name is written in quotes".into(),
+                ..error
+            }
+            .suggest(fixed)
+        }
+        _ => error,
+    }
 }
 
 /// Splits a line into its indentation width and the text after it.
@@ -282,5 +322,43 @@ mod tests {
     fn blank_lines_at_end_of_file_add_nothing() {
         let plain = kinds("feature a\n  stop\n");
         assert_eq!(kinds("feature a\n  stop\n\n\n  \n"), plain);
+    }
+
+    #[test]
+    fn continuation_lines_get_the_indentation_errors() {
+        assert_eq!(
+            problem("feature a\n  show 1,\n     2\n"),
+            (
+                Some(3),
+                "Indentation must be a multiple of two spaces".into()
+            )
+        );
+        assert_eq!(
+            problem("feature a\n  show 1,\n    \t2\n"),
+            (
+                Some(3),
+                "Tabs are not allowed; indent with two spaces".into()
+            )
+        );
+    }
+
+    #[test]
+    fn tabs_in_notes_are_rejected() {
+        let tabs = (Some(1), "Tabs are not allowed; use spaces".to_string());
+        assert_eq!(problem("note a\tb\n"), tabs);
+        assert_eq!(
+            problem("feature a\n  note\n    one\n    t\two\n  stop\n"),
+            (Some(4), "Tabs are not allowed; use spaces".into())
+        );
+    }
+
+    #[test]
+    fn unquoted_table_file_names_are_answered_with_the_quotes_rule() {
+        let d = lex(&Source::new("table t of E in data.csv\n")).unwrap_err();
+        assert_eq!(
+            d.render(),
+            "line 1: table t of E in data.csv. The file name is written in quotes. Did you mean table t of E in \"data.csv\"?"
+        );
+        assert_eq!(problem("set x to 1 # 2\n").1, "# is not part of Gloss");
     }
 }

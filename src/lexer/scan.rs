@@ -94,8 +94,6 @@ pub fn scan_line(src: &Source, line: u32, text: &str) -> Result<Vec<Token>, Diag
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lexer::{Kw, Sym, Tok};
-    use crate::number::Number;
 
     fn scan(text: &str) -> Vec<Tok> {
         scan_line(&Source::new(text), 1, text)
