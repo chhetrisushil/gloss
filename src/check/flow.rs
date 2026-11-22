@@ -11,6 +11,7 @@ struct Flow<'a, 'b> {
     ctx: &'a mut Ctx<'b>,
     origins: BTreeMap<String, Origin>,
     used: BTreeSet<String>,
+    /// Defensive: no input produces a duplicate report for one name and line today.
     reported: BTreeSet<(String, Line)>,
 }
 
