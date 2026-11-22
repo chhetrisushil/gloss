@@ -9,14 +9,7 @@ pub fn compare_type(ctx: &mut Ctx, e: &Expr, op: CompareOp, l: (&Expr, Ty), r: (
     if l.1 == Ty::Error || r.1 == Ty::Error {
         return Ty::Error;
     }
-    let word = match op {
-        CompareOp::Is => "is",
-        CompareOp::IsNot => "is not",
-        CompareOp::Greater => "is greater than",
-        CompareOp::Less => "is less than",
-        CompareOp::AtLeast => "is at least",
-        CompareOp::AtMost => "is at most",
-    };
+    let word = op.words();
     let problem = if matches!(op, CompareOp::Is | CompareOp::IsNot) {
         (l.1.clone().norm() != r.1.clone().norm()).then(|| {
             format!(

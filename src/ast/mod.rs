@@ -58,6 +58,18 @@ pub enum ArithOp {
     Div,
 }
 
+impl ArithOp {
+    /// The operator as it is written.
+    pub fn symbol(self) -> &'static str {
+        match self {
+            ArithOp::Add => "+",
+            ArithOp::Sub => "-",
+            ArithOp::Mul => "*",
+            ArithOp::Div => "/",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompareOp {
     Is,
@@ -66,6 +78,20 @@ pub enum CompareOp {
     Less,
     AtLeast,
     AtMost,
+}
+
+impl CompareOp {
+    /// The comparison as it is written, in words.
+    pub fn words(self) -> &'static str {
+        match self {
+            CompareOp::Is => "is",
+            CompareOp::IsNot => "is not",
+            CompareOp::Greater => "is greater than",
+            CompareOp::Less => "is less than",
+            CompareOp::AtLeast => "is at least",
+            CompareOp::AtMost => "is at most",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

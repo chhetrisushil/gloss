@@ -154,12 +154,7 @@ fn infer(ctx: &mut Ctx, env: &Env, e: &Expr, types: &mut Vec<Option<Ty>>) -> Ty 
 }
 
 fn binary_type(ctx: &mut Ctx, e: &Expr, op: ArithOp, l: (&Expr, Ty), r: (&Expr, Ty)) -> Ty {
-    let sym = match op {
-        ArithOp::Add => "+",
-        ArithOp::Sub => "-",
-        ArithOp::Mul => "*",
-        ArithOp::Div => "/",
-    };
+    let sym = op.symbol();
     let mut bad = false;
     for (operand, t) in [&l, &r] {
         if !matches!(t, Ty::Number | Ty::Error) {

@@ -279,15 +279,6 @@ fn is_lowest(tok: &Tok) -> bool {
     matches!(tok, Tok::Number(n) if n.0 == i64::MIN)
 }
 
-pub(super) fn op_text(op: ArithOp) -> &'static str {
-    match op {
-        ArithOp::Add => "+",
-        ArithOp::Sub => "-",
-        ArithOp::Mul => "*",
-        ArithOp::Div => "/",
-    }
-}
-
 /// The `whole` or `remainder` fact that ends `e`, looking through
 /// negation and the right side of arithmetic.
 pub(super) fn number_fact_on_right_edge(e: &Expr) -> Option<&Expr> {
