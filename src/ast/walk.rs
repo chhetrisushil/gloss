@@ -1,7 +1,7 @@
 //! The one way to visit the statements and expressions of a program: what a statement holds
 //! directly, what an expression holds, and visitors built on them.
 
-use super::stmt::{Stmt, StmtKind};
+use super::stmt::{Stmt, StmtKind, Target};
 use super::{Expr, ExprKind};
 
 /// The expressions a statement holds directly, and the blocks inside it.
@@ -65,6 +65,65 @@ pub fn children(e: &Expr) -> Vec<&Expr> {
         | ExprKind::Or(xs) => xs.iter().collect(),
         ExprKind::BuildRecord { fields, .. } => fields.iter().map(|(_, x)| x).collect(),
         _ => Vec::new(),
+    }
+}
+
+/// Like `parts`, for editing; the position inside an item target is one of the expressions.
+pub fn parts_mut<'a>(
+    kind: &'a mut StmtKind,
+    exprs: &mut Vec<&'a mut Expr>,
+    nested: &mut Vec<&'a mut [Stmt]>,
+) {
+    match kind {
+        StmtKind::Set { target, value }
+        | StmtKind::Add { value, target }
+        | StmtKind::Subtract { value, target }
+        | StmtKind::Multiply { target, by: value }
+        | StmtKind::Divide { target, by: value } => {
+            target_exprs_mut(target, exprs);
+            exprs.push(value);
+        }
+        StmtKind::Append { value: x, .. }
+        | StmtKind::Ask { question: x, .. }
+        | StmtKind::Give(x)
+        | StmtKind::Expect(x) => exprs.push(x),
+        StmtKind::Show(xs) | StmtKind::Input(xs) | StmtKind::Run { inputs: xs, .. } => {
+            exprs.extend(xs);
+        }
+        StmtKind::If {
+            branches,
+            otherwise,
+        } => {
+            for (cond, b) in branches {
+                exprs.push(cond);
+                nested.push(b);
+            }
+            nested.extend(otherwise.as_deref_mut());
+        }
+        StmtKind::ForEachIn { list, body, .. } => {
+            exprs.push(list);
+            nested.push(body);
+        }
+        StmtKind::ForEachRange { from, to, body, .. } => {
+            exprs.extend([from, to]);
+            nested.push(body);
+        }
+        StmtKind::RepeatWhile { cond, body } => {
+            exprs.push(cond);
+            nested.push(body);
+        }
+        _ => {}
+    }
+}
+
+fn target_exprs_mut<'a>(target: &'a mut Target, out: &mut Vec<&'a mut Expr>) {
+    match target {
+        Target::Var(_) => {}
+        Target::Field { of, .. } => target_exprs_mut(of, out),
+        Target::Item { position, of } => {
+            out.push(position);
+            target_exprs_mut(of, out);
+        }
     }
 }
 
