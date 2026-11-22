@@ -59,6 +59,10 @@ fn item_lines(item: &Item) -> Vec<String> {
                     .map(|i| format!("{} as {}", i.name, type_text(&i.ty)))
                     .collect();
                 lines.extend(wrap(1, &format!("needs {}", inputs.join(", "))));
+                // A blank line before the first statement is kept, as between any two lines.
+                if rest.first().is_some_and(|s| s.blank_before) {
+                    lines.push(String::new());
+                }
             }
             lines.extend(stmts(rest, 1));
             lines
@@ -86,6 +90,18 @@ mod tests {
             fmt(messy),
             "note top\nfeature start\n  set total to 1 + 2\n\n  show total, \"x\"\n\nrecord E\n  a as text\n"
         );
+    }
+
+    #[test]
+    fn a_blank_line_after_needs_is_kept() {
+        let kept = "feature f\n  needs n as number\n\n  show n\n";
+        assert_eq!(fmt(kept), kept);
+        let noted = "feature f\n  note why\n  needs n as number\n\n  show n\n";
+        assert_eq!(fmt(noted), noted);
+        let squeezed = "feature f\n  needs n as number\n\n\n\n  show n\n";
+        assert_eq!(fmt(squeezed), kept);
+        let none = "feature f\n  needs n as number\n  show n\n";
+        assert_eq!(fmt(none), none);
     }
 
     #[test]
