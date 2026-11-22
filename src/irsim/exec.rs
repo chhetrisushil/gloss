@@ -53,13 +53,20 @@ impl Machine<'_> {
             Inst::Shift(kind, n) => self.a = shift(*kind, self.a, *n),
             Inst::Compare => self.compared = (self.a, self.b),
             Inst::SetIf(cond) => self.a = self.holds(*cond) as i64,
+            Inst::LoadArg(r, n) => {
+                let value = self.frame().args[*n as usize - 1];
+                self.set(*r, value);
+            }
+            Inst::JumpIf(cond, label) => {
+                if self.holds(*cond) {
+                    self.jump(*label);
+                }
+            }
+            Inst::Jump(label) => self.jump(*label),
+            Inst::Call(name) => self.enter(name),
             Inst::Return => return self.leave(),
             Inst::Enter(n) => assert_eq!(*n as usize, self.frame().slots.len()),
-            Inst::LoadArg(..)
-            | Inst::Call(_)
-            | Inst::JumpIf(..)
-            | Inst::Jump(_)
-            | Inst::AddressOf(..)
+            Inst::AddressOf(..)
             | Inst::StackPointer(_)
             | Inst::Load { .. }
             | Inst::Store { .. }

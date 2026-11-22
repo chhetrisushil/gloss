@@ -1,5 +1,5 @@
 use super::call;
-use crate::ir::{Cond, Function, Inst, IntOp, Module, Reg, Shift};
+use crate::ir::{Cond, Function, Inst, IntOp, Label, Module, Reg, Shift};
 use Inst::*;
 use Reg::{A, B};
 
@@ -106,4 +106,97 @@ fn set_if_reads_the_last_compare_and_move_copies() {
         Return,
     ]);
     assert_eq!(call(&m, "f", &[]), 5);
+}
+
+#[test]
+fn a_loop_sums_one_to_ten() {
+    let (top, done) = (Label(0), Label(1));
+    let m = with_slots(
+        2,
+        vec![
+            Const(A, 1),
+            StoreSlot(1, A),
+            Mark(top),
+            LoadSlot(A, 1),
+            Const(B, 10),
+            Compare,
+            JumpIf(Cond::Gt, done),
+            LoadSlot(A, 2),
+            LoadSlot(B, 1),
+            Int(IntOp::Add),
+            StoreSlot(2, A),
+            LoadSlot(A, 1),
+            AddImm(A, 1),
+            StoreSlot(1, A),
+            Jump(top),
+            Mark(done),
+            LoadSlot(A, 2),
+            Return,
+        ],
+    );
+    assert_eq!(call(&m, "f", &[]), 55);
+}
+
+fn two_functions(callee: Function, caller: Function) -> Module {
+    Module {
+        functions: vec![callee, caller],
+        ..Module::default()
+    }
+}
+
+#[test]
+fn arguments_are_numbered_left_to_right() {
+    let minus = function(
+        "minus",
+        2,
+        0,
+        vec![LoadArg(A, 1), LoadArg(B, 2), Int(IntOp::Sub), Return],
+    );
+    let outer = function(
+        "outer",
+        0,
+        0,
+        vec![
+            Const(A, 10),
+            Push(A),
+            Const(A, 3),
+            Push(A),
+            Call("minus".to_string()),
+            Return,
+        ],
+    );
+    let m = two_functions(minus, outer);
+    assert_eq!(call(&m, "outer", &[]), 7);
+    assert_eq!(call(&m, "minus", &[20, 5]), 15);
+}
+
+#[test]
+fn b_and_slots_survive_a_call() {
+    let clobber = function(
+        "clobber",
+        0,
+        1,
+        vec![Const(B, 100), Const(A, 200), StoreSlot(1, A), Return],
+    );
+    let outer = function(
+        "outer",
+        0,
+        1,
+        vec![
+            Const(A, 7),
+            StoreSlot(1, A),
+            Const(B, 9),
+            Call("clobber".to_string()),
+            LoadSlot(A, 1),
+            Int(IntOp::Add),
+            Return,
+        ],
+    );
+    assert_eq!(call(&two_functions(clobber, outer), "outer", &[]), 16);
+}
+
+#[test]
+#[should_panic(expected = "wrong number of arguments")]
+fn calling_with_the_wrong_number_of_arguments_panics() {
+    call(&single(vec![Return]), "f", &[1]);
 }
