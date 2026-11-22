@@ -1,4 +1,5 @@
 pub mod print;
+mod rewrite;
 
 use crate::ast::program::{Item, Program, RecordEntry};
 use crate::ast::{ItemType, Type, type_text};
@@ -6,6 +7,7 @@ use print::{note_lines, stmts};
 
 /// The canonical source text of a program.
 pub fn format_program(program: &Program) -> String {
+    let program = &rewrite::rewrite(program);
     let mut lines: Vec<String> = Vec::new();
     let mut attached = false;
     for item in &program.items {
@@ -83,6 +85,30 @@ mod tests {
         let example = expenses();
         assert_eq!(fmt(&example), example);
         assert_eq!(fmt(&fmt(&example)), fmt(&example));
+    }
+
+    #[test]
+    fn rewrites() {
+        assert_eq!(
+            fmt("feature start\n  set t to 1\n  set t to t + 2\n  set t to 3 * t\n  show t\n"),
+            "feature start\n  set t to 1\n  add 2 to t\n  multiply t by 3\n  show t\n"
+        );
+        assert_eq!(
+            fmt("feature start\n  set d to yes\n  if d is no\n    show 1\n"),
+            "feature start\n  set d to yes\n  if not d\n    show 1\n"
+        );
+    }
+
+    #[test]
+    fn a_rewrite_inside_not_never_prints_not_not() {
+        assert_eq!(
+            fmt("feature f\n  if not d is no\n    show 1\n"),
+            "feature f\n  if d\n    show 1\n"
+        );
+        assert_eq!(
+            fmt("feature f\n  if a and not e is no\n    show 1\n"),
+            "feature f\n  if a and e\n    show 1\n"
+        );
     }
 
     #[test]
