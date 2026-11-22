@@ -22,7 +22,7 @@ pub fn parse(toks: &[Token], src: &Source) -> Result<Program, Diagnostic> {
 impl Parser<'_> {
     fn parse_item(&mut self) -> Result<Item, Diagnostic> {
         let line = self.line();
-        if let Some(note) = self.eat_note() {
+        if let Some(note) = self.eat_note()? {
             let attached = self.toks.get(self.pos).is_some_and(|t| !t.blank_before);
             return Ok(Item::Note {
                 line,
@@ -47,15 +47,15 @@ impl Parser<'_> {
     }
 
     /// Consumes a note and the end of its line, if one is next.
-    fn eat_note(&mut self) -> Option<Note> {
-        let note = match self.peek()? {
-            Tok::Note(text) => Note::Line(text.clone()),
-            Tok::NoteBlock(lines) => Note::Block(lines.clone()),
-            _ => return None,
+    fn eat_note(&mut self) -> Result<Option<Note>, Diagnostic> {
+        let note = match self.peek() {
+            Some(Tok::Note(text)) => Note::Line(text.clone()),
+            Some(Tok::NoteBlock(lines)) => Note::Block(lines.clone()),
+            _ => return Ok(None),
         };
         self.pos += 1;
-        self.end_line().ok()?;
-        Some(note)
+        self.end_line()?;
+        Ok(Some(note))
     }
 
     fn end_line(&mut self) -> Result<(), Diagnostic> {
@@ -74,7 +74,7 @@ impl Parser<'_> {
         self.open_block("record")?;
         let mut entries = Vec::new();
         while !matches!(self.peek(), Some(Tok::Dedent) | None) {
-            if let Some(note) = self.eat_note() {
+            if let Some(note) = self.eat_note()? {
                 entries.push(RecordEntry::Note(note));
                 continue;
             }
@@ -163,6 +163,9 @@ impl Parser<'_> {
                 return Err(self.err("needs must be the first line of a feature"));
             }
             self.pos += 1;
+            if matches!(self.peek(), Some(Tok::Newline) | None) {
+                return Err(self.err("needs must name at least one input"));
+            }
             needs = self.inputs()?;
         }
         self.close_block();
@@ -206,10 +209,11 @@ impl Parser<'_> {
                 .take_while(|t| t.tok != Tok::Newline)
                 .map(|t| t.tok.to_string())
                 .collect::<Vec<_>>();
-            let problem = "A test title is a sentence in quotes";
-            return Err(self
-                .err(problem)
-                .suggest(format!("test \"{}\"", rest.join(" "))));
+            let problem = self.err("A test title is a sentence in quotes");
+            if rest.is_empty() {
+                return Err(problem);
+            }
+            return Err(problem.suggest(format!("test \"{}\"", rest.join(" "))));
         };
         self.pos += 1;
         let body = self.parse_block("test")?;
@@ -380,6 +384,19 @@ mod tests {
         assert_eq!(
             e("record E\n  a as list of number\n"),
             "line 2: a as list of number. A record field is a number, text or truth."
+        );
+    }
+
+    #[test]
+    fn bare_needs_and_untitled_test_have_their_own_messages() {
+        let e = |t: &str| parse(t).unwrap_err().render();
+        assert_eq!(
+            e("feature f\n  needs\n  stop\n"),
+            "line 2: needs. needs must name at least one input."
+        );
+        assert_eq!(
+            e("test\n  stop\n"),
+            "line 1: test. A test title is a sentence in quotes."
         );
     }
 

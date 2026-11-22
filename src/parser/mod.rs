@@ -12,11 +12,15 @@ use crate::diag::Diagnostic;
 use crate::lexer::{Kw, Sym, Tok, Token, lex};
 use crate::source::Source;
 
+/// The deepest an expression may nest (parentheses, negation, facts of facts).
+const MAX_DEPTH: u32 = 200;
+
 pub struct Parser<'a> {
     toks: &'a [Token],
     pos: usize,
     src: &'a Source,
     next_id: u32,
+    depth: u32,
 }
 
 impl<'a> Parser<'a> {
@@ -26,6 +30,7 @@ impl<'a> Parser<'a> {
             pos: 0,
             src,
             next_id: 0,
+            depth: 0,
         }
     }
 
@@ -69,6 +74,21 @@ impl<'a> Parser<'a> {
 
     pub fn err(&self, problem: impl Into<String>) -> Diagnostic {
         Diagnostic::error(self.src, self.line(), problem)
+    }
+
+    /// Runs one self-recursive level of parsing, refusing to go deeper than `MAX_DEPTH`
+    /// so that absurdly nested input is reported instead of overflowing the stack.
+    pub fn nested<T>(
+        &mut self,
+        level: impl FnOnce(&mut Self) -> Result<T, Diagnostic>,
+    ) -> Result<T, Diagnostic> {
+        if self.depth >= MAX_DEPTH {
+            return Err(self.err("This expression is nested too deeply"));
+        }
+        self.depth += 1;
+        let result = level(self);
+        self.depth -= 1;
+        result
     }
 
     pub fn mk(&mut self, line: u32, kind: ExprKind) -> Expr {

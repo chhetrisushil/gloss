@@ -117,7 +117,7 @@ impl Parser<'_> {
         let followed_by_of = self.peek_at(1) == Some(&Tok::Kw(Kw::Of));
         if let Some(fact) = self.built_in_fact_next() {
             self.pos += 2;
-            let of = Box::new(self.fact()?);
+            let of = Box::new(self.nested(Self::fact)?);
             return Ok(self.mk(line, K::Fact { fact, of }));
         }
         let kind = match self.peek() {
@@ -126,7 +126,7 @@ impl Parser<'_> {
                 self.pos += 2;
                 K::FieldOf {
                     field,
-                    of: Box::new(self.fact()?),
+                    of: Box::new(self.nested(Self::fact)?),
                 }
             }
             Some(Tok::Kw(k)) if built_in_fact(*k).is_some() => {
@@ -161,21 +161,22 @@ impl Parser<'_> {
         }
         Ok(K::ItemOf {
             position: Box::new(position),
-            of: Box::new(self.fact()?),
+            of: Box::new(self.nested(Self::fact)?),
         })
     }
 
     /// Rewrites the tokens of a worked-out position as `item (...) of x`.
     fn item_example(&self, start: usize) -> String {
         let rest = &self.toks[start..];
-        let end = rest.iter().position(|t| t.tok == Tok::Kw(Kw::Of));
-        let position: Vec<String> = rest[..end.unwrap_or(rest.len())]
+        let line_end = rest.iter().position(|t| t.tok == Tok::Newline);
+        let statement = &rest[..line_end.unwrap_or(rest.len())];
+        let end = statement.iter().position(|t| t.tok == Tok::Kw(Kw::Of));
+        let position: Vec<String> = statement[..end.unwrap_or(statement.len())]
             .iter()
-            .take_while(|t| t.tok != Tok::Newline)
             .map(|t| t.tok.to_string())
             .collect();
         let target = end
-            .and_then(|i| rest.get(i + 1))
+            .and_then(|i| statement.get(i + 1))
             .map_or("prices".into(), |t| t.tok.to_string());
         format!("item ({}) of {target}", position.join(" "))
     }
@@ -247,7 +248,7 @@ impl Parser<'_> {
     }
 
     fn parenthesized(&mut self) -> Result<K, Diagnostic> {
-        let inner = self.parse_expr()?;
+        let inner = self.nested(Self::parse_expr)?;
         if !self.eat_sym(Sym::RParen) {
             return Err(self.err("This ( has no matching )"));
         }
@@ -363,6 +364,34 @@ mod tests {
         assert_eq!(perr("1 +"), "+ needs a value after it");
         assert_eq!(perr("(1 + 2"), "This ( has no matching )");
         assert_eq!(perr("1 2"), "Unexpected 2 after the expression");
+    }
+
+    #[test]
+    fn item_example_stays_on_the_statement() {
+        assert_eq!(
+            perr("item i + 1\nof prices"),
+            "item needs of after its position; a position that is worked out goes in parentheses, as in item (i + 1) of prices"
+        );
+        assert_eq!(
+            perr("item i + 1\nof total"),
+            "item needs of after its position; a position that is worked out goes in parentheses, as in item (i + 1) of prices"
+        );
+    }
+
+    #[test]
+    fn deep_nesting_is_reported_not_a_crash() {
+        // Unoptimised frames are large, so a full 200 levels needs more than a test thread's
+        // default stack; a real run on the main thread has plenty.
+        let run = || {
+            let parens = "(".repeat(10_000);
+            assert_eq!(perr(&parens), "This expression is nested too deeply");
+            let facts = "count of ".repeat(10_000);
+            assert_eq!(perr(&facts), "This expression is nested too deeply");
+            let ok = format!("{}1{}", "(".repeat(150), ")".repeat(150));
+            assert!(parse_expr_str(&ok).is_ok());
+        };
+        let big = std::thread::Builder::new().stack_size(64 << 20);
+        big.spawn(run).unwrap().join().unwrap();
     }
 
     #[test]
