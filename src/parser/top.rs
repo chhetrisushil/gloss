@@ -1,7 +1,7 @@
 use super::Parser;
-use crate::ast::PlainType;
 use crate::ast::program::*;
-use crate::ast::stmt::Note;
+use crate::ast::stmt::{Note, StmtKind};
+use crate::ast::{PlainType, Type};
 use crate::diag::Diagnostic;
 use crate::lexer::{Kw, Tok, Token};
 use crate::source::Source;
@@ -31,7 +31,7 @@ impl Parser<'_> {
             });
         }
         let word = match self.peek() {
-            Some(Tok::Kw(k @ (Kw::Record | Kw::Table))) => *k,
+            Some(Tok::Kw(k @ (Kw::Record | Kw::Table | Kw::Feature | Kw::Test))) => *k,
             _ => {
                 let all = "Only record, table, feature, test and note can start a line";
                 return Err(self.err(format!("{all} at the top level")));
@@ -40,7 +40,9 @@ impl Parser<'_> {
         self.pos += 1;
         Ok(match word {
             Kw::Record => Item::Record(self.record(line)?),
-            _ => Item::Table(self.table(line)?),
+            Kw::Table => Item::Table(self.table(line)?),
+            Kw::Feature => Item::Feature(self.feature(line)?),
+            _ => Item::Test(self.test(line)?),
         })
     }
 
@@ -138,6 +140,82 @@ impl Parser<'_> {
         Ok(ty)
     }
 
+    fn feature(&mut self, line: u32) -> Result<FeatureDecl, Diagnostic> {
+        let name = match self.peek().cloned() {
+            Some(Tok::RecordName(wrong)) => {
+                let lowered = wrong.to_lowercase().chars().next().into_iter();
+                let fixed: String = lowered.chain(wrong.chars().skip(1)).collect();
+                let example = self.example_line(self.pos, &fixed, true);
+                let problem = "Feature names start with a lowercase letter";
+                return Err(self.err(problem).suggest(example));
+            }
+            _ => self.parse_name("feature")?,
+        };
+        self.open_block("feature")?;
+        let (mut needs, mut body) = (Vec::new(), Vec::new());
+        while !matches!(self.peek(), Some(Tok::Dedent) | None) {
+            if self.peek() != Some(&Tok::Kw(Kw::Needs)) {
+                body.push(self.parse_stmt()?);
+                continue;
+            }
+            let only_notes = body.iter().all(|s| matches!(s.kind, StmtKind::Note(_)));
+            if !only_notes || !needs.is_empty() {
+                return Err(self.err("needs must be the first line of a feature"));
+            }
+            self.pos += 1;
+            needs = self.inputs()?;
+        }
+        self.close_block();
+        if body.is_empty() {
+            let problem = format!("feature {name} needs at least one statement under it");
+            return Err(Diagnostic::error(self.src, line, problem));
+        }
+        Ok(FeatureDecl {
+            line,
+            name,
+            needs,
+            body,
+        })
+    }
+
+    fn inputs(&mut self) -> Result<Vec<InputDecl>, Diagnostic> {
+        let mut inputs = Vec::new();
+        loop {
+            let line = self.line();
+            let name = self.parse_name("needs")?;
+            self.expect_word("needs", Kw::As)?;
+            let ty = if self.eat_kw(Kw::List) {
+                self.expect_word("list", Kw::Of)?;
+                Type::List(self.parse_item_type()?)
+            } else {
+                Type::Item(self.parse_item_type()?)
+            };
+            inputs.push(InputDecl { line, name, ty });
+            if !self.eat_sym(crate::lexer::Sym::Comma) {
+                break;
+            }
+        }
+        self.end_line()?;
+        Ok(inputs)
+    }
+
+    fn test(&mut self, line: u32) -> Result<TestDecl, Diagnostic> {
+        let Some(Tok::Text(title)) = self.peek().cloned() else {
+            let rest = self.toks[self.pos..]
+                .iter()
+                .take_while(|t| t.tok != Tok::Newline)
+                .map(|t| t.tok.to_string())
+                .collect::<Vec<_>>();
+            let problem = "A test title is a sentence in quotes";
+            return Err(self
+                .err(problem)
+                .suggest(format!("test \"{}\"", rest.join(" "))));
+        };
+        self.pos += 1;
+        let body = self.parse_block("test")?;
+        Ok(TestDecl { line, title, body })
+    }
+
     /// A capitalised name; a lowercase one is answered with the capitalised form.
     fn record_name(&mut self, verb: &str) -> Result<String, Diagnostic> {
         match self.peek().cloned() {
@@ -161,7 +239,22 @@ impl Parser<'_> {
 mod tests {
     use crate::ast::program::*;
     use crate::ast::stmt::Note;
+    use crate::ast::{ItemType, PlainType, Type};
     use crate::source::Source;
+
+    /// The complete example in section 13 of the language spec.
+    fn expenses() -> String {
+        let spec = include_str!("../../spec/v0.md");
+        let after = spec
+            .split("## 13. Complete example")
+            .nth(1)
+            .expect("spec §13 heading");
+        let fenced = after
+            .split("```gloss\n")
+            .nth(1)
+            .expect("spec §13 gloss fence");
+        fenced.split("```").next().unwrap().to_string()
+    }
 
     fn parse(t: &str) -> Result<Program, crate::diag::Diagnostic> {
         crate::parse_source(&Source::new(t))
@@ -206,6 +299,44 @@ mod tests {
     }
 
     #[test]
+    fn parses_complete_example() {
+        let p = parse(&expenses()).unwrap();
+        assert_eq!(p.items.len(), 11);
+        let r = p.records().next().unwrap();
+        let fields: Vec<_> = r.fields().map(|f| f.name.as_str()).collect();
+        assert_eq!(fields, ["name", "amount", "category"]);
+        let t = p.tables().next().unwrap();
+        let table = (t.name.as_str(), t.record.as_str(), t.path.as_str());
+        assert_eq!(table, ("expenses", "Expense", "expenses.csv"));
+        let ct = p.features().find(|f| f.name == "category_total").unwrap();
+        let wanted = InputDecl {
+            line: 11,
+            name: "wanted".into(),
+            ty: Type::Item(ItemType::Plain(PlainType::Text)),
+        };
+        assert_eq!(ct.needs, vec![wanted]);
+        assert_eq!(p.tests().count(), 4);
+        let start = p.features().find(|f| f.name == "start").unwrap();
+        assert_eq!(start.body.len(), 9);
+        assert!(matches!(
+            p.items[0],
+            Item::Note {
+                attached: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn list_input_types_and_record_notes() {
+        let text = "record S\n  note the name\n  name as text\nfeature f\n  note why\n  needs xs as list of S, n as number\n  give n\n";
+        let p = parse(text).unwrap();
+        let f = p.features().next().unwrap();
+        assert_eq!(f.needs[0].ty, Type::List(ItemType::Record("S".into())));
+        assert_eq!(f.body.len(), 2);
+    }
+
+    #[test]
     fn top_level_errors() {
         let e = |t: &str| parse(t).unwrap_err().render();
         assert_eq!(
@@ -230,6 +361,30 @@ mod tests {
         assert_eq!(
             e("table expenses of E in\n"),
             "line 1: table expenses of E in. table needs a file name in quotes, as in table expenses of E in \"expenses.csv\"."
+        );
+        assert_eq!(
+            e("feature F\n  stop\n"),
+            "line 1: feature F. Feature names start with a lowercase letter. Did you mean feature f?"
+        );
+        assert_eq!(
+            e("feature f\n  add 1 total\n"),
+            "line 2: add 1 total. add needs to, as in add 1 to total."
+        );
+        assert_eq!(
+            e("feature f\n  show 1\n  needs a as number\n"),
+            "line 3: needs a as number. needs must be the first line of a feature."
+        );
+        assert_eq!(
+            e("feature f\n  needs a as number\n  needs b as text\n  stop\n"),
+            "line 3: needs b as text. needs must be the first line of a feature."
+        );
+        assert_eq!(
+            e("feature f\n  needs a as number\n"),
+            "line 1: feature f. feature f needs at least one statement under it."
+        );
+        assert_eq!(
+            e("test category total\n  stop\n"),
+            "line 1: test category total. A test title is a sentence in quotes. Did you mean test \"category total\"?"
         );
         assert_eq!(
             e("record E\n  note x\n"),
