@@ -2,10 +2,12 @@ pub mod combine;
 pub mod expr;
 pub mod names;
 pub mod similar;
+pub mod stmt;
 mod types;
 
 use std::collections::BTreeMap;
 
+use crate::ast::Type;
 use crate::ast::program::Program;
 use crate::diag::{self, Diagnostic};
 use crate::source::Source;
@@ -53,42 +55,38 @@ pub fn check(program: &Program, src: &Source) -> CheckResult {
         diags: Vec::new(),
     };
     names::check_program(&mut ctx);
-    walk_start(&mut ctx);
+    let info = check_bodies(&mut ctx);
     diag::sort(&mut ctx.diags);
-    let types = (!ctx.diags.iter().any(Diagnostic::is_error)).then(TypeInfo::default);
+    let types = (!ctx.diags.iter().any(Diagnostic::is_error)).then_some(info);
     CheckResult {
         diagnostics: ctx.diags,
         types,
     }
 }
 
-/// Temporary: types the `show` items in `start`'s body. Task 15 replaces it.
-fn walk_start(ctx: &mut Ctx) {
-    use crate::ast::stmt::{StmtKind, Target};
-    let Some(start) = ctx.program.features().find(|f| f.name == "start") else {
-        return;
-    };
-    let (mut vars, results) = (BTreeMap::new(), BTreeMap::new());
-    let mut types = Vec::new();
-    for stmt in &start.body {
-        let env = expr::Env {
-            vars: &vars,
-            results: &results,
-        };
-        match &stmt.kind {
-            StmtKind::Show(items) => {
-                for item in items {
-                    expr::type_of(ctx, &env, item, &mut types);
-                }
-            }
-            StmtKind::Set {
-                target: Target::Var(name),
-                value,
-            } => {
-                let ty = expr::type_of(ctx, &env, value, &mut types);
-                vars.insert(name.clone(), ty);
-            }
-            _ => {}
-        }
+/// Checks every feature, then every test; a feature not yet typed is silent.
+fn check_bodies(ctx: &mut Ctx) -> TypeInfo {
+    let program = ctx.program;
+    let mut info = TypeInfo::default();
+    let mut results = BTreeMap::new();
+    for f in program.features() {
+        let inputs: Vec<(String, Ty)> = f
+            .needs
+            .iter()
+            .map(|n| {
+                let ty = match &n.ty {
+                    Type::Item(t) => expr::item_ty(t),
+                    Type::List(t) => Ty::List(Box::new(expr::item_ty(t))),
+                };
+                (n.name.clone(), ty)
+            })
+            .collect();
+        let checked = stmt::check_body(ctx, &results, &inputs, &f.body, &mut info.expr_types);
+        results.insert(f.name.clone(), checked.result.clone());
+        info.features.insert(f.name.clone(), checked);
     }
+    for t in program.tests() {
+        stmt::check_body(ctx, &results, &[], &t.body, &mut info.expr_types);
+    }
+    info
 }
