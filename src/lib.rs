@@ -5,6 +5,8 @@ pub mod cli;
 pub mod diag;
 pub mod format;
 pub mod ir;
+#[cfg(test)]
+mod irsim;
 pub mod lexer;
 pub mod number;
 pub mod parser;

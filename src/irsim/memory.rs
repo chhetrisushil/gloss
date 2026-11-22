@@ -1,0 +1,148 @@
+//! The simulated address space: sparse little-endian bytes, with the read-only texts,
+//! descriptors and globals laid out at fixed addresses. Unwritten bytes read as zero.
+
+use crate::ir::{Data, Global, Module};
+use std::collections::HashMap;
+
+/// Where read-only texts start: each is an 8-byte little-endian length, then the bytes,
+/// padded to 8-byte alignment.
+const TEXT_BASE: u64 = 0x1000_0000;
+/// Where the globals start, in `Global` declaration order.
+const GLOBAL_BASE: u64 = 0x2000_0000;
+
+const GLOBALS: [Global; 8] = [
+    Global::HeapNext,
+    Global::HeapEnd,
+    Global::StackLimit,
+    Global::OutLen,
+    Global::OutBuf,
+    Global::InLen,
+    Global::InPos,
+    Global::InBuf,
+];
+
+fn global_size(g: Global) -> u64 {
+    match g {
+        Global::OutBuf | Global::InBuf => 4096,
+        _ => 8,
+    }
+}
+
+fn global_address(g: Global) -> u64 {
+    let before = GLOBALS.iter().take_while(|&&other| other != g);
+    GLOBAL_BASE + before.map(|&other| global_size(other)).sum::<u64>()
+}
+
+pub struct Memory {
+    bytes: HashMap<u64, u8>,
+    text_addrs: Vec<u64>,
+    desc_addrs: Vec<u64>,
+}
+
+impl Memory {
+    /// An address space holding `module`'s texts and descriptors.
+    pub fn new(module: &Module) -> Memory {
+        let mut memory = Memory {
+            bytes: HashMap::new(),
+            text_addrs: Vec::new(),
+            desc_addrs: Vec::new(),
+        };
+        let mut next = TEXT_BASE;
+        for text in &module.texts {
+            memory.text_addrs.push(next);
+            memory.write(next, text.len() as i64);
+            for (i, byte) in text.iter().enumerate() {
+                memory.write_byte(next + 8 + i as u64, *byte);
+            }
+            next += (8 + text.len() as u64).next_multiple_of(8);
+        }
+        // Task 9 defines the descriptor layout; until then each descriptor is an 8-byte
+        // placeholder, so `AddressOf(Desc(_))` still gives distinct addresses.
+        for _ in &module.descs {
+            memory.desc_addrs.push(next);
+            next += 8;
+        }
+        memory
+    }
+
+    pub fn address_of(&self, data: Data) -> u64 {
+        match data {
+            Data::Text(i) => self.text_addrs[i as usize],
+            Data::Desc(i) => self.desc_addrs[i as usize],
+            Data::Global(g) => global_address(g),
+        }
+    }
+
+    pub fn read_byte(&self, addr: u64) -> u8 {
+        self.bytes.get(&addr).copied().unwrap_or(0)
+    }
+
+    pub fn write_byte(&mut self, addr: u64, value: u8) {
+        self.bytes.insert(addr, value);
+    }
+
+    pub fn read(&self, addr: u64) -> i64 {
+        let mut bytes = [0u8; 8];
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            *byte = self.read_byte(addr.wrapping_add(i as u64));
+        }
+        i64::from_le_bytes(bytes)
+    }
+
+    pub fn write(&mut self, addr: u64, value: i64) {
+        for (i, byte) in value.to_le_bytes().into_iter().enumerate() {
+            self.write_byte(addr.wrapping_add(i as u64), byte);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn words_are_little_endian_and_unwritten_bytes_are_zero() {
+        let mut memory = Memory::new(&Module::default());
+        assert_eq!(memory.read(0x5000), 0);
+        memory.write(0x5000, 0x0102_0304_0506_0708);
+        assert_eq!(memory.read_byte(0x5000), 0x08);
+        assert_eq!(memory.read_byte(0x5007), 0x01);
+        assert_eq!(memory.read(0x5000), 0x0102_0304_0506_0708);
+    }
+
+    #[test]
+    fn texts_are_a_length_then_bytes_each_8_byte_aligned() {
+        let mut m = Module::default();
+        let first = m.text(b"hello");
+        let second = m.text(b"");
+        let memory = Memory::new(&m);
+        let at = memory.address_of(Data::Text(first));
+        assert_eq!(at, 0x1000_0000);
+        assert_eq!(memory.read(at), 5);
+        assert_eq!(memory.read_byte(at + 8), b'h');
+        assert_eq!(memory.read_byte(at + 12), b'o');
+        assert_eq!(memory.address_of(Data::Text(second)), 0x1000_0010);
+    }
+
+    #[test]
+    fn descriptors_follow_the_texts() {
+        let mut m = Module::default();
+        m.text(b"abc");
+        let number = m.desc(crate::ir::Desc::Number);
+        let text = m.desc(crate::ir::Desc::Text);
+        let memory = Memory::new(&m);
+        assert_eq!(memory.address_of(Data::Desc(number)), 0x1000_0010);
+        assert_eq!(memory.address_of(Data::Desc(text)), 0x1000_0018);
+    }
+
+    #[test]
+    fn globals_follow_declaration_order() {
+        let memory = Memory::new(&Module::default());
+        let at = |g| memory.address_of(Data::Global(g));
+        assert_eq!(at(Global::HeapNext), 0x2000_0000);
+        assert_eq!(at(Global::StackLimit), 0x2000_0010);
+        assert_eq!(at(Global::OutBuf), 0x2000_0020);
+        assert_eq!(at(Global::InLen), 0x2000_0020 + 4096);
+        assert_eq!(at(Global::InBuf), 0x2000_0020 + 4096 + 16);
+    }
+}
