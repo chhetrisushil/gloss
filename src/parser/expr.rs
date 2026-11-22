@@ -1,4 +1,5 @@
 use super::Parser;
+use crate::ast::print;
 use crate::ast::{ArithOp, Conversion, Expr, ExprKind as K, Fact, ItemType, PlainType};
 use crate::diag::Diagnostic;
 use crate::lexer::{Kw, Sym, Tok};
@@ -7,7 +8,7 @@ impl Parser<'_> {
     pub fn parse_arith(&mut self) -> Result<Expr, Diagnostic> {
         let mut left = self.product()?;
         while let Some(op) = self.arith_op(Sym::Plus, Sym::Minus, ArithOp::Add, ArithOp::Sub) {
-            let right = self.product()?;
+            let right = self.right_operand(op, &left, Self::product)?;
             left = self.binary(op, left, right);
         }
         Ok(left)
@@ -16,7 +17,7 @@ impl Parser<'_> {
     fn product(&mut self) -> Result<Expr, Diagnostic> {
         let mut left = self.converted()?;
         while let Some(op) = self.arith_op(Sym::Star, Sym::Slash, ArithOp::Mul, ArithOp::Div) {
-            let right = self.converted()?;
+            let right = self.right_operand(op, &left, Self::converted)?;
             left = self.binary(op, left, right);
         }
         Ok(left)
@@ -30,6 +31,27 @@ impl Parser<'_> {
             Some(op_b)
         } else {
             None
+        }
+    }
+
+    /// Parses the operand after `op`, rejecting a `whole` or `remainder`
+    /// fact on the right edge of `left`, which could be read two ways.
+    fn right_operand(
+        &mut self,
+        op: ArithOp,
+        left: &Expr,
+        level: fn(&mut Self) -> Result<Expr, Diagnostic>,
+    ) -> Result<Expr, Diagnostic> {
+        if matches!(self.peek(), Some(Tok::Newline) | None) {
+            return Err(self.err(format!("{} needs a value after it", op_text(op))));
+        }
+        let right = level(self)?;
+        match number_fact_on_right_edge(left) {
+            Some(fact) => {
+                let message = ambiguity(fact, op_text(op), &right);
+                Err(Diagnostic::error(self.src, fact.line, message))
+            }
+            None => Ok(right),
         }
     }
 
@@ -107,6 +129,10 @@ impl Parser<'_> {
                     of: Box::new(self.fact()?),
                 }
             }
+            Some(Tok::Kw(k)) if built_in_fact(*k).is_some() => {
+                let word = k.as_str();
+                return Err(self.err(format!("{word} needs of, as in {word} of prices")));
+            }
             Some(Tok::Kw(Kw::Item)) => self.item_of()?,
             Some(Tok::Kw(Kw::Remainder)) => self.remainder()?,
             _ => return self.primary(),
@@ -124,14 +150,34 @@ impl Parser<'_> {
 
     fn item_of(&mut self) -> Result<K, Diagnostic> {
         self.pos += 1;
+        let start = self.pos;
         let position = self.position()?;
         if !self.eat_kw(Kw::Of) {
-            return Err(self.err("item needs of after its position"));
+            let example = self.item_example(start);
+            return Err(self.err(format!(
+                "item needs of after its position; a position that is worked out \
+                 goes in parentheses, as in {example}"
+            )));
         }
         Ok(K::ItemOf {
             position: Box::new(position),
             of: Box::new(self.fact()?),
         })
+    }
+
+    /// Rewrites the tokens of a worked-out position as `item (...) of x`.
+    fn item_example(&self, start: usize) -> String {
+        let rest = &self.toks[start..];
+        let end = rest.iter().position(|t| t.tok == Tok::Kw(Kw::Of));
+        let position: Vec<String> = rest[..end.unwrap_or(rest.len())]
+            .iter()
+            .take_while(|t| t.tok != Tok::Newline)
+            .map(|t| t.tok.to_string())
+            .collect();
+        let target = end
+            .and_then(|i| rest.get(i + 1))
+            .map_or("prices".into(), |t| t.tok.to_string());
+        format!("item ({}) of {target}", position.join(" "))
     }
 
     fn position(&mut self) -> Result<Expr, Diagnostic> {
@@ -164,13 +210,33 @@ impl Parser<'_> {
             Some(Tok::Kw(Kw::Yes)) => K::Truth(true),
             Some(Tok::Kw(Kw::No)) => K::Truth(false),
             Some(Tok::Kw(Kw::Shown)) => K::Shown,
-            Some(Tok::Name(name)) => K::Name(name),
+            Some(Tok::Name(name)) => self.reject_open_form(&name).map(|()| K::Name(name))?,
+            Some(Tok::RecordName(name)) => return Err(self.record_value_error(&name)),
             Some(Tok::Kw(Kw::Empty)) => self.empty_list()?,
             Some(Tok::Sym(Sym::LParen)) => self.parenthesized()?,
             Some(other) => return Err(self.err(format!("Expected a value but found {other}"))),
             None => return Err(self.err("Expected a value")),
         };
         Ok(self.mk(line, kind))
+    }
+
+    fn reject_open_form(&self, name: &str) -> Result<(), Diagnostic> {
+        if self.peek() != Some(&Tok::Kw(Kw::With)) {
+            return Ok(());
+        }
+        Err(self.err(format!(
+            "{name} with ... must be in parentheses here, \
+             because it is inside arithmetic or a comma list"
+        )))
+    }
+
+    fn record_value_error(&self, name: &str) -> Diagnostic {
+        match self.reject_open_form(name) {
+            Err(error) => error,
+            Ok(()) => self.err(format!(
+                "{name} is a record; build one with {name} with ..."
+            )),
+        }
     }
 
     fn empty_list(&mut self) -> Result<K, Diagnostic> {
@@ -184,7 +250,7 @@ impl Parser<'_> {
         // Task 8 parses a full expression here.
         let inner = self.parse_arith()?;
         if !self.eat_sym(Sym::RParen) {
-            return Err(self.err("Expected )"));
+            return Err(self.err("This ( has no matching )"));
         }
         Ok(K::Paren(Box::new(inner)))
     }
@@ -198,6 +264,45 @@ impl Parser<'_> {
             _ => Err(self.err("Expected number, text, truth or a record name")),
         }
     }
+}
+
+fn op_text(op: ArithOp) -> &'static str {
+    match op {
+        ArithOp::Add => "+",
+        ArithOp::Sub => "-",
+        ArithOp::Mul => "*",
+        ArithOp::Div => "/",
+    }
+}
+
+/// The `whole` or `remainder` fact that ends `e`, looking through
+/// negation and the right side of arithmetic.
+fn number_fact_on_right_edge(e: &Expr) -> Option<&Expr> {
+    match &e.kind {
+        K::Fact {
+            fact: Fact::Whole, ..
+        }
+        | K::Remainder { .. } => Some(e),
+        K::Negate(inner) => number_fact_on_right_edge(inner),
+        K::Binary { right, .. } => number_fact_on_right_edge(right),
+        _ => None,
+    }
+}
+
+fn ambiguity(fact: &Expr, op: &str, right: &Expr) -> String {
+    let (f, r) = (print::expr(fact), print::expr(right));
+    let second = match &fact.kind {
+        K::Fact { of, .. } => format!("whole of ({} {op} {r})", print::expr(of)),
+        K::Remainder { of, by } => {
+            format!(
+                "remainder of {} by ({} {op} {r})",
+                print::expr(of),
+                print::expr(by)
+            )
+        }
+        _ => String::new(),
+    };
+    format!("{f} {op} {r} can be read two ways. Write ({f}) {op} {r} or {second}")
 }
 
 fn built_in_fact(k: Kw) -> Option<Fact> {
@@ -216,6 +321,49 @@ mod tests {
     use crate::parser::parse_expr_str;
     fn sx(t: &str) -> String {
         sexpr(&parse_expr_str(t).unwrap())
+    }
+
+    fn perr(t: &str) -> String {
+        parse_expr_str(t).unwrap_err().problem
+    }
+
+    #[test]
+    fn ambiguity_and_errors() {
+        assert_eq!(
+            perr("whole of a / b"),
+            "whole of a / b can be read two ways. Write (whole of a) / b or whole of (a / b)"
+        );
+        assert_eq!(
+            perr("remainder of a by b + 1"),
+            "remainder of a by b + 1 can be read two ways. Write (remainder of a by b) + 1 or remainder of a by (b + 1)"
+        );
+        assert_eq!(
+            perr("2 * whole of x + 1"),
+            "whole of x + 1 can be read two ways. Write (whole of x) + 1 or whole of (x + 1)"
+        );
+        assert_eq!(
+            perr("-whole of a / b"),
+            "whole of a / b can be read two ways. Write (whole of a) / b or whole of (a / b)"
+        );
+        assert_eq!(
+            perr("a - whole of x + 1"),
+            "whole of x + 1 can be read two ways. Write (whole of x) + 1 or whole of (x + 1)"
+        );
+        assert_eq!(
+            perr("item i + 1 of prices"),
+            "item needs of after its position; a position that is worked out goes in parentheses, as in item (i + 1) of prices"
+        );
+        assert_eq!(
+            perr("total as text with 5 places"),
+            "The number of places is a digit from 0 to 4"
+        );
+        assert_eq!(
+            perr("count prices"),
+            "count needs of, as in count of prices"
+        );
+        assert_eq!(perr("1 +"), "+ needs a value after it");
+        assert_eq!(perr("(1 + 2"), "This ( has no matching )");
+        assert_eq!(perr("1 2"), "Unexpected 2 after the expression");
     }
 
     #[test]
