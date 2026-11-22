@@ -14,7 +14,7 @@ struct Walk<'a, 'b> {
     types: &'a mut Vec<Option<Ty>>,
     vars: BTreeMap<String, Ty>,
     made: Vec<(String, Ty, u32)>,
-    result: Option<Ty>,
+    gives: Vec<(Line, Ty)>,
     in_test: bool,
     loops: u32,
     changed: bool,
@@ -46,7 +46,7 @@ pub fn check_body(
         types,
         vars,
         made: Vec::new(),
-        result: None,
+        gives: Vec::new(),
         in_test,
         loops: 0,
         changed: false,
@@ -59,9 +59,16 @@ pub fn check_body(
         }
     }
     walk.stmts(body);
+    let known = walk.gives.iter().find(|(_, t)| *t != Ty::Error);
+    let result = match (known, walk.gives.is_empty()) {
+        (Some((_, t)), _) => t.clone(),
+        (None, true) => Ty::Nothing,
+        (None, false) => Ty::Error,
+    };
     FeatureInfo {
         inputs: inputs.to_vec(),
-        result: walk.result.unwrap_or(Ty::Nothing),
+        result,
+        gives: walk.gives,
         vars: walk.made,
     }
 }
@@ -228,7 +235,7 @@ impl Walk<'_, '_> {
             }),
             StmtKind::Give(value) => {
                 let ty = self.ty(value);
-                self.result.get_or_insert(ty);
+                self.gives.push((stmt.line, ty));
             }
             StmtKind::Run { feature, inputs } => {
                 let args: Vec<(&Expr, Ty)> = inputs.iter().map(|i| (i, self.ty(i))).collect();

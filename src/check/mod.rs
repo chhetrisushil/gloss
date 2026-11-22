@@ -1,5 +1,6 @@
 pub mod combine;
 pub mod expr;
+mod features;
 pub mod names;
 pub mod similar;
 pub mod stmt;
@@ -7,7 +8,6 @@ mod types;
 
 use std::collections::BTreeMap;
 
-use crate::ast::Type;
 use crate::ast::program::Program;
 use crate::diag::{self, Diagnostic};
 use crate::source::Source;
@@ -27,6 +27,7 @@ pub enum Ty {
 pub struct FeatureInfo {
     pub inputs: Vec<(String, Ty)>,
     pub result: Ty,
+    pub gives: Vec<(u32, Ty)>,
     pub vars: Vec<(String, Ty, u32)>,
 }
 
@@ -64,26 +65,17 @@ pub fn check(program: &Program, src: &Source) -> CheckResult {
     }
 }
 
-/// Checks every feature, then every test; a feature not yet typed is silent.
+/// Checks every feature, then every test, with every feature's result known.
 fn check_bodies(ctx: &mut Ctx) -> TypeInfo {
     let program = ctx.program;
     let mut info = TypeInfo::default();
-    let mut results = BTreeMap::new();
+    let results = features::infer_results(ctx);
     for f in program.features() {
-        let inputs: Vec<(String, Ty)> = f
-            .needs
-            .iter()
-            .map(|n| {
-                let ty = match &n.ty {
-                    Type::Item(t) => expr::item_ty(t),
-                    Type::List(t) => Ty::List(Box::new(expr::item_ty(t))),
-                };
-                (n.name.clone(), ty)
-            })
-            .collect();
+        let kept = ctx.diags.len();
+        let inputs = features::inputs_of(f);
         let checked =
             stmt::check_body(ctx, &results, &inputs, &f.body, false, &mut info.expr_types);
-        results.insert(f.name.clone(), checked.result.clone());
+        features::check_result(ctx, f, &checked, kept);
         info.features.insert(f.name.clone(), checked);
     }
     for t in program.tests() {
