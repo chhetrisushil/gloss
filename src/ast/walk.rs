@@ -4,14 +4,19 @@
 use super::stmt::{Stmt, StmtKind, Target};
 use super::{Expr, ExprKind};
 
-/// The expressions a statement holds directly, and the blocks inside it.
+/// The expressions a statement holds directly, and the blocks inside it. The position inside an
+/// item target is one of the expressions.
 pub fn parts<'a>(kind: &'a StmtKind, exprs: &mut Vec<&'a Expr>, nested: &mut Vec<&'a [Stmt]>) {
     match kind {
-        StmtKind::Set { value, .. } => exprs.push(value),
-        StmtKind::Add { value, .. } | StmtKind::Subtract { value, .. } => exprs.push(value),
-        StmtKind::Multiply { by, .. } | StmtKind::Divide { by, .. } => exprs.push(by),
-        StmtKind::Append { value, .. } => exprs.push(value),
-        StmtKind::Ask { question, .. } => exprs.push(question),
+        StmtKind::Set { target, value }
+        | StmtKind::Add { value, target }
+        | StmtKind::Subtract { value, target }
+        | StmtKind::Multiply { target, by: value }
+        | StmtKind::Divide { target, by: value } => {
+            target_exprs(target, exprs);
+            exprs.push(value);
+        }
+        StmtKind::Append { value: x, .. } | StmtKind::Ask { question: x, .. } => exprs.push(x),
         StmtKind::Show(xs) | StmtKind::Input(xs) | StmtKind::Run { inputs: xs, .. } => {
             exprs.extend(xs);
         }
@@ -38,7 +43,12 @@ pub fn parts<'a>(kind: &'a StmtKind, exprs: &mut Vec<&'a Expr>, nested: &mut Vec
             exprs.push(cond);
             nested.push(body);
         }
-        _ => {}
+        StmtKind::Note(_)
+        | StmtKind::Skip
+        | StmtKind::Stop
+        | StmtKind::Load(_)
+        | StmtKind::Save(_)
+        | StmtKind::Clear(_) => {}
     }
 }
 
@@ -64,7 +74,12 @@ pub fn children(e: &Expr) -> Vec<&Expr> {
         | ExprKind::And(xs)
         | ExprKind::Or(xs) => xs.iter().collect(),
         ExprKind::BuildRecord { fields, .. } => fields.iter().map(|(_, x)| x).collect(),
-        _ => Vec::new(),
+        ExprKind::Number(_)
+        | ExprKind::Text(_)
+        | ExprKind::Truth(_)
+        | ExprKind::Name(_)
+        | ExprKind::Shown
+        | ExprKind::EmptyList(_) => Vec::new(),
     }
 }
 
@@ -112,7 +127,23 @@ pub fn parts_mut<'a>(
             exprs.push(cond);
             nested.push(body);
         }
-        _ => {}
+        StmtKind::Note(_)
+        | StmtKind::Skip
+        | StmtKind::Stop
+        | StmtKind::Load(_)
+        | StmtKind::Save(_)
+        | StmtKind::Clear(_) => {}
+    }
+}
+
+fn target_exprs<'a>(target: &'a Target, out: &mut Vec<&'a Expr>) {
+    match target {
+        Target::Var(_) => {}
+        Target::Field { of, .. } => target_exprs(of, out),
+        Target::Item { position, of } => {
+            out.push(position);
+            target_exprs(of, out);
+        }
     }
 }
 
