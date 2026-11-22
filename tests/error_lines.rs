@@ -77,3 +77,21 @@ fn a_tab_or_carriage_return_inside_a_test_title_is_rejected() {
         "{cr}"
     );
 }
+
+#[test]
+fn places_is_one_digit_from_zero_to_four_written_as_such() {
+    let bad = |places: &str| {
+        first_error(&format!(
+            "feature start\n  show 1 as text with {places} places\n"
+        ))
+    };
+    for places in ["2.0", "02", "5", "10", "2.5"] {
+        let out = bad(places);
+        assert!(
+            out.starts_with(&format!("line 2: show 1 as text with {places} places. The number of places is a digit from 0 to 4")),
+            "{out}"
+        );
+    }
+    let ok = "feature start\n  show 1 as text with 4 places\n";
+    assert!(format_source(ok).is_ok());
+}

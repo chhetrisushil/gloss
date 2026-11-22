@@ -13,6 +13,7 @@ pub fn lex(src: &Source) -> Result<Vec<Token>, Diagnostic> {
         tok,
         line,
         blank_before: false,
+        digit: None,
     };
     let is_blank = |k: u32| src.line(k).trim_matches(' ').is_empty();
     let lead = |k: u32| src.line(k).len() - src.line(k).trim_start_matches(' ').len();

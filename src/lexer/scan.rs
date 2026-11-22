@@ -13,6 +13,7 @@ pub fn scan_line(src: &Source, line: u32, text: &str) -> Result<Vec<Token>, Diag
     while let Some(c) = text[i..].chars().next() {
         let start = i;
         i += c.len_utf8();
+        let mut digit = None;
         let tok = match c {
             ' ' => continue,
             '\t' => return Err(err("Tabs are not allowed; use spaces".into())),
@@ -40,6 +41,7 @@ pub fn scan_line(src: &Source, line: u32, text: &str) -> Result<Vec<Token>, Diag
                 if text[i..].chars().next().is_some_and(is_word) {
                     return Err(err("Put a space between a number and a word".into()));
                 }
+                digit = lexeme.parse().ok().filter(|_| lexeme.len() == 1);
                 Tok::Number(n)
             }
             '"' => {
@@ -90,6 +92,7 @@ pub fn scan_line(src: &Source, line: u32, text: &str) -> Result<Vec<Token>, Diag
             tok,
             line,
             blank_before: false,
+            digit,
         });
     }
     Ok(out)
