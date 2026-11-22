@@ -26,6 +26,7 @@ pub fn check_program(ctx: &mut Ctx) {
     program_names(ctx);
     fields(ctx);
     test_titles(ctx);
+    table_files(ctx);
     unknown_records(ctx);
 }
 
@@ -111,6 +112,62 @@ fn test_titles(ctx: &mut Ctx) {
     }
 }
 
+/// Table files are fixed, relative and inside the program's folder. Every
+/// rule rejects a spelling so each file has exactly one: that is what lets
+/// duplicate files be found by comparing paths.
+fn path_problem(path: &str) -> Option<&'static str> {
+    let mut parts = path.split('/');
+    if path.starts_with('/') {
+        Some(
+            "The file name must not start with /; table files are found from the folder the program runs in",
+        )
+    } else if path.contains('\\') {
+        Some("Use / between folders, not \\")
+    } else if parts.clone().any(|p| p == "..") {
+        Some(
+            "The file name must not use ..; table files stay inside the folder the program runs in",
+        )
+    } else if parts.clone().any(|p| p == ".") {
+        Some("The file name must not use . as a folder; write x.csv")
+    } else if parts.clone().any(str::is_empty) {
+        Some("The file name has an empty part; write folders as data/expenses.csv")
+    } else if path.chars().any(unshowable) {
+        Some(
+            "The file name contains a character that cannot be shown, such as a tab or a control character",
+        )
+    } else if parts.next_back().is_some_and(|p| p.ends_with(".gloss-new")) {
+        Some(
+            "The file name must not end in .gloss-new; that ending is kept for files Gloss writes while saving",
+        )
+    } else {
+        None
+    }
+}
+
+/// Control characters and invisible formatting characters.
+fn unshowable(c: char) -> bool {
+    c.is_control()
+        || matches!(c, '\u{200B}'..='\u{200D}' | '\u{2060}' | '\u{FEFF}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+fn table_files(ctx: &mut Ctx) {
+    let mut files: HashMap<&str, (&str, u32)> = HashMap::new();
+    for t in ctx.program.tables() {
+        let problem = if let Some(p) = path_problem(&t.path) {
+            p.to_string()
+        } else if let Some(&(other, line)) = files.get(t.path.as_str()) {
+            let path = &t.path;
+            format!(
+                "{path} is already the file of table {other} (line {line}); one file belongs to one table"
+            )
+        } else {
+            files.insert(&t.path, (&t.name, t.line));
+            continue;
+        };
+        ctx.diags.push(Diagnostic::error(ctx.src, t.line, problem));
+    }
+}
+
 fn unknown_records(ctx: &mut Ctx) {
     let used = ctx.program.tables().map(|t| (t.line, &t.record)).chain(
         ctx.program
@@ -178,6 +235,103 @@ mod tests {
         assert_eq!(
             diags(&p),
             ["line 5: test \"x\". Another test already has this title (line 3)."]
+        );
+    }
+
+    #[test]
+    fn table_paths_are_a_security_boundary() {
+        let t = |path: &str| {
+            diags(&format!(
+                "{START}record E\n  a as text\ntable t of E in \"{path}\"\n"
+            ))
+        };
+        assert_eq!(
+            t("/etc/passwd"),
+            [
+                r#"line 5: table t of E in "/etc/passwd". The file name must not start with /; table files are found from the folder the program runs in."#
+            ]
+        );
+        assert_eq!(
+            t("../x.csv"),
+            [
+                r#"line 5: table t of E in "../x.csv". The file name must not use ..; table files stay inside the folder the program runs in."#
+            ]
+        );
+        assert_eq!(
+            t("data/../../x.csv"),
+            [
+                r#"line 5: table t of E in "data/../../x.csv". The file name must not use ..; table files stay inside the folder the program runs in."#
+            ]
+        );
+        assert_eq!(
+            t("a//b.csv"),
+            [
+                r#"line 5: table t of E in "a//b.csv". The file name has an empty part; write folders as data/expenses.csv."#
+            ]
+        );
+        assert_eq!(
+            t(""),
+            [
+                r#"line 5: table t of E in "". The file name has an empty part; write folders as data/expenses.csv."#
+            ]
+        );
+        assert_eq!(
+            t("data/"),
+            [
+                r#"line 5: table t of E in "data/". The file name has an empty part; write folders as data/expenses.csv."#
+            ]
+        );
+        assert_eq!(
+            t(r"a\b.csv"),
+            [r#"line 5: table t of E in "a\b.csv". Use / between folders, not \."#]
+        );
+        assert_eq!(
+            t("./x.csv"),
+            [
+                r#"line 5: table t of E in "./x.csv". The file name must not use . as a folder; write x.csv."#
+            ]
+        );
+        assert!(t("data/expenses.csv").is_empty());
+        assert!(t("a..b.csv").is_empty());
+        let two = format!(
+            "{START}record E\n  a as text\ntable t of E in \"x.csv\"\ntable u of E in \"x.csv\"\n"
+        );
+        assert_eq!(
+            diags(&two),
+            [
+                r#"line 6: table u of E in "x.csv". x.csv is already the file of table t (line 5); one file belongs to one table."#
+            ]
+        );
+    }
+
+    #[test]
+    fn unshowable_characters_and_reserved_ending_are_refused() {
+        let t = |path: &str| {
+            diags(&format!(
+                "{START}record E\n  a as text\ntable t of E in \"{path}\"\n"
+            ))
+        };
+        let shown = "The file name contains a character that cannot be shown, such as a tab or a control character";
+        for path in [
+            "\0x",
+            "a\rb",
+            "\x1b[2Kx",
+            "a\tb",
+            "\u{202E}x",
+            "x\u{200B}.csv",
+        ] {
+            assert_eq!(
+                t(path),
+                [format!("line 5: table t of E in \"{path}\". {shown}.")],
+                "{path:?}"
+            );
+        }
+        let reserved = "The file name must not end in .gloss-new; that ending is kept for files Gloss writes while saving";
+        assert_eq!(
+            t("x.csv.gloss-new"),
+            [format!(
+                "line 5: table t of E in \"x.csv.gloss-new\". {reserved}."
+            )]
         );
     }
 
