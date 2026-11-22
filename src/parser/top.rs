@@ -191,12 +191,23 @@ impl Parser<'_> {
         })
     }
 
+    /// The error for an input written without `as`, worded from the input's own name.
+    fn input_needs_as(&self, name: &str) -> Diagnostic {
+        if matches!(self.peek(), Some(Tok::Newline) | None) {
+            return self.err(format!("{name} needs as and a type after it"));
+        }
+        let example = self.fixed_line("as");
+        self.err(format!("{name} needs as, as in {example}"))
+    }
+
     fn inputs(&mut self) -> Result<Vec<InputDecl>, Diagnostic> {
         let mut inputs = Vec::new();
         loop {
             let line = self.line();
             let name = self.parse_name("needs")?;
-            self.expect_word("needs", Kw::As)?;
+            if !self.eat_kw(Kw::As) {
+                return Err(self.input_needs_as(&name));
+            }
             let ty = if self.eat_kw(Kw::List) {
                 self.expect_word("list", Kw::Of)?;
                 Type::List(self.parse_item_type()?)
@@ -394,6 +405,23 @@ mod tests {
         assert_eq!(
             e("record E\n  a as list of number\n"),
             "line 2: a as list of number. A record field is a number, text or truth."
+        );
+    }
+
+    #[test]
+    fn a_needs_input_without_as_names_the_input() {
+        let e = |t: &str| parse(t).unwrap_err().render();
+        assert_eq!(
+            e("feature f\n  needs amount\n  show 1\n"),
+            "line 2: needs amount. amount needs as and a type after it."
+        );
+        assert_eq!(
+            e("feature f\n  needs a as number, b\n  show 1\n"),
+            "line 2: needs a as number, b. b needs as and a type after it."
+        );
+        assert_eq!(
+            e("feature f\n  needs amount number\n  show 1\n"),
+            "line 2: needs amount number. amount needs as, as in needs amount as number."
         );
     }
 

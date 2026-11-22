@@ -19,6 +19,8 @@ struct Walk<'a, 'b> {
     waiting: usize,
     in_test: bool,
     loops: u32,
+    /// The names of the loops being walked; changing one is reported by the mutation check.
+    loop_vars: Vec<String>,
     changed: bool,
 }
 
@@ -52,6 +54,7 @@ pub fn check_body(
         waiting: 0,
         in_test,
         loops: 0,
+        loop_vars: Vec::new(),
         changed: false,
     };
     for _ in 0..=body.len() + 1 {
@@ -369,7 +372,9 @@ impl Walk<'_, '_> {
         }
         let ty = if clash { Ty::Error } else { ty };
         let hidden = self.vars.insert(var.into(), ty);
+        self.loop_vars.push(var.into());
         self.in_loop(body);
+        self.loop_vars.pop();
         match hidden {
             Some(old) => self.vars.insert(var.into(), old),
             None => self.vars.remove(var),
@@ -377,6 +382,9 @@ impl Walk<'_, '_> {
     }
 
     fn append(&mut self, line: Line, value: &Expr, list: &str) {
+        if self.loop_vars.iter().any(|v| v == list) {
+            return;
+        }
         let v = self.ty(value);
         let t = self.target_ty(line, &Target::Var(list.into()));
         let Some(item) = t.item() else {
