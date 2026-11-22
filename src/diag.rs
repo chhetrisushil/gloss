@@ -1,3 +1,4 @@
+use crate::chars::unshowable;
 use crate::source::Source;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -57,9 +58,20 @@ impl Diagnostic {
     }
 
     /// The source line as echoed in a message: cut at `MAX_ECHO` characters, ending in "…".
+    /// Every character that cannot be seen is written as `\u{XXXX}`.
     fn echoed_line(&self) -> String {
         let mut chars = self.source_line.chars();
-        let kept: String = chars.by_ref().take(MAX_ECHO).collect();
+        let kept: String = chars
+            .by_ref()
+            .take(MAX_ECHO)
+            .map(|c| {
+                if unshowable(c) {
+                    format!("\\u{{{:04X}}}", c as u32)
+                } else {
+                    c.to_string()
+                }
+            })
+            .collect();
         if chars.next().is_some() {
             format!("{kept}…")
         } else {
@@ -109,6 +121,16 @@ mod tests {
         assert_eq!(
             d.render(),
             "line 3: set total as 0. set needs to. Did you mean set total to 0?"
+        );
+    }
+
+    #[test]
+    fn an_echoed_line_writes_invisible_characters_out() {
+        let src = Source::new("table t of E in \"a\u{200F}b\u{A0}c\td\"\n");
+        let d = Diagnostic::error(&src, 1, "bad");
+        assert_eq!(
+            d.render(),
+            "line 1: table t of E in \"a\\u{200F}b\\u{00A0}c\\u{0009}d\". bad."
         );
     }
 

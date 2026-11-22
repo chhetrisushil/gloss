@@ -153,7 +153,7 @@ fn path_problem(path: &str) -> Option<String> {
         ))
     } else if parts.clone().any(str::is_empty) {
         Some("The file name has an empty part; write folders as data/expenses.csv".into())
-    } else if path.chars().any(unshowable) {
+    } else if path.chars().any(crate::chars::unshowable) {
         Some(String::from(
             "The file name contains a character that cannot be shown, such as a tab, a control character or an invisible character",
         ))
@@ -195,51 +195,6 @@ fn later_path_problem(path: &str) -> Option<String> {
 /// Case-insensitive, because a case-insensitive file system treats `x.GLOSS` as `x.gloss`.
 fn ends_with_ignoring_case(name: &str, ending: &str) -> bool {
     name.to_lowercase().ends_with(ending)
-}
-
-/// Control characters, invisible characters and every space except the plain one: the
-/// Default_Ignorable_Code_Points and the format (Cf) characters, written out as ranges, and
-/// the Unicode space separators. Such a name would look like another file in the permission list.
-fn unshowable(c: char) -> bool {
-    const INVISIBLE: &[(u32, u32)] = &[
-        (0x00AD, 0x00AD),
-        (0x034F, 0x034F),
-        (0x0600, 0x0605),
-        (0x061C, 0x061C),
-        (0x06DD, 0x06DD),
-        (0x070F, 0x070F),
-        (0x0890, 0x0891),
-        (0x08E2, 0x08E2),
-        (0x115F, 0x1160),
-        (0x17B4, 0x17B5),
-        (0x180B, 0x180F),
-        (0x200B, 0x200F),
-        (0x202A, 0x202E),
-        (0x2028, 0x2029),
-        (0x2060, 0x206F),
-        (0x3164, 0x3164),
-        (0xFE00, 0xFE0F),
-        (0xFEFF, 0xFEFF),
-        (0xFFA0, 0xFFA0),
-        (0xFFF0, 0xFFFC),
-        (0x110BD, 0x110BD),
-        (0x110CD, 0x110CD),
-        (0x13430, 0x1343F),
-        (0x1BCA0, 0x1BCA3),
-        (0x1D173, 0x1D17A),
-        (0xE0000, 0xE0FFF),
-    ];
-    const SPACES: &[(u32, u32)] = &[
-        (0x00A0, 0x00A0),
-        (0x1680, 0x1680),
-        (0x2000, 0x200A),
-        (0x202F, 0x202F),
-        (0x205F, 0x205F),
-        (0x3000, 0x3000),
-    ];
-    let code = c as u32;
-    let within = |ranges: &[(u32, u32)]| ranges.iter().any(|&(lo, hi)| (lo..=hi).contains(&code));
-    c.is_control() || within(INVISIBLE) || within(SPACES)
 }
 
 fn table_files(ctx: &mut Ctx) {
@@ -467,21 +422,30 @@ mod tests {
             ))
         };
         let shown = "The file name contains a character that cannot be shown, such as a tab, a control character or an invisible character";
-        for path in ["\0x", "\x1b[2Kx", "\u{202E}x", "x\u{200B}.csv", "x\u{2028}"] {
+        let cases = [
+            ("\0x", "\\u{0000}x"),
+            ("\x1b[2Kx", "\\u{001B}[2Kx"),
+            ("\u{202E}x", "\\u{202E}x"),
+            ("x\u{200B}.csv", "x\\u{200B}.csv"),
+            ("x\u{2028}", "x\\u{2028}"),
+        ];
+        for (path, echoed) in cases {
             assert_eq!(
                 t(path),
-                [format!("line 5: table t of E in \"{path}\". {shown}.")],
+                [format!("line 5: table t of E in \"{echoed}\". {shown}.")],
                 "{path:?}"
             );
         }
         // A tab or carriage return inside quotes is refused earlier, by the lexer.
         assert_eq!(
             t("a\tb"),
-            ["line 5: table t of E in \"a\tb\". Tabs are not allowed; use spaces."]
+            ["line 5: table t of E in \"a\\u{0009}b\". Tabs are not allowed; use spaces."]
         );
         assert_eq!(
             t("a\rb"),
-            ["line 5: table t of E in \"a\rb\". A carriage return is not allowed inside text."]
+            [
+                "line 5: table t of E in \"a\\u{000D}b\". A carriage return is not allowed inside text."
+            ]
         );
         let reserved = "The file name must not end in .gloss-new; that ending is kept for files Gloss writes while saving";
         assert_eq!(

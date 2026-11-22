@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod chars;
 pub mod check;
 pub mod cli;
 pub mod diag;
