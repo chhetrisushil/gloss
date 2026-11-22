@@ -115,6 +115,7 @@ fn check_bodies(ctx: &mut Ctx) -> TypeInfo {
     let program = ctx.program;
     let mut info = TypeInfo::default();
     let results = features::infer_results(ctx);
+    let known = flow::Known::of_program(program);
     for f in program.features() {
         let kept = ctx.diags.len();
         let inputs = features::inputs_of(f);
@@ -122,14 +123,14 @@ fn check_bodies(ctx: &mut Ctx) -> TypeInfo {
             stmt::check_body(ctx, &results, &inputs, &f.body, false, &mut info.expr_types);
         features::check_result(ctx, f, &checked, kept);
         features::check_gives(ctx, f, &checked);
-        flow::check_flow(ctx, &inputs, &f.body);
+        flow::check_flow(ctx, &known, &inputs, &f.body);
         rules::check_rules(ctx, &info.expr_types, &f.body);
         mutation::check_mutation(ctx, &inputs, &f.body);
         info.features.insert(f.name.clone(), checked);
     }
     for t in program.tests() {
         stmt::check_body(ctx, &results, &[], &t.body, true, &mut info.expr_types);
-        flow::check_flow(ctx, &[], &t.body);
+        flow::check_flow(ctx, &known, &[], &t.body);
         rules::check_rules(ctx, &info.expr_types, &t.body);
         mutation::check_mutation(ctx, &[], &t.body);
     }
