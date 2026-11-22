@@ -5,6 +5,7 @@ pub mod names;
 pub mod similar;
 pub mod stmt;
 mod types;
+pub mod uses;
 
 use std::collections::BTreeMap;
 
