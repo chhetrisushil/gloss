@@ -41,9 +41,14 @@ impl Drop for TempFile {
 }
 
 fn temp_file(name: &str, text: &str) -> TempFile {
-    let dir = std::env::temp_dir().join(format!("gloss-cli-{}-{}", name, std::process::id()));
+    temp_named(name, &format!("{name}.gloss"), text)
+}
+
+/// Like `temp_file`, with the file name chosen separately from the folder tag.
+fn temp_named(tag: &str, file_name: &str, text: &str) -> TempFile {
+    let dir = std::env::temp_dir().join(format!("gloss-cli-{}-{}", tag, std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let p = dir.join(format!("{name}.gloss"));
+    let p = dir.join(file_name);
     std::fs::write(&p, text).unwrap();
     TempFile(p)
 }
@@ -150,11 +155,79 @@ fn format_leaves_no_temporary_file() {
     assert_eq!(leftovers(&p), ["fmttmp.gloss"]);
 }
 
+/// Root ignores permission bits, so tests that rely on them cannot fail as root.
+#[cfg(unix)]
+fn running_as_root() -> bool {
+    let id = Command::new("id").arg("-u").output().unwrap();
+    id.stdout == b"0\n"
+}
+
+#[cfg(unix)]
+#[test]
+fn format_keeps_the_file_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let p = temp_file("fmtmode", "feature start\n  set  t to 1\n  show t\n");
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(gloss(&["format", p.to_str().unwrap()]).0, 0);
+    let mode = std::fs::metadata(&p).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o755);
+}
+
+#[cfg(unix)]
+#[test]
+fn format_through_a_symlink_formats_the_real_file() {
+    let real = temp_file("fmtreal", "feature start\n  set  t to 1\n  show t\n");
+    let link_dir = temp_file("fmtlink", "");
+    let link = link_dir.parent().unwrap().join("link.gloss");
+    std::os::unix::fs::symlink(&*real, &link).unwrap();
+    assert_eq!(gloss(&["format", link.to_str().unwrap()]).0, 0);
+    assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+    assert_eq!(
+        std::fs::read_to_string(&*real).unwrap(),
+        "feature start\n  set t to 1\n  show t\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn format_refuses_a_read_only_file() {
+    use std::os::unix::fs::PermissionsExt;
+    if running_as_root() {
+        return;
+    }
+    let text = "feature start\n  set  t to 1\n  show t\n";
+    let p = temp_file("fmtreadonly", text);
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o444)).unwrap();
+    let (code, out, err) = gloss(&["format", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert_eq!(
+        err,
+        format!("cannot write {}: the file is read-only\n", p.display())
+    );
+    assert_eq!(std::fs::read(&p).unwrap(), text.as_bytes());
+    assert_eq!(leftovers(&p), ["fmtreadonly.gloss"]);
+}
+
+#[test]
+fn format_handles_a_very_long_file_name() {
+    let name = format!("{}.gloss", "a".repeat(240 - ".gloss".len()));
+    let p = temp_named("fmtlong", &name, "feature start\n  set  t to 1\n  show t\n");
+    let (code, _, err) = gloss(&["format", p.to_str().unwrap()]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        std::fs::read_to_string(&p).unwrap(),
+        "feature start\n  set t to 1\n  show t\n"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn format_write_failure_keeps_original_and_reports_os_error() {
     use std::os::unix::fs::PermissionsExt;
     let text = "feature start\n  set  t to 1\n  show t\n";
+    if running_as_root() {
+        return;
+    }
     let p = temp_file("fmtro", text);
     let dir = p.parent().unwrap();
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o555)).unwrap();

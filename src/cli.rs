@@ -106,15 +106,26 @@ fn format(path: &str, name: &str, text: &str, out: &mut dyn Write, err: &mut dyn
     0
 }
 
-/// Replaces `path` with `text` by writing a temporary file beside it and renaming it over
-/// the original, so an interrupted write cannot truncate the user's source.
+/// Replaces the file at `path` with `text` by writing a short-named temporary file beside it
+/// and renaming it over the original, so an interrupted write cannot truncate the user's
+/// source. A symlink is followed (the real file is replaced, the link stays a link), a
+/// read-only file is refused, and the original's permissions are kept.
 fn write_atomically(path: &str, text: &str) -> std::io::Result<()> {
-    let temp = format!("{path}.gloss-format-tmp");
+    let real = std::fs::canonicalize(path)?;
+    let permissions = std::fs::metadata(&real)?.permissions();
+    if permissions.readonly() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "the file is read-only",
+        ));
+    }
+    let temp = real.with_file_name(format!(".gloss-format-{}.tmp", std::process::id()));
     let result = (|| {
         let mut file = std::fs::File::create(&temp)?;
         file.write_all(text.as_bytes())?;
+        file.set_permissions(permissions)?;
         file.sync_all()?;
-        std::fs::rename(&temp, path)
+        std::fs::rename(&temp, &real)
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&temp);
