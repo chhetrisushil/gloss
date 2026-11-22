@@ -63,7 +63,8 @@ fn load_after_append<'a>(ctx: &mut Ctx, body: &'a [Stmt], appended: &mut BTreeMa
                 appended.entry(list).or_insert(stmt.line);
             }
             StmtKind::Load(t) => {
-                if let Some(line) = appended.remove(t.as_str()) {
+                let known = ctx.program.tables().any(|d| &d.name == t);
+                if let Some(line) = appended.remove(t.as_str()).filter(|_| known) {
                     let msg = format!("load {t} replaces the rows appended on line {line}");
                     ctx.diags.push(Diagnostic::warning(ctx.src, stmt.line, msg));
                 }
@@ -125,6 +126,15 @@ mod tests {
                 "{HEAD}feature start\n  clear es\n  append (E with amount 1) to es\n  save es\n"
             ))
             .is_empty()
+        );
+    }
+
+    #[test]
+    fn loading_a_list_only_gets_the_load_error() {
+        let p = "feature start\n  set mine to list of 1\n  append 2 to mine\n  load mine\n  show mine\n";
+        assert_eq!(
+            diags(p),
+            ["line 4: load mine. load works on tables; mine is a list of number."]
         );
     }
 }
