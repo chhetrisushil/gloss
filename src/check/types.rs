@@ -24,6 +24,15 @@ impl Ty {
         }
     }
 
+    /// A table taken as a value is a list of its record; only the name of a declared table
+    /// keeps `Ty::Table`, so variables, gives and comparisons never see one.
+    pub fn norm(self) -> Ty {
+        match self {
+            Ty::Table { record, .. } => Ty::List(Box::new(Ty::Record(record))),
+            other => other,
+        }
+    }
+
     /// The type with its article, as in "n is a number".
     pub fn described(&self) -> String {
         match self {

@@ -208,7 +208,7 @@ impl Walk<'_, '_> {
     fn stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::Set { target, value } => {
-                let ty = self.ty(value);
+                let ty = self.ty(value).norm();
                 if let Target::Var(name) = target {
                     let action = format!("be set to {}", ty.described());
                     self.bind(stmt.line, name, ty, &action);
@@ -247,7 +247,7 @@ impl Walk<'_, '_> {
                 if ty == Ty::Error && !own_error && self.ctx.pending > pending {
                     self.waiting += 1;
                 }
-                self.gives.push((stmt.line, ty));
+                self.gives.push((stmt.line, ty.norm()));
             }
             StmtKind::Run { feature, inputs } => {
                 let args: Vec<(&Expr, Ty)> = inputs.iter().map(|i| (i, self.ty(i))).collect();
@@ -451,6 +451,7 @@ impl Walk<'_, '_> {
     /// error (it read a variable not yet collected) is replaced once known, but
     /// only by the statement that made the variable.
     fn first(&mut self, line: Line, name: &str, ty: Ty) {
+        let ty = ty.norm();
         if self.ctx.program.tables().any(|t| t.name == name) {
             return;
         }
