@@ -1,7 +1,7 @@
 //! The entry routine, the allocator and the stack limit.
 
 use super::asm::Asm;
-use crate::ir::Cond::{Ge, Le, Ne};
+use crate::ir::Cond::{Ge, Gt, Le, Lt, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Function, Global, Inst::*, IntOp, Prim};
 
@@ -37,8 +37,13 @@ fn heap_init() -> Function {
 /// multiple of 8). Slots: 1 the rounded size, 2 the size of a new piece, 3 the result.
 fn alloc() -> Function {
     let mut s = Asm::default();
-    let (nonzero, fits, big, mapped) = (s.label(), s.label(), s.label(), s.label());
+    let (nonzero, fits, big, mapped, bad) = (s.label(), s.label(), s.label(), s.label(), s.label());
+    // A negative size, or one whose rounding would overflow, is out of memory.
     s.i(LoadArg(A, 1));
+    s.i(Const(B, 0));
+    s.jump_if(Lt, bad);
+    s.i(Const(B, i64::MAX - 7));
+    s.jump_if(Gt, bad);
     s.i(AddImm(A, 7));
     s.i(Const(B, -8));
     s.i(Int(IntOp::And));
@@ -47,11 +52,12 @@ fn alloc() -> Function {
     s.i(Const(A, 8));
     s.i(Mark(nonzero));
     s.i(StoreSlot(1, A));
-    s.gload(A, Global::HeapNext);
+    // It fits when the room left, `heap_end - heap_next`, is at least the size.
+    s.gload(A, Global::HeapEnd);
+    s.gload(B, Global::HeapNext);
+    s.i(Int(IntOp::Sub));
     s.i(LoadSlot(B, 1));
-    s.i(Int(IntOp::Add));
-    s.gload(B, Global::HeapEnd);
-    s.jump_if(Le, fits);
+    s.jump_if(Ge, fits);
     // The block does not fit: map a piece of `max(PIECE, size)` and start allocating there.
     s.i(LoadSlot(A, 1));
     s.i(Const(B, PIECE));
@@ -63,6 +69,7 @@ fn alloc() -> Function {
     s.i(System(Prim::Map));
     s.i(Const(B, 0));
     s.jump_if(Ne, mapped);
+    s.i(Mark(bad));
     s.push_arg(2);
     s.call("fail_memory");
     s.i(Mark(mapped));
