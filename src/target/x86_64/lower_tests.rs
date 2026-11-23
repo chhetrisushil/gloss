@@ -269,17 +269,26 @@ fn map_turns_kernel_errors_into_zero_and_stack_size_reads_the_limit() {
 }
 
 #[test]
-fn multiplication_and_division_wait_for_the_helpers() {
+fn mul_div_and_rem_call_their_helpers_and_dispatch_on_the_status() {
     let (zero, range) = (Label(1), Label(2));
-    let err = lower_function(&func(0, 0, vec![Inst::NumMul { range }]), &known());
     assert_eq!(
-        err.unwrap_err(),
-        "cannot lower a = num_mul a, b; out of range L2 yet"
+        one(Inst::NumMul { range }),
+        ["call multiply_number", "test rdx, rdx", "jne Lf_2"]
     );
-    let div = Inst::NumDiv { zero, range };
-    assert!(lower_function(&func(0, 0, vec![div]), &known()).is_err());
-    let rem = Inst::NumRem { zero };
-    assert!(lower_function(&func(0, 0, vec![rem]), &known()).is_err());
+    assert_eq!(
+        one(Inst::NumDiv { zero, range }),
+        [
+            "call divide_number",
+            "cmp rdx, 2",
+            "je Lf_1",
+            "test rdx, rdx",
+            "jne Lf_2"
+        ]
+    );
+    assert_eq!(
+        one(Inst::NumRem { zero }),
+        ["call remainder_number", "test rdx, rdx", "jne Lf_1"]
+    );
 }
 
 #[test]
