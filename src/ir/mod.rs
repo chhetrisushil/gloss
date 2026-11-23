@@ -66,7 +66,7 @@ pub enum Prim {
 }
 
 /// A runtime global, addressed with `Data::Global`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Global {
     HeapNext,
     HeapEnd,
