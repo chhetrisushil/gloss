@@ -1,0 +1,15 @@
+record A
+  y as number
+
+record B
+  z as number
+
+feature start
+  set cars to list of (A with y 2)
+  set tags to list of (B with z 5)
+  for each p in cars
+    add 1 to y of p
+  for each p in tags
+    add 2 to z of p
+  show cars
+  show tags

@@ -8,6 +8,7 @@ use super::Lowerer;
 use crate::ast::Expr;
 use crate::ast::print;
 use crate::ast::stmt::Stmt;
+use crate::check::Ty;
 use crate::diag::Diagnostic;
 use crate::ir::{Cond, Inst, IntOp, Reg};
 use crate::number::SCALE;
@@ -31,10 +32,7 @@ impl Lowerer<'_> {
         self.emit(Inst::StoreSlot(counter, Reg::A));
         self.emit(Inst::Mark(top));
         self.compare_counter(counter, end, Cond::Gt, exit);
-        self.loops.push((next, exit));
-        let done = self.stmts(body);
-        self.loops.pop();
-        done?;
+        self.loop_body(var, Ty::Number, (next, exit), body)?;
         self.emit(Inst::Mark(next));
         self.compare_counter(counter, end, Cond::Eq, exit);
         self.emit(Inst::Const(Reg::B, SCALE));
@@ -67,5 +65,27 @@ impl Lowerer<'_> {
         self.emit(Inst::LoadSlot(Reg::B, end));
         self.emit(Inst::Compare);
         self.emit(Inst::JumpIf(cond, to));
+    }
+}
+
+impl Lowerer<'_> {
+    /// Lowers `body` with `var` typed `ty` and `labels` as the loop to leave or repeat; the
+    /// type the name had before is put back afterwards.
+    pub fn loop_body(
+        &mut self,
+        var: &str,
+        ty: Ty,
+        labels: (crate::ir::Label, crate::ir::Label),
+        body: &[Stmt],
+    ) -> Result<(), Diagnostic> {
+        let before = self.vars.insert(var.to_string(), ty);
+        self.loops.push(labels);
+        let done = self.stmts(body);
+        self.loops.pop();
+        match before {
+            Some(ty) => self.vars.insert(var.to_string(), ty),
+            None => self.vars.remove(var),
+        };
+        done
     }
 }
