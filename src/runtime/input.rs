@@ -45,8 +45,7 @@ fn in_fill() -> Function {
 }
 
 // Slots of `ask`: the line's text, its room in bytes, its length, whether any byte (a line
-// ending included) was read, the byte at hand, and, while growing, the new text, its room
-// and how much is copied.
+// ending included) was read, and the byte at hand.
 const TEXT: u32 = 1;
 const ROOM: u32 = 2;
 const LEN: u32 = 3;
