@@ -41,20 +41,61 @@ fn update(s: &mut Asm, slot: u32, op: IntOp, n: i64) {
     s.i(StoreSlot(slot, A));
 }
 
-/// Writes the one byte in `a` to standard error, through `NumBuf` as a text of one byte.
-fn put_byte(s: &mut Asm) {
+/// Queues the byte in `a` for standard error (see `err_put`).
+fn put(s: &mut Asm) {
+    s.i(Push(A));
+    s.call("err_put");
+}
+
+fn put_const(s: &mut Asm, byte: u8) {
+    s.i(Const(A, i64::from(byte)));
+    put(s);
+}
+
+/// `err_put(byte)`: appends to the 24 bytes of `Global::NumBuf` after its length word, which
+/// holds the count, and writes them out when they are full. Together with `err_flush` it
+/// batches `err_shown`'s output without allocating: a failure message cannot depend on
+/// `alloc`, and the number a failure parsed there is dead by then.
+fn err_put() -> Function {
+    let mut s = Asm::default();
+    let done = s.label();
     s.i(AddressOf(B, Data::Global(Global::NumBuf)));
-    s.i(StoreByte {
+    s.i(Load {
+        to: A,
         base: B,
-        offset: 8,
-        from: A,
+        offset: 0,
     });
+    s.i(StoreSlot(1, A));
+    s.i(Int(IntOp::Add));
+    s.i(LoadArg(B, 1));
+    s.i(StoreByte {
+        base: A,
+        offset: 8,
+        from: B,
+    });
+    s.i(LoadSlot(A, 1));
+    s.i(AddImm(A, 1));
+    s.gstore(Global::NumBuf, A, B);
+    s.i(Const(B, 24));
+    s.jump_if(Lt, done);
+    s.call("err_flush");
+    s.i(Mark(done));
+    s.finish("err_put", 1, 1)
+}
+
+/// `err_flush()`: writes the queued bytes to standard error and empties the queue.
+fn err_flush() -> Function {
+    let mut s = Asm::default();
     s.push_const(2);
     s.i(AddressOf(A, Data::Global(Global::NumBuf)));
     s.i(AddImm(A, 8));
     s.i(Push(A));
-    s.push_const(1);
+    s.gload(A, Global::NumBuf);
+    s.i(Push(A));
     s.call("write_all");
+    s.i(Const(A, 0));
+    s.gstore(Global::NumBuf, A, B);
+    s.finish("err_flush", 0, 0)
 }
 
 /// The code point at `AT` into `CP`, its length in bytes into `LEN`. A byte that does not
@@ -193,8 +234,9 @@ fn lookup(s: &mut Asm, hidden: Label) {
 /// Writes `CP` as `\u{XXXX}`: upper-case hex, at least four digits.
 fn escape(s: &mut Asm) {
     let [again, skip, next] = [(); 3].map(|_| s.label());
-    s.push_text(super::ESCAPE);
-    s.call("err_text");
+    for byte in *b"\\u{" {
+        put_const(s, byte);
+    }
     s.i(Const(A, 0));
     s.i(StoreSlot(STARTED, A));
     s.i(Const(A, 0x10_0000));
@@ -226,14 +268,13 @@ fn escape(s: &mut Asm) {
     s.i(LoadSlot(B, TMP));
     s.i(Int(IntOp::Add));
     s.i(AddImm(A, i32::from(b'0')));
-    put_byte(s);
+    put(s);
     s.i(Mark(skip));
     update(s, POWER, IntOp::Div, 16);
     s.i(LoadSlot(A, POWER));
     s.i(Const(B, 0));
     s.jump_if(Gt, again);
-    s.push_text(super::BRACE);
-    s.call("err_text");
+    put_const(s, b'}');
 }
 
 /// `err_shown(text)`: writes the first 40 characters of `text` to standard error, and `…`
@@ -242,7 +283,7 @@ fn escape(s: &mut Asm) {
 /// rejects is written as `\u{XXXX}` instead. Does not allocate.
 fn err_shown() -> Function {
     let mut s = Asm::default();
-    let [again, cut, hidden, step, done] = [(); 5].map(|_| s.label());
+    let [again, cut, hidden, step, done, copy] = [(); 6].map(|_| s.label());
     s.i(LoadArg(A, 1));
     s.i(Load {
         to: A,
@@ -253,6 +294,7 @@ fn err_shown() -> Function {
     s.i(Const(A, 0));
     s.i(StoreSlot(AT, A));
     s.i(StoreSlot(COUNT, A));
+    s.gstore(Global::NumBuf, A, B);
     s.i(Mark(again));
     s.i(LoadSlot(A, AT));
     s.i(LoadSlot(B, END));
@@ -262,16 +304,19 @@ fn err_shown() -> Function {
     s.jump_if(Ge, cut);
     decode(&mut s, hidden);
     lookup(&mut s, hidden);
-    s.push_const(2);
-    s.i(LoadArg(A, 1));
-    s.i(LoadSlot(B, AT));
+    s.i(Const(A, 0));
+    s.i(StoreSlot(K, A));
+    s.i(Mark(copy));
+    s.i(LoadSlot(A, K));
+    s.i(LoadSlot(B, LEN));
+    s.jump_if(Ge, step);
+    s.i(LoadSlot(A, AT));
+    s.i(LoadSlot(B, K));
     s.i(Int(IntOp::Add));
-    s.i(AddImm(A, 8));
-    s.i(Push(A));
-    s.i(LoadSlot(A, LEN));
-    s.i(Push(A));
-    s.call("write_all");
-    s.i(Jump(step));
+    byte_at(&mut s);
+    put(&mut s);
+    update(&mut s, K, IntOp::Add, 1);
+    s.i(Jump(copy));
     s.i(Mark(hidden));
     escape(&mut s);
     s.i(Mark(step));
@@ -282,14 +327,16 @@ fn err_shown() -> Function {
     update(&mut s, COUNT, IntOp::Add, 1);
     s.i(Jump(again));
     s.i(Mark(cut));
-    s.push_text(super::CUT);
-    s.call("err_text");
+    for byte in "\u{2026}".bytes() {
+        put_const(&mut s, byte);
+    }
     s.i(Mark(done));
+    s.call("err_flush");
     s.finish("err_shown", 1, 10)
 }
 
 pub(super) fn routines() -> Vec<Function> {
-    vec![err_shown()]
+    vec![err_shown(), err_put(), err_flush()]
 }
 
 /// The characters `chars::unshowable` rejects, as sorted inclusive ranges: for each, the
