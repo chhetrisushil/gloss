@@ -6,6 +6,7 @@
 //! `routines()` is only meaningful as input to `add_reachable`.
 
 mod asm;
+mod core;
 mod output;
 #[cfg(test)]
 mod tests;
@@ -16,13 +17,16 @@ const LINE: u32 = 0;
 const FAILURE: u32 = 1;
 const COLON: u32 = 2;
 const NEWLINE: u32 = 3;
+const OUT_OF_MEMORY: u32 = 4;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 4] = [b"line ", b": failure ", b": ", b"\n"];
+const TEXTS: [&[u8]; 5] = [b"line ", b": failure ", b": ", b"\n", b"out of memory"];
 
 /// Every runtime routine.
 pub fn routines() -> Vec<Function> {
-    output::routines()
+    let mut all = core::routines();
+    all.extend(output::routines());
+    all
 }
 
 /// Adds to `m` the routines named in `called`, and those they call, once each. Names that

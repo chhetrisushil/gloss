@@ -1,5 +1,10 @@
 use super::add_reachable;
-use crate::ir::{Data, Function, Inst, Inst::*, Module, Prim, Reg::A};
+use crate::ir::{
+    Data, Function, Inst,
+    Inst::*,
+    IntOp, Module, Prim,
+    Reg::{A, B},
+};
 use crate::irsim::{self, Outcome};
 
 /// A module whose `_start` is `body` followed by `exit 0`, with the runtime it calls.
@@ -164,4 +169,75 @@ fn a_failure_flushes_output_then_writes_its_message_and_exits_2() {
     assert_eq!(o.status, 2);
     assert_eq!(o.stdout, b"before");
     assert_eq!(o.stderr, b"line 7: failure 3: boom\n");
+}
+
+/// Calls `alloc(bytes, 7)` and stores the result in slot `slot`.
+fn alloc(bytes: i64, slot: u32) -> Vec<Inst> {
+    vec![
+        Const(A, bytes),
+        Push(A),
+        Const(A, 7),
+        Push(A),
+        Call("alloc".into()),
+        StoreSlot(slot, A),
+    ]
+}
+
+/// A module whose `main` has `slots` slots, runs `body`, then returns slot 1.
+fn returning(slots: u32, body: Vec<Inst>) -> Module {
+    let mut m = Module::default();
+    let mut code = vec![Enter(slots)];
+    code.extend(body);
+    code.extend([LoadSlot(A, 1), Return]);
+    let called: Vec<String> = code
+        .iter()
+        .filter_map(|i| match i {
+            Call(name) => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    m.functions.push(Function {
+        name: "main".into(),
+        params: 0,
+        slots,
+        body: code,
+    });
+    add_reachable(&mut m, &called);
+    m
+}
+
+#[test]
+fn alloc_gives_aligned_increasing_blocks_across_a_piece_boundary() {
+    let mut body = alloc(64 << 20, 1);
+    body.extend(alloc(16, 2));
+    body.extend(alloc(3, 3));
+    body.extend([LoadSlot(A, 2), LoadSlot(B, 1), Int(IntOp::Sub), Return]);
+    let m = returning(3, body);
+    // The 16 bytes lie in a second piece, after the whole first one.
+    assert!(irsim::call(&m, "main", &[]) >= 64 << 20);
+    let mut body = alloc(64 << 20, 1);
+    body.extend(alloc(16, 2));
+    body.extend(alloc(3, 3));
+    body.extend([LoadSlot(A, 3), LoadSlot(B, 2), Int(IntOp::Sub), Return]);
+    assert_eq!(irsim::call(&returning(3, body), "main", &[]), 16);
+    let mut body = alloc(5, 1);
+    body.extend(alloc(0, 2));
+    body.extend([LoadSlot(A, 2), LoadSlot(B, 1), Int(IntOp::Sub), Return]);
+    assert_eq!(irsim::call(&returning(2, body), "main", &[]), 8);
+}
+
+#[test]
+fn alloc_hands_out_aligned_nonzero_addresses() {
+    let mut body = alloc(1, 1);
+    body.extend([LoadSlot(A, 1), Const(B, 7), Int(IntOp::And), Return]);
+    assert_eq!(irsim::call(&returning(1, body), "main", &[]), 0);
+    let body = alloc(0, 1);
+    assert_ne!(irsim::call(&returning(1, body), "main", &[]), 0);
+}
+
+#[test]
+fn a_failed_map_is_an_out_of_memory_failure() {
+    let o = run(&program(alloc(2 << 40, 1), &[]));
+    assert_eq!(o.status, 2);
+    assert_eq!(o.stderr, b"line 7: failure 10: out of memory\n");
 }
