@@ -1,0 +1,8 @@
+record P
+  age as number
+
+feature start
+  set ps to list of (P with age 1)
+  for each p in ps
+    set age of p to 99
+  show ps

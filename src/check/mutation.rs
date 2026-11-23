@@ -4,6 +4,14 @@ use crate::ast::{Expr, ExprKind, print};
 use crate::diag::Diagnostic;
 
 /// What a loop variable stands for: an item of a list, or a count.
+/// `list` without the parentheses around a plain name, so a message names `xs`, not `(xs)`.
+fn bare(list: &Expr) -> &Expr {
+    match &list.kind {
+        ExprKind::Paren(inner) if matches!(bare(inner).kind, ExprKind::Name(_)) => bare(inner),
+        _ => list,
+    }
+}
+
 enum Loop<'a> {
     /// The loop variable, the printed list, and whether that list comes from an input.
     Item(&'a str, String, bool),
@@ -69,7 +77,7 @@ impl<'a> Mutation<'_, '_, '_> {
             }
             StmtKind::ForEachIn { var, list, body } => {
                 let walks_input = self.walks_input(list, walking);
-                walking.push(Loop::Item(var, print::expr(list), walks_input));
+                walking.push(Loop::Item(var, print::expr(bare(list)), walks_input));
                 self.stmts(body, walking);
                 walking.pop();
             }
@@ -87,7 +95,7 @@ impl<'a> Mutation<'_, '_, '_> {
     fn walks_input(&self, list: &Expr, walking: &[Loop]) -> bool {
         let root = match &list.kind {
             ExprKind::Name(name) => name,
-            ExprKind::FieldOf { of, .. } | ExprKind::ItemOf { of, .. } => {
+            ExprKind::FieldOf { of, .. } | ExprKind::ItemOf { of, .. } | ExprKind::Paren(of) => {
                 return self.walks_input(of, walking);
             }
             _ => return false,
@@ -174,6 +182,20 @@ mod tests {
             "{HEAD}feature start\n  set mine to empty list of E\n  for each e in mine\n    set amount of e to 0\n"
         ));
         assert!(own.is_empty(), "{own:?}");
+    }
+
+    #[test]
+    fn changing_an_input_through_a_parenthesised_loop_list_is_reported() {
+        let all = diags(
+            "record P\n  age as number\nfeature start\n  set ps to list of (P with age 1)\n  run bump with ps\nfeature bump\n  needs xs as list of P\n  for each p in (xs)\n    set age of p to 99\n",
+        );
+        assert_eq!(all.len(), 1, "{all:?}");
+        assert!(
+            all[0].ends_with(
+                "p stands for an item of xs, which is an input, so it cannot be changed."
+            ),
+            "{all:?}"
+        );
     }
 
     #[test]
