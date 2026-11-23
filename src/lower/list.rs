@@ -2,6 +2,7 @@
 //! the address of `capacity` 8-byte slots (see `ir::Desc`).
 use super::Lowerer;
 use crate::ast::print;
+use crate::ast::stmt::Target;
 use crate::ast::{Expr, ExprKind, Fact};
 use crate::diag::Diagnostic;
 use crate::ir::{Cond, Inst, IntOp, Reg, Shift};
@@ -10,6 +11,17 @@ use crate::number::SCALE;
 /// The offset of the count, the capacity and the items address in a header.
 const COUNT: i32 = 0;
 const ITEMS: i32 = 16;
+
+/// The position and list name of an item target on a list variable, `item p of xs`.
+pub fn item_target(target: &Target) -> Option<(&Expr, &str)> {
+    match target {
+        Target::Item { position, of } => match &**of {
+            Target::Var(name) => Some((position, name)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
 
 /// A new list has room for at least this many items.
 const MIN_ROOM: usize = 4;
@@ -190,6 +202,56 @@ impl Lowerer<'_> {
         self.emit(Inst::Const(Reg::A, i64::from(self.line)));
         self.emit(Inst::Push(Reg::A));
         self.call("list_push");
+        Ok(())
+    }
+
+    /// With a new value in `a`: finds item `position` of list `list`, remembers its address
+    /// in the slot returned, and leaves its value in `a` and the new value in `b`.
+    pub fn load_item(&mut self, position: &Expr, list: &str) -> Result<u32, Diagnostic> {
+        let (value, at) = (self.new_temp(), self.new_temp());
+        self.emit(Inst::StoreSlot(value, Reg::A));
+        self.item_address(self.slots[list], list, position)?;
+        self.emit(Inst::StoreSlot(at, Reg::A));
+        self.load_a();
+        self.emit(Inst::LoadSlot(Reg::B, value));
+        Ok(at)
+    }
+
+    /// Stores the value in `a` into the item whose address is in slot `at`.
+    pub fn store_item(&mut self, at: u32) {
+        self.emit(Inst::Move {
+            to: Reg::B,
+            from: Reg::A,
+        });
+        self.emit(Inst::LoadSlot(Reg::A, at));
+        self.emit(Inst::Store {
+            base: Reg::A,
+            offset: 0,
+            from: Reg::B,
+        });
+    }
+
+    /// `set item p of xs to v`: the value is worked out first, then the position is checked.
+    pub fn set_item(
+        &mut self,
+        position: &Expr,
+        list: &str,
+        value: &Expr,
+    ) -> Result<(), Diagnostic> {
+        let held = self.new_temp();
+        self.expr(value)?;
+        self.emit(Inst::StoreSlot(held, Reg::A));
+        self.item_address(self.slots[list], list, position)?;
+        self.emit(Inst::Move {
+            to: Reg::B,
+            from: Reg::A,
+        });
+        self.emit(Inst::LoadSlot(Reg::A, held));
+        self.emit(Inst::Store {
+            base: Reg::B,
+            offset: 0,
+            from: Reg::A,
+        });
         Ok(())
     }
 }

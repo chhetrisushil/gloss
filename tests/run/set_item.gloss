@@ -1,0 +1,13 @@
+feature start
+  set xs to list of 1, 2, 3
+  set item 2 of xs to 20
+  add 1 to item 3 of xs
+  multiply item 1 of xs by 7
+  subtract 2 from item (1 + 1) of xs
+  divide item 3 of xs by 2
+  show item 1 of xs, " ", item 2 of xs, " ", item 3 of xs
+  set names to list of "a", "b"
+  set item 1 of names to "z"
+  set flags to list of yes, yes
+  set item 2 of flags to no
+  show item 1 of names, item 2 of names, " ", item 1 of flags, item 2 of flags
