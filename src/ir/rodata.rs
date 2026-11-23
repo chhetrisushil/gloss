@@ -128,4 +128,33 @@ mod tests {
         assert_eq!((word(&r, l), word(&r, l + 8)), (4, at(d)));
         assert_eq!(r.bytes.len(), l + 16);
     }
+
+    #[test]
+    fn a_record_before_its_field_descriptors_still_points_at_them() {
+        let m = Module {
+            descs: vec![
+                Desc::List(1),
+                Desc::Record {
+                    name: "R".into(),
+                    fields: vec![("a".into(), 2), ("b".into(), 3)],
+                },
+                Desc::Truth,
+                Desc::Text,
+            ],
+            ..Module::default()
+        };
+        let base = 0x4000;
+        let r = rodata(&m, base);
+        let at = |i: usize| base + r.descs[i] as u64;
+        // The names `R`, `a` and `b` come first, 16 bytes each; then the descriptors in order.
+        assert_eq!(r.descs, vec![48, 64, 64 + 56, 64 + 64]);
+        let (list, rec) = (r.descs[0], r.descs[1]);
+        assert_eq!((word(&r, list), word(&r, list + 8)), (4, at(1)));
+        let want = [3, base, 2, base + 16, at(2), base + 32, at(3)];
+        for (i, w) in want.iter().enumerate() {
+            assert_eq!(word(&r, rec + 8 * i), *w, "word {i}");
+        }
+        assert_eq!((word(&r, r.descs[2]), word(&r, r.descs[3])), (2, 1));
+        assert_eq!(r.bytes.len(), r.descs[3] + 8);
+    }
 }

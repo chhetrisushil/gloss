@@ -1,8 +1,8 @@
 //! Showing a value by its type descriptor (see `ir::Desc`), on standard output.
 
 use super::asm::Asm;
-use super::{COMMA_SPACE, NO, QUOTE, SPACE, WITH, YES};
-use crate::ir::Cond::{Eq, Ge, Ne};
+use super::{COMMA_SPACE, LIST_TRAP, NO, QUOTE, SPACE, WITH, YES};
+use crate::ir::Cond::{Eq, Ge, Le, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Function, Inst::*, IntOp, Shift};
 
@@ -12,22 +12,31 @@ fn out_const(s: &mut Asm, n: u32) {
     s.call("out_text");
 }
 
-/// Writes the byte at index slot 1 of text argument 1.
-fn put_current(s: &mut Asm) {
+/// Writes the bytes of text argument 1 from the run start (slot 3) up to the index (slot 1),
+/// when there are any.
+fn put_run(s: &mut Asm) {
+    let empty = s.label();
+    s.i(LoadSlot(A, 1));
+    s.i(LoadSlot(B, 3));
+    s.jump_if(Le, empty);
     s.i(LoadArg(A, 1));
-    s.i(LoadSlot(B, 1));
-    s.i(Int(IntOp::Add));
     s.i(AddImm(A, 8));
+    s.i(LoadSlot(B, 3));
+    s.i(Int(IntOp::Add));
     s.i(Push(A));
-    s.push_const(1);
+    s.i(LoadSlot(A, 1));
+    s.i(Int(IntOp::Sub));
+    s.i(Push(A));
     s.call("out_bytes");
+    s.i(Mark(empty));
 }
 
 /// `out_quoted(text)`: the text in double quotes, each `"` inside it doubled (as in source).
-/// Slots: 1 the index, 2 the length.
+/// Each run of bytes up to and including a quote goes out in one `out_bytes` call, then the
+/// doubling quote. Slots: 1 the index, 2 the length, 3 where the pending run starts.
 fn out_quoted() -> Function {
     let mut s = Asm::default();
-    let (again, done, plain) = (s.label(), s.label(), s.label());
+    let (again, done) = (s.label(), s.label());
     out_const(&mut s, QUOTE);
     s.i(LoadArg(A, 1));
     s.i(Load {
@@ -38,11 +47,11 @@ fn out_quoted() -> Function {
     s.i(StoreSlot(2, A));
     s.i(Const(A, 0));
     s.i(StoreSlot(1, A));
+    s.i(StoreSlot(3, A));
     s.i(Mark(again));
     s.i(LoadSlot(A, 1));
     s.i(LoadSlot(B, 2));
     s.jump_if(Ge, done);
-    put_current(&mut s);
     s.i(LoadArg(A, 1));
     s.i(LoadSlot(B, 1));
     s.i(Int(IntOp::Add));
@@ -51,21 +60,26 @@ fn out_quoted() -> Function {
         base: A,
         offset: 8,
     });
+    s.i(LoadSlot(B, 1));
+    s.i(AddImm(B, 1));
+    s.i(StoreSlot(1, B));
     s.i(Const(B, i64::from(b'"')));
-    s.jump_if(Ne, plain);
-    put_current(&mut s);
-    s.i(Mark(plain));
+    s.jump_if(Ne, again);
+    // A quote: write the run with it, write it again, start a new run after it.
+    put_run(&mut s);
+    out_const(&mut s, QUOTE);
     s.i(LoadSlot(A, 1));
-    s.i(AddImm(A, 1));
-    s.i(StoreSlot(1, A));
+    s.i(StoreSlot(3, A));
     s.i(Jump(again));
     s.i(Mark(done));
+    put_run(&mut s);
     out_const(&mut s, QUOTE);
-    s.finish("out_quoted", 1, 2)
+    s.finish("out_quoted", 1, 3)
 }
 
-/// `show_scalar(value, desc)`: a number, text or truth as a program shows it in a record.
-fn show_scalar() -> Function {
+/// `show_in_record(value, desc)`: a number, text or truth as a record shows its field: the
+/// source form, so a text is in quotes (a top-level `show` of a text writes none).
+fn show_in_record() -> Function {
     let mut s = Asm::default();
     let (number, text, truth, no) = (s.label(), s.label(), s.label(), s.label());
     s.i(LoadArg(A, 2));
@@ -94,14 +108,15 @@ fn show_scalar() -> Function {
     s.i(Return);
     s.i(Mark(no));
     out_const(&mut s, NO);
-    s.finish("show_scalar", 2, 0)
+    s.finish("show_in_record", 2, 0)
 }
 
 /// `show_value(value, desc)`: a record as `E with f v, g w`, or a scalar. Slots: 1 the field
 /// index, 2 the field count. Records hold only scalars, so nothing here recurses.
 fn show_value() -> Function {
     let mut s = Asm::default();
-    let (record, again, done, first) = (s.label(), s.label(), s.label(), s.label());
+    let (record, again, done, first, list) =
+        (s.label(), s.label(), s.label(), s.label(), s.label());
     s.i(LoadArg(A, 2));
     s.i(Load {
         to: A,
@@ -111,10 +126,10 @@ fn show_value() -> Function {
     s.i(Const(B, 3));
     s.jump_if(Eq, record);
     s.i(Const(B, 4));
-    s.jump_if(Eq, done);
+    s.jump_if(Eq, list);
     s.push_arg(1);
     s.push_arg(2);
-    s.call("show_scalar");
+    s.call("show_in_record");
     s.i(Return);
     s.i(Mark(record));
     s.i(LoadArg(A, 2));
@@ -178,17 +193,24 @@ fn show_value() -> Function {
         offset: 32,
     });
     s.i(Push(A));
-    s.call("show_scalar");
+    s.call("show_in_record");
     s.i(LoadSlot(A, 1));
     s.i(AddImm(A, 1));
     s.i(StoreSlot(1, A));
     s.i(Jump(again));
     s.i(Mark(done));
+    s.i(Return);
+    // The lists task replaces this trap with the list form.
+    s.i(Mark(list));
+    s.call("flush");
+    s.push_text(LIST_TRAP);
+    s.call("err_text");
+    s.call("fail_end");
     s.finish("show_value", 2, 2)
 }
 
 pub(super) fn routines() -> Vec<Function> {
-    vec![out_quoted(), show_scalar(), show_value()]
+    vec![out_quoted(), show_in_record(), show_value()]
 }
 
 #[cfg(test)]
@@ -271,5 +293,44 @@ mod tests {
     #[test]
     fn a_record_with_one_field_has_no_comma() {
         assert_eq!(shown(&[], &[("n", F::Number(10000))]), "E with n 1");
+    }
+
+    #[test]
+    fn a_long_text_with_quotes_is_doubled_run_by_run() {
+        let mut text = vec![b'x'; 5000];
+        for at in [0, 1, 2, 2500, 4999] {
+            text[at] = b'"';
+        }
+        let want: String = text
+            .iter()
+            .flat_map(|&b| if b == b'"' { vec![b'"'; 2] } else { vec![b] })
+            .map(char::from)
+            .collect();
+        let out = shown(&[&text], &[("t", F::Text(0))]);
+        assert_eq!(out, format!("E with t \"{want}\""));
+    }
+
+    #[test]
+    fn a_list_descriptor_reaches_the_trap_after_flushing_output() {
+        let body = vec![
+            AddressOf(A, Data::Text(0)),
+            Push(A),
+            Call("out_text".into()),
+            Const(A, 0),
+            Push(A),
+            AddressOf(A, Data::Desc(1)),
+            Push(A),
+            Call("show_value".into()),
+        ];
+        let mut m = program(body, &[b"before"]);
+        let item = m.desc(Desc::Number);
+        m.desc(Desc::List(item));
+        let o = run(&m);
+        assert_eq!(o.stdout, b"before");
+        assert_eq!(
+            o.stderr,
+            b"internal error: show_value has no list form yet\n"
+        );
+        assert_eq!(o.status, 2);
     }
 }
