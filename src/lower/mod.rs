@@ -94,7 +94,15 @@ fn lower_feature(
         temps: 0,
     };
     l.stmts(&feature.body)?;
-    l.emit(Inst::Return);
+    let gives = types
+        .features
+        .get(&feature.name)
+        .is_some_and(|i| !i.gives.is_empty());
+    if gives {
+        l.fall_off_end(&feature.name);
+    } else {
+        l.emit(Inst::Return);
+    }
     l.emit_fails();
     let count = named + l.temps;
     l.body[0] = Inst::Enter(count);

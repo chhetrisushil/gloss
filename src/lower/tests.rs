@@ -205,3 +205,28 @@ fn nested_ifs_and_loops_use_distinct_labels() {
         assert_eq!(t.matches(l).count(), 1, "{l} in {t}");
     }
 }
+
+#[test]
+fn a_feature_that_falls_off_its_end_stops_with_an_internal_error() {
+    let text = "feature f\n  needs n as number\n  if n is 0\n    give 1\n  give 2\n\nfeature start\n  show (f with 1)\n";
+    let src = Source::new(text);
+    let mut program = crate::parse_source(&src).expect("parses");
+    let types = check(&program, &src).types.expect("checks clean");
+    // Bypass the checker's guarantee: drop the final give, so `f with 1` falls off the end.
+    for item in &mut program.items {
+        match item {
+            crate::ast::program::Item::Feature(f) if f.name == "f" => {
+                f.body.pop();
+            }
+            _ => {}
+        }
+    }
+    let m = lower(&program, &types, &src).expect("lowers");
+    let o = crate::irsim::run(&m, "_start", b"");
+    assert_eq!(o.stdout, b"");
+    assert_eq!(
+        String::from_utf8(o.stderr).unwrap(),
+        "internal error: feature f ended without giving a value\n"
+    );
+    assert_eq!(o.status, 2);
+}
