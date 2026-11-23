@@ -1,5 +1,5 @@
 //! Programs for every system primitive. Each writes the primitive's result and `b` (set
-//! beforehand, so a clobbered `b` shows) unless it exits.
+//! beforehand, so a clobbered `b` shows) before anything else, then exits.
 
 use super::{program, write_text, write_words};
 use crate::ir::Reg::{A, B};
@@ -69,6 +69,7 @@ fn map(len: i64) -> Module {
     body.extend(push(len));
     body.extend([
         Inst::System(Prim::Map),
+        Inst::Push(B),
         Inst::Move { to: B, from: A },
         Inst::Const(A, 0),
         Inst::Compare,
@@ -101,7 +102,7 @@ fn map(len: i64) -> Module {
             ]);
         }
     }
-    body.extend(write_words(if len >= 8192 { 4 } else { 1 }));
+    body.extend(write_words(if len >= 8192 { 5 } else { 2 }));
     body.extend(push(0));
     body.push(Inst::System(Prim::Exit));
     program(&mut m, body);
@@ -111,13 +112,15 @@ fn map(len: i64) -> Module {
 fn stack_size() -> Module {
     let mut m = Module::default();
     let mut body = vec![
+        Inst::Const(B, B_VALUE),
         Inst::System(Prim::StackSize),
+        Inst::Push(B),
         Inst::Const(B, 0),
         Inst::Compare,
         Inst::SetIf(Cond::Gt),
         Inst::Push(A),
     ];
-    body.extend(write_words(1));
+    body.extend(write_words(2));
     body.extend(push(0));
     body.push(Inst::System(Prim::Exit));
     program(&mut m, body);
