@@ -6,6 +6,7 @@
 //! `routines()` is only meaningful as input to `add_reachable`.
 
 mod asm;
+mod copy;
 mod core;
 mod equal;
 #[cfg(test)]
@@ -84,6 +85,7 @@ fn text_bytes(i: u32) -> Vec<u8> {
 /// Every runtime routine.
 pub fn routines() -> Vec<Function> {
     let mut all = core::routines();
+    all.extend(copy::routines());
     all.extend(equal::routines());
     all.extend(output::routines());
     all.extend(input::routines());
