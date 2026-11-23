@@ -80,8 +80,9 @@ fn build_writes_an_executable_beside_the_source() {
 fn a_table_program_is_not_built_yet() {
     let text = "record Row\n  name as text\n\ntable rows of Row in \"rows.csv\"\n\nfeature start\n  show \"x\"\n";
     let p = temp_file("tabled", text);
-    let (code, out, err) = gloss(&["build", p.to_str().unwrap()]);
-    assert_eq!((code, out.as_str()), (3, ""));
+    let (code, out, err) = gloss(&["build", p.to_str().unwrap(), "--allow", "rows.csv"]);
+    assert_eq!(code, 3);
+    assert!(out.ends_with("Approval saved in tabled.allow\n"), "{out}");
     assert_eq!(err, "tables arrive in milestone 3.\n");
     assert!(!p.with_extension("").exists());
 }
@@ -122,8 +123,8 @@ fn warnings_print_before_a_build_the_compiler_cannot_do_yet() {
         "warn2",
         "record Row\n  name as text\n\ntable rows of Row in \"rows.csv\"\n\nfeature start\n  set xs to 1\n",
     );
-    let (code, out, err) = gloss(&["build", p.to_str().unwrap()]);
-    assert_eq!((code, out.as_str()), (3, ""));
+    let (code, _, err) = gloss(&["build", p.to_str().unwrap(), "--allow", "rows.csv"]);
+    assert_eq!(code, 3);
     assert!(err.starts_with("line 7: warning: "), "{err}");
     assert!(err.ends_with("tables arrive in milestone 3.\n"), "{err}");
     assert!(!p.with_extension("").exists());
