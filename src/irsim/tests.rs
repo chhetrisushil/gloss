@@ -975,3 +975,35 @@ fn read_checks_only_the_bytes_it_copies() {
     count.extend([Push(A), System(Prim::Exit)]);
     assert_eq!(run(&single(count), "f", b"hi").status, 2);
 }
+
+/// A module with a record descriptor, whose last word is the last read-only byte.
+fn last_descriptor_byte(offset: i32) -> Module {
+    let mut descs = Module::default();
+    let n = descs.desc(crate::ir::Desc::Number);
+    descs.desc(crate::ir::Desc::Record {
+        name: "E".into(),
+        fields: vec![("f".into(), n)],
+    });
+    let mut m = single(vec![
+        AddressOf(B, Data::Desc(1)),
+        LoadByte {
+            to: A,
+            base: B,
+            offset,
+        },
+        Return,
+    ]);
+    m.descs = descs.descs;
+    m
+}
+
+#[test]
+fn the_last_byte_of_the_final_descriptor_can_be_read() {
+    call(&last_descriptor_byte(8 * 5 - 1), "f", &[]);
+}
+
+#[test]
+#[should_panic(expected = "outside mapped memory")]
+fn one_byte_past_the_final_descriptor_panics() {
+    call(&last_descriptor_byte(8 * 5), "f", &[]);
+}

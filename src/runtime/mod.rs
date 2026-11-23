@@ -34,12 +34,13 @@ const NO: u32 = 8;
 const WITH: u32 = 9;
 const COMMA_SPACE: u32 = 10;
 const SPACE: u32 = 11;
+const LIST_TRAP: u32 = 12;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 12] = [
+const TEXTS: [&[u8]; 13] = [
     b"line ",
     b": failure ",
     b": ",
@@ -52,6 +53,7 @@ const TEXTS: [&[u8]; 12] = [
     b" with ",
     b", ",
     b" ",
+    b"internal error: show_value has no list form yet",
 ];
 
 /// The bytes of the runtime text `i`.
