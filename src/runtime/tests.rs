@@ -651,3 +651,33 @@ fn a_text_built_on_the_heap_equals_the_same_bytes_in_the_program() {
     let o = run(&program(body, &[b"abc"]));
     assert_eq!(String::from_utf8(o.stdout).unwrap(), "1");
 }
+
+#[test]
+fn number_text_gives_a_fresh_text_that_outlives_the_next_format() {
+    // 7 as text, then 99 as text, then show the first: the scratch has been rewritten.
+    let mut body = Vec::new();
+    for n in [70_000, 990_000] {
+        body.extend([
+            Const(A, n),
+            Push(A),
+            Const(A, 1),
+            Push(A),
+            Call("number_text".into()),
+        ]);
+        body.push(Push(A));
+    }
+    body.extend([
+        Const(A, 5),
+        Push(A),
+        Call("number_format".into()),
+        Pop(B),
+        Pop(A),
+        Push(A),
+        Push(B),
+        Call("out_text".into()),
+        Call("out_text".into()),
+        Call("flush".into()),
+    ]);
+    let o = run(&program(body, &[]));
+    assert_eq!(String::from_utf8(o.stdout).unwrap(), "997");
+}

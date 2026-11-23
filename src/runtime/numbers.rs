@@ -150,6 +150,72 @@ fn err_number() -> Function {
     s.finish("err_number", 1, 0)
 }
 
+// Slots of `number_text`.
+const FROM: u32 = 1;
+const COUNT: u32 = 2;
+const TO: u32 = 3;
+const AT: u32 = 4;
+
+/// `number_text(n, line)`: a fresh text on the heap with the show form of `n`, which stays
+/// valid after the next `number_format`. It formats into the scratch, then allocates and
+/// copies; `alloc` is the only call that can fail, and it never calls back.
+fn number_text() -> Function {
+    let mut s = Asm::default();
+    let (again, done) = (s.label(), s.label());
+    s.push_arg(1);
+    s.call("number_format");
+    s.i(StoreSlot(FROM, A));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(StoreSlot(COUNT, A));
+    s.i(AddImm(A, 8));
+    s.i(Push(A));
+    s.push_arg(2);
+    s.call("alloc");
+    s.i(StoreSlot(TO, A));
+    s.i(LoadSlot(B, COUNT));
+    s.i(Store {
+        base: A,
+        offset: 0,
+        from: B,
+    });
+    s.i(Const(A, 0));
+    s.i(StoreSlot(AT, A));
+    s.i(Mark(again));
+    s.i(LoadSlot(A, AT));
+    s.i(LoadSlot(B, COUNT));
+    s.jump_if(Ge, done);
+    s.i(LoadSlot(A, FROM));
+    s.i(LoadSlot(B, AT));
+    s.i(Int(IntOp::Add));
+    s.i(LoadByte {
+        to: A,
+        base: A,
+        offset: 8,
+    });
+    s.i(StoreSlot(BYTE, A));
+    s.i(LoadSlot(A, TO));
+    s.i(LoadSlot(B, AT));
+    s.i(Int(IntOp::Add));
+    s.i(LoadSlot(B, BYTE));
+    s.i(StoreByte {
+        base: A,
+        offset: 8,
+        from: B,
+    });
+    s.i(LoadSlot(A, AT));
+    s.i(AddImm(A, 1));
+    s.i(StoreSlot(AT, A));
+    s.i(Jump(again));
+    s.i(Mark(done));
+    s.i(LoadSlot(A, TO));
+    s.i(Return);
+    s.finish("number_text", 2, 5)
+}
+
 pub fn routines() -> Vec<Function> {
-    vec![number_format(), out_number(), err_number()]
+    vec![number_format(), out_number(), err_number(), number_text()]
 }
