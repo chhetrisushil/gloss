@@ -241,6 +241,21 @@ fn a_failed_map_is_an_out_of_memory_failure() {
     assert_eq!(o.status, 2);
     assert_eq!(o.stderr, b"line 7: failure 10: out of memory\n");
 }
+
+#[test]
+fn a_size_that_cannot_be_allocated_is_out_of_memory() {
+    for bytes in [i64::MAX - 3, i64::MAX - (1 << 40), -16, i64::MAX, i64::MIN] {
+        let mut body = alloc(8, 1);
+        body.pop(); // `_start` has no slots to store into
+        body.extend(alloc(bytes, 2));
+        body.extend(out_text(0));
+        let o = run(&program(body, &[b"reached"]));
+        assert_eq!(o.status, 2, "{bytes}");
+        assert!(o.stdout.is_empty(), "{bytes}");
+        assert_eq!(o.stderr, b"line 7: failure 10: out of memory\n", "{bytes}");
+    }
+}
+
 #[test]
 fn a_program_that_shows_nothing_exits_0_with_no_output() {
     let mut m = Module::default();
