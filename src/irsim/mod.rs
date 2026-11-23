@@ -5,6 +5,7 @@
 mod cases;
 mod exec;
 mod machine;
+pub use machine::INITIAL_STACK_TOP;
 mod memory;
 mod num;
 mod system;

@@ -58,6 +58,17 @@ pub fn run(path: &Path, stdin: &[u8]) -> Option<Ran> {
 }
 
 pub fn run_within(path: &Path, stdin: &[u8], deadline: Duration) -> Option<Ran> {
+    run_env(path, stdin, deadline, &[])
+}
+
+/// Like `run_within`, with extra environment variables (forwarded into the machine by
+/// `ORBENV` under `orb`).
+pub fn run_env(
+    path: &Path,
+    stdin: &[u8],
+    deadline: Duration,
+    vars: &[(&str, String)],
+) -> Option<Ran> {
     let Some(prefix) = runner() else {
         skip();
         return None;
@@ -90,6 +101,11 @@ pub fn run_within(path: &Path, stdin: &[u8], deadline: Duration) -> Option<Ran> 
         }
         None => Command::new(path),
     };
+    cmd.envs(vars.iter().map(|(k, v)| (k, v)));
+    let names: Vec<&str> = vars.iter().map(|(k, _)| *k).collect();
+    if !names.is_empty() {
+        cmd.env("ORBENV", names.join(":"));
+    }
     let mut child = cmd
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

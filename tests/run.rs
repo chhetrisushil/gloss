@@ -6,7 +6,7 @@ mod run_support;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use run_support::{TempDir, run};
+use run_support::{DEADLINE, TempDir, run, run_env};
 
 include!("run_sweep.inc");
 
@@ -62,4 +62,29 @@ fn every_run_case_builds_and_runs() {
         );
         assert_eq!(ran.unwrap(), want, "{name}");
     }
+}
+
+/// A large environment sits above the stack pointer at entry; the limit must still be measured
+/// from the top of the stack, so deep recursion fails with code 10 instead of faulting.
+#[test]
+fn too_deep_still_fails_cleanly_with_a_huge_environment() {
+    let case = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/run/too_deep.gloss");
+    let dir = TempDir::new("run-big-env");
+    let source = dir.0.join("too_deep.gloss");
+    std::fs::copy(&case, &source).unwrap();
+    let built = Command::new(env!("CARGO_BIN_EXE_gloss"))
+        .arg("build")
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert_eq!(built.status.code(), Some(0), "{built:?}");
+    // Four variables of 60000 bytes: a single string is limited to 128 KiB.
+    let vars: Vec<(&str, String)> = ["BIG1", "BIG2", "BIG3", "BIG4"]
+        .map(|k| (k, "x".repeat(60000)))
+        .to_vec();
+    let Some(ran) = run_env(&dir.0.join("too_deep"), b"", DEADLINE, &vars) else {
+        return;
+    };
+    let want = (2, Vec::new(), beside(&case, "err").unwrap());
+    assert_eq!(ran.unwrap(), want);
 }
