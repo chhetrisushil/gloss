@@ -57,7 +57,7 @@ fn cond(c: &Cond) -> &'static str {
     }
 }
 
-fn inst_text(inst: &Inst) -> String {
+pub fn inst_text(inst: &Inst) -> String {
     match inst {
         Inst::Line(n) => format!("line {n}"),
         Inst::Const(r, n) => format!("  {} = {n}", reg(r)),

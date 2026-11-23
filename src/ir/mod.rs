@@ -3,7 +3,7 @@
 
 mod text;
 
-pub use text::{function_text, module_text};
+pub use text::{function_text, inst_text, module_text};
 
 /// One of the two registers. Numeric instructions work on `A` and `B` and leave the result
 /// in `A`.
