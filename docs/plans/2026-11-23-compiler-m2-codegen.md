@@ -276,7 +276,7 @@ pub fn run(m: &Module, entry: &str, stdin: &[u8]) -> Outcome;
 pub fn call(m: &Module, name: &str, args: &[i64]) -> i64;     // runs one function; for unit tests
 ```
 - Memory: a sparse `HashMap<u64, u8>` (or paged `Vec`s). Read-only data and globals are laid out at fixed simulated addresses: texts from `0x1000_0000` (each as an 8-byte length then the bytes, 8-byte aligned), descriptors after them (Task 9's descriptor layout), globals from `0x2000_0000` in `Global` order (`OutBuf` and `InBuf` are 4096 bytes each, the others 8). The simulated stack starts at `0x7fff_0000_0000` and grows down; `StackSize` returns 8 MiB.
-- Frames: a Rust `Vec` of frames is fine; `StackPointer` must still return a simulated address that falls by at least `8 * (params + slots + 2)` per call so `StackCheck` behaves as on hardware.
+- Frames: a Rust `Vec` of frames is fine; `StackPointer` must still return a simulated address that falls by exactly `8 * (params + slots + 3)` per call (return address, `rbp`, saved `b`: M2-R12) so `StackCheck` behaves as on hardware.
 - 3a covers every instruction except the `Num*` family and `System`, which panic with `todo` until 3b.
 
 - [ ] **Step 1: Tests (IR built by hand in the test):** a loop summing 1..10 with `Compare`/`JumpIf` gives 55 through `call`; a function calling another with two pushed arguments reads them with `LoadArg` 1 and 2 in left-to-right order; `Store`/`Load`/`StoreByte`/`LoadByte` round-trip at an address taken from `AddressOf(Global(OutBuf))`; `b` and slots survive a `Call`; `Shift(RightLogical, 1)` of -2 gives `i64::MAX`.
@@ -671,7 +671,7 @@ pub fn lower(program: &Program, types: &TypeInfo, src: &Source) -> Result<ir::Mo
 
 ## Task 15: Features: inputs, `give`, `run`, recursion, failure 10  (est. 140 lines / 4 files)
 
-- A call (`ExprKind::Call`, `Run`, or a `Name` with `FeatureCall`): evaluate inputs left to right, `push a` each; `StackCheck { bytes: 8 * (callee slots + 2) + 64, fail }`; `Call("f_<name>")`. `give e` → evaluate, `Return`. A feature with no `give` returns at its end. A feature that gives must give on every path, which the checker guarantees. Still, the end of such a feature calls `fail_internal`, which prints `internal error: feature <name> ended without giving a value` and exits 2 (plan ruling P2), so a checker bug can never return garbage.
+- A call (`ExprKind::Call`, `Run`, or a `Name` with `FeatureCall`): evaluate inputs left to right, `push a` each; `StackCheck { bytes: 8 * (callee slots + 3) + 64 (M2-R12), fail }`; `Call("f_<name>")`. `give e` → evaluate, `Return`. A feature with no `give` returns at its end. A feature that gives must give on every path, which the checker guarantees. Still, the end of such a feature calls `fail_internal`, which prints `internal error: feature <name> ended without giving a value` and exits 2 (plan ruling P2), so a checker bug can never return garbage.
 - Failure 10 (stack): `fail_begin(line, 10)`, `err_text("calls nested too deep (")`, the callee's name, `err_text(")")`, `fail_end`.
 - [ ] **Tests:** run cases:
   - `features.gloss`: the spec's §9 program (`is_even`, `count_even`, `report`, `start`) → `Even numbers: 2\n`.
