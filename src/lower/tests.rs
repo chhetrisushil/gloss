@@ -131,8 +131,8 @@ fn a_division_reports_a_zero_divisor_as_failure_1() {
 }
 
 #[test]
-fn field_and_item_targets_are_not_built_yet() {
-    let rec = "record E\n  amount as number\nfeature start\n  set e to E with amount 1\n  add 1 to amount of e\n";
+fn item_targets_are_not_built_yet() {
+    let rec = "feature start\n  set xs to empty list of number\n  add 1 to item 1 of xs\n";
     let d = lowered(rec).unwrap_err();
     assert_eq!(d.problem, "this compiler cannot build this statement yet");
 }

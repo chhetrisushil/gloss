@@ -1,0 +1,30 @@
+record Expense
+  name as text
+  amount as number
+  paid as truth
+
+record Tally
+  label as text
+  uses as number
+  done as truth
+
+feature start
+  set lunch to Expense with amount 120, name "Say ""hi""", paid no
+  add 30 to amount of lunch
+  show amount of lunch
+  show lunch
+  set a to Tally with label "a", uses 10, done no
+  set b to Tally with label "a", uses 10, done no
+  set uses of a to 7
+  set label of a to "x""y"
+  set done of a to yes
+  subtract 0.5 from uses of a
+  multiply uses of a by 4
+  divide uses of a by 8
+  show a
+  show b
+  add 1 to uses of b
+  show uses of a, " ", uses of b
+  show b
+  set uses of b to 900000000000000
+  multiply uses of b by 10

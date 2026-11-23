@@ -2,10 +2,17 @@
 //! slot per field, in declaration order.
 use super::Lowerer;
 use crate::ast::program::RecordDecl;
+use crate::ast::stmt::Target;
 use crate::ast::{Expr, ExprKind, PlainType};
 use crate::check::Ty;
 use crate::diag::Diagnostic;
 use crate::ir::{Data, Desc, Inst, Reg};
+
+/// What a `set` or verb changes: a variable's slot, or one field of the record in it.
+pub struct Place {
+    pub slot: u32,
+    pub field: Option<i32>,
+}
 
 impl<'a> Lowerer<'a> {
     fn record_decl(&self, name: &str) -> &'a RecordDecl {
@@ -108,5 +115,46 @@ impl<'a> Lowerer<'a> {
             ExprKind::Paren(inner) => Self::builds_record(inner),
             _ => false,
         }
+    }
+
+    /// The place `target` names: a variable, or a field of a record variable.
+    pub fn place(&self, target: &Target) -> Option<Place> {
+        match target {
+            Target::Var(name) => Some(Place {
+                slot: self.slots[name],
+                field: None,
+            }),
+            Target::Field { field, of } => {
+                let Target::Var(name) = &**of else {
+                    return None;
+                };
+                let Some(Ty::Record(record)) = self.vars.get(name) else {
+                    return None;
+                };
+                Some(Place {
+                    slot: self.slots[name],
+                    field: Some(self.field_offset(record, field)),
+                })
+            }
+            Target::Item { .. } => None,
+        }
+    }
+
+    /// Stores the value in `a` into `place`.
+    pub fn store_place(&mut self, place: &Place) {
+        let Some(offset) = place.field else {
+            self.emit(Inst::StoreSlot(place.slot, Reg::A));
+            return;
+        };
+        self.emit(Inst::Move {
+            to: Reg::B,
+            from: Reg::A,
+        });
+        self.emit(Inst::LoadSlot(Reg::A, place.slot));
+        self.emit(Inst::Store {
+            base: Reg::A,
+            offset,
+            from: Reg::B,
+        });
     }
 }

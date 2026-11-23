@@ -29,6 +29,8 @@ pub(crate) struct Lowerer<'a> {
     pub types: &'a TypeInfo,
     /// Slot numbers by variable name; inputs are read with `LoadArg` by position.
     pub slots: BTreeMap<String, u32>,
+    /// The type of each variable and loop variable.
+    pub vars: BTreeMap<String, crate::check::Ty>,
     pub inputs: Vec<String>,
     pub labels: u32,
     pub fails: Vec<fail::Fail>,
@@ -95,6 +97,7 @@ fn lower_feature(
         body: vec![Inst::Enter(named)],
         types,
         slots,
+        vars: variable_types(types, &feature.name),
         inputs: feature.needs.iter().map(|i| i.name.clone()).collect(),
         labels: 0,
         fails: Vec::new(),
@@ -146,6 +149,16 @@ fn size_stack_checks(module: &mut Module) {
             }
         }
     }
+}
+
+/// The type of each variable and loop variable of `feature`.
+fn variable_types(types: &TypeInfo, feature: &str) -> BTreeMap<String, crate::check::Ty> {
+    let Some(info) = types.features.get(feature) else {
+        return BTreeMap::new();
+    };
+    let vars = info.vars.iter().map(|(n, ty, _)| (n.clone(), ty.clone()));
+    let loops = info.loops.iter().map(|l| (l.name.clone(), l.ty.clone()));
+    vars.chain(loops).collect()
 }
 
 /// Slots are numbered from 1: variables first, then loop variables. A name gets one slot, so

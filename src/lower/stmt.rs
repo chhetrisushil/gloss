@@ -50,6 +50,17 @@ impl Lowerer<'_> {
                 self.emit(Inst::StoreSlot(self.slots[name], Reg::A));
                 Ok(())
             }
+            StmtKind::Set {
+                target: target @ Target::Field { .. },
+                value,
+            } if self.place(target).is_some() => {
+                self.line = s.line;
+                self.emit(Inst::Line(s.line));
+                self.expr(value)?;
+                let place = self.place(target).expect("just checked");
+                self.store_place(&place);
+                Ok(())
+            }
             StmtKind::Ask { question, into } => {
                 self.line = s.line;
                 self.emit(Inst::Line(s.line));
@@ -61,22 +72,10 @@ impl Lowerer<'_> {
                 self.emit(Inst::StoreSlot(self.slots[into], Reg::A));
                 Ok(())
             }
-            StmtKind::Add {
-                value,
-                target: Target::Var(name),
-            } => self.verb(s, name, value, VerbOp::Add),
-            StmtKind::Subtract {
-                value,
-                target: Target::Var(name),
-            } => self.verb(s, name, value, VerbOp::Sub),
-            StmtKind::Multiply {
-                by,
-                target: Target::Var(name),
-            } => self.verb(s, name, by, VerbOp::Mul),
-            StmtKind::Divide {
-                by,
-                target: Target::Var(name),
-            } => self.verb(s, name, by, VerbOp::Div),
+            StmtKind::Add { value, target } => self.verb(s, target, value, VerbOp::Add),
+            StmtKind::Subtract { value, target } => self.verb(s, target, value, VerbOp::Sub),
+            StmtKind::Multiply { by, target } => self.verb(s, target, by, VerbOp::Mul),
+            StmtKind::Divide { by, target } => self.verb(s, target, by, VerbOp::Div),
             StmtKind::If {
                 branches,
                 otherwise,
@@ -110,16 +109,21 @@ impl Lowerer<'_> {
                 self.emit(Inst::Jump(target));
                 Ok(())
             }
-            _ => Err(Diagnostic::error(
-                self.src,
-                s.line,
-                "this compiler cannot build this statement yet",
-            )),
+            _ => Err(self.cannot_build(s)),
         }
     }
 
-    /// `name = name <op> operand`: the operand goes to `b`, the variable to `a`.
-    fn verb(&mut self, s: &Stmt, name: &str, operand: &Expr, op: VerbOp) -> Result<(), Diagnostic> {
+    /// `place = place <op> operand`: the operand goes to `b`, the current value to `a`.
+    fn verb(
+        &mut self,
+        s: &Stmt,
+        target: &Target,
+        operand: &Expr,
+        op: VerbOp,
+    ) -> Result<(), Diagnostic> {
+        let Some(place) = self.place(target) else {
+            return Err(self.cannot_build(s));
+        };
         self.line = s.line;
         self.emit(Inst::Line(s.line));
         self.expr(operand)?;
@@ -127,7 +131,14 @@ impl Lowerer<'_> {
             to: Reg::B,
             from: Reg::A,
         });
-        self.emit(Inst::LoadSlot(Reg::A, self.slots[name]));
+        self.emit(Inst::LoadSlot(Reg::A, place.slot));
+        if let Some(offset) = place.field {
+            self.emit(Inst::Load {
+                to: Reg::A,
+                base: Reg::A,
+                offset,
+            });
+        }
         // One line: a wrapped statement's continuation lines lose their indentation.
         let lines = format::print::stmt(s, 0);
         let text = lines.iter().map(|l| l.trim()).collect::<Vec<_>>().join(" ");
@@ -142,8 +153,16 @@ impl Lowerer<'_> {
             },
         };
         self.emit(inst);
-        self.emit(Inst::StoreSlot(self.slots[name], Reg::A));
+        self.store_place(&place);
         Ok(())
+    }
+
+    fn cannot_build(&self, s: &Stmt) -> Diagnostic {
+        Diagnostic::error(
+            self.src,
+            s.line,
+            "this compiler cannot build this statement yet",
+        )
     }
 
     pub fn is_number(&self, e: &Expr) -> bool {
