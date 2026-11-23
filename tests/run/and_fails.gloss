@@ -1,0 +1,4 @@
+feature start
+  set z to 0
+  if (1 is 1) and (1 / z is 1)
+    show "never"

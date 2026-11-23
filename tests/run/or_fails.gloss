@@ -1,0 +1,4 @@
+feature start
+  set z to 0
+  show "before"
+  show ((1 is 2) or (1 / z is 1))
