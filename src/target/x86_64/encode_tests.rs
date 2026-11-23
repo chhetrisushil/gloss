@@ -130,6 +130,7 @@ fn register_arithmetic() {
         [0x48, 0x31, 0xd2]
     );
     assert_eq!(bytes(X::Alu(AluOp::Add, R::R9, R::Rax)), [0x49, 0x01, 0xc1]);
+    assert_eq!(bytes(X::Alu(AluOp::Add, R::Rax, R::R9)), [0x4c, 0x01, 0xc8]);
     assert_eq!(bytes(X::Imul(R::Rax, R::Rcx)), [0x48, 0x0f, 0xaf, 0xc1]);
     assert_eq!(bytes(X::Imul(R::R8, R::R9)), [0x4d, 0x0f, 0xaf, 0xc1]);
     assert_eq!(bytes(X::Test(R::Rax, R::Rax)), [0x48, 0x85, 0xc0]);
@@ -176,6 +177,10 @@ fn setcc_syscall_ret() {
     assert_eq!(bytes(X::Setcc(Cc::L, R::Rax)), [0x0f, 0x9c, 0xc0]);
     assert_eq!(bytes(X::Setcc(Cc::E, R::Rsi)), [0x40, 0x0f, 0x94, 0xc6]);
     assert_eq!(bytes(X::Setcc(Cc::G, R::R9)), [0x41, 0x0f, 0x9f, 0xc1]);
+    assert_eq!(bytes(X::Setcc(Cc::E, R::Rsp)), [0x40, 0x0f, 0x94, 0xc4]);
+    assert_eq!(bytes(X::Setcc(Cc::E, R::Rbp)), [0x40, 0x0f, 0x94, 0xc5]);
+    assert_eq!(bytes(X::Setcc(Cc::E, R::Rdi)), [0x40, 0x0f, 0x94, 0xc7]);
+    assert_eq!(bytes(X::Setcc(Cc::E, R::R15)), [0x41, 0x0f, 0x94, 0xc7]);
     let nibbles = [
         (Cc::O, 0x90),
         (Cc::B, 0x92),
