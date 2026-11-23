@@ -1,0 +1,3 @@
+feature start
+  set answer to "12a"
+  show answer as number
