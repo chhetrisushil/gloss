@@ -60,3 +60,62 @@ fn a_failed_write_ends_the_program_with_status_2() {
     let o = run(&program(write_text(9, 3), &[b"abc"]));
     assert_eq!(o.status, 2);
 }
+
+fn out_text(index: u32) -> Vec<crate::ir::Inst> {
+    vec![
+        AddressOf(A, Data::Text(index)),
+        Push(A),
+        Call("out_text".into()),
+    ]
+}
+
+#[test]
+fn out_text_then_flush_gives_those_bytes() {
+    let text = vec![b'x'; 5000];
+    let mut body = out_text(0);
+    body.push(Call("flush".into()));
+    let o = run(&program(body, &[&text]));
+    assert_eq!(o.status, 0);
+    assert_eq!(o.stdout, text);
+}
+
+#[test]
+fn small_writes_fill_and_cross_the_buffer_in_order() {
+    let mut want = Vec::new();
+    let mut body = Vec::new();
+    for _ in 0..300 {
+        body.extend(out_text(0));
+        body.extend(out_text(1));
+        want.extend(b"hello, ");
+        want.extend(b"world ");
+    }
+    body.push(Call("flush".into()));
+    let o = run(&program(body, &[b"hello, ", b"world "]));
+    assert_eq!(o.stdout, want);
+}
+
+#[test]
+fn a_write_longer_than_the_buffer_keeps_the_order_of_what_came_before() {
+    let long = vec![b'L'; 9000];
+    let mut body = out_text(0);
+    body.extend(out_text(1));
+    body.extend(out_text(0));
+    body.push(Call("flush".into()));
+    let o = run(&program(body, &[b"ab", &long]));
+    let mut want = b"ab".to_vec();
+    want.extend(&long);
+    want.extend(b"ab");
+    assert_eq!(o.stdout, want);
+}
+
+#[test]
+fn only_the_reachable_routines_are_added_once_each() {
+    let mut m = Module::default();
+    add_reachable(
+        &mut m,
+        &["out_text".into(), "out_text".into(), "nothing".into()],
+    );
+    let mut names: Vec<&str> = m.functions.iter().map(|f| f.name.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["flush", "out_bytes", "out_text", "write_all"]);
+}

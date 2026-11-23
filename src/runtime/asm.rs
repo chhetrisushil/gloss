@@ -1,6 +1,6 @@
 //! A small assembler for writing runtime routines as IR.
 
-use crate::ir::{Cond, Function, Inst, Label, Reg};
+use crate::ir::{Cond, Data, Function, Global, Inst, Label, Reg};
 use Inst::*;
 use Reg::A;
 
@@ -27,6 +27,25 @@ impl Asm {
         self.i(JumpIf(cond, to));
     }
 
+    pub fn gload(&mut self, to: Reg, g: Global) {
+        self.i(AddressOf(to, Data::Global(g)));
+        self.i(Load {
+            to,
+            base: to,
+            offset: 0,
+        });
+    }
+
+    /// Stores `from` into a global, using `tmp` (another register) for its address.
+    pub fn gstore(&mut self, g: Global, from: Reg, tmp: Reg) {
+        self.i(AddressOf(tmp, Data::Global(g)));
+        self.i(Store {
+            base: tmp,
+            offset: 0,
+            from,
+        });
+    }
+
     pub fn push_const(&mut self, n: i64) {
         self.i(Const(A, n));
         self.i(Push(A));
@@ -40,6 +59,24 @@ impl Asm {
     pub fn push_slot(&mut self, n: u32) {
         self.i(LoadSlot(A, n));
         self.i(Push(A));
+    }
+
+    /// Pushes the address of the bytes of the text argument `n`, then its length.
+    pub fn push_text_arg(&mut self, n: u32) {
+        self.i(LoadArg(A, n));
+        self.i(AddImm(A, 8));
+        self.i(Push(A));
+        self.i(LoadArg(A, n));
+        self.i(Load {
+            to: A,
+            base: A,
+            offset: 0,
+        });
+        self.i(Push(A));
+    }
+
+    pub fn call(&mut self, name: &str) {
+        self.i(Call(name.to_string()));
     }
 
     /// Ends the routine with a 0 result.

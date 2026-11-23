@@ -1,9 +1,12 @@
-//! Writing to the output descriptors.
+//! Writing to the output descriptors, with standard output buffered.
 
 use super::asm::Asm;
-use crate::ir::Cond::Le;
+use crate::ir::Cond::{Ge, Le};
 use crate::ir::Reg::{A, B};
-use crate::ir::{Function, Inst::*, IntOp, Prim};
+use crate::ir::{Data, Function, Global, Inst::*, IntOp, Prim};
+
+/// The size of `Global::OutBuf`, which the backends and `irsim` lay out.
+const OUT_BUF: i64 = 4096;
 
 /// `write_all(fd, addr, len)`: writes every byte, looping on short writes; a result that is
 /// not positive ends the program with status 2.
@@ -39,6 +42,86 @@ fn write_all() -> Function {
     s.finish("write_all", 3, 2)
 }
 
+fn flush() -> Function {
+    let mut s = Asm::default();
+    s.push_const(1);
+    s.i(AddressOf(A, Data::Global(Global::OutBuf)));
+    s.i(Push(A));
+    s.gload(A, Global::OutLen);
+    s.i(Push(A));
+    s.call("write_all");
+    s.i(Const(A, 0));
+    s.gstore(Global::OutLen, A, B);
+    s.finish("flush", 0, 0)
+}
+
+/// `out_bytes(addr, len)`: appends to the buffer; a write that cannot fit even in an empty
+/// buffer goes straight out after a flush.
+fn out_bytes() -> Function {
+    let mut s = Asm::default();
+    let (copy, copying, copied) = (s.label(), s.label(), s.label());
+    s.gload(A, Global::OutLen);
+    s.i(Move { to: B, from: A });
+    s.i(Const(A, OUT_BUF));
+    s.i(Int(IntOp::Sub));
+    s.i(LoadArg(B, 2));
+    s.jump_if(Ge, copy);
+    s.call("flush");
+    s.i(LoadArg(A, 2));
+    s.i(Const(B, OUT_BUF));
+    s.jump_if(Le, copy);
+    s.push_const(1);
+    s.push_arg(1);
+    s.push_arg(2);
+    s.call("write_all");
+    s.i(Return);
+    // Copy byte by byte: slot 1 is the source, 2 the destination, 3 the end of the source.
+    s.i(Mark(copy));
+    s.i(LoadArg(A, 1));
+    s.i(StoreSlot(1, A));
+    s.i(LoadArg(B, 2));
+    s.i(Int(IntOp::Add));
+    s.i(StoreSlot(3, A));
+    s.i(AddressOf(A, Data::Global(Global::OutBuf)));
+    s.gload(B, Global::OutLen);
+    s.i(Int(IntOp::Add));
+    s.i(StoreSlot(2, A));
+    s.i(Mark(copying));
+    s.i(LoadSlot(A, 1));
+    s.i(LoadSlot(B, 3));
+    s.jump_if(Ge, copied);
+    s.i(LoadByte {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(LoadSlot(B, 2));
+    s.i(StoreByte {
+        base: B,
+        offset: 0,
+        from: A,
+    });
+    for slot in [1, 2] {
+        s.i(LoadSlot(A, slot));
+        s.i(AddImm(A, 1));
+        s.i(StoreSlot(slot, A));
+    }
+    s.i(Jump(copying));
+    s.i(Mark(copied));
+    s.gload(A, Global::OutLen);
+    s.i(LoadArg(B, 2));
+    s.i(Int(IntOp::Add));
+    s.gstore(Global::OutLen, A, B);
+    s.finish("out_bytes", 2, 3)
+}
+
+fn out_text() -> Function {
+    let mut s = Asm::default();
+    s.push_text_arg(1);
+    s.call("out_bytes");
+    s.finish("out_text", 1, 0)
+}
+
 pub fn routines() -> Vec<Function> {
-    vec![write_all()]
+    vec![write_all(), flush(), out_bytes(), out_text()]
 }
