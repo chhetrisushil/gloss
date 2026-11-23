@@ -1,5 +1,6 @@
 //! Code generation targets.
 
+pub mod elf;
 pub mod x86_64;
 
 /// A machine the compiler can produce an executable for.
