@@ -1,0 +1,7 @@
+feature start
+  show 120.50
+  show 120.0
+  show -7.5
+  show 0.0001
+  show 922337203685477.5807
+  show -922337203685477.5808
