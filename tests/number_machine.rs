@@ -4,7 +4,7 @@
 mod run_support;
 
 use gloss::ir::Reg::{A, B};
-use gloss::ir::{Data, Function, Global, Inst, Label, Module, Prim};
+use gloss::ir::{Data, Function, Global, Inst, Label, Module, Prim, Reg};
 use gloss::number::{NumFail, Number};
 use gloss::target::x86_64_linux;
 use run_support::{TempDir, run};
@@ -38,47 +38,50 @@ fn pairs() -> Vec<(i64, i64)> {
     pairs
 }
 
-fn expected(result: Result<Number, NumFail>) -> [u8; 9] {
-    let mut bytes = [0; 9];
+/// What one operation writes: a status byte (0 ok, 1 out of range, 2 divide by zero), the
+/// 8 result bytes (0 on failure), then the 8 bytes of `b`, which must be unchanged.
+fn expected(result: Result<Number, NumFail>, b: i64) -> [u8; 17] {
+    let mut bytes = [0; 17];
     match result {
-        Ok(Number(n)) => bytes[1..].copy_from_slice(&n.to_le_bytes()),
+        Ok(Number(n)) => bytes[1..9].copy_from_slice(&n.to_le_bytes()),
         Err(NumFail::OutOfRange) => bytes[0] = 1,
         Err(NumFail::DivideByZero) => bytes[0] = 2,
     }
+    bytes[9..].copy_from_slice(&b.to_le_bytes());
     bytes
 }
 
-/// Computes `op(x, y)`, stores the status byte and the result in `out_buf` (0 on failure)
-/// and writes those 9 bytes to standard output. `first` is the first free label number.
+fn store(offset: i32, from: Reg) -> Inst {
+    Inst::Store {
+        base: A,
+        offset,
+        from,
+    }
+}
+
+/// Computes `op(x, y)`, stores the 17 bytes `expected` describes in `out_buf` and writes
+/// them to standard output. `first` is the first free label number.
 fn block(x: i64, y: i64, first: u32, op: impl Fn(Label, Label) -> Inst) -> Vec<Inst> {
     let (range, zero, done) = (Label(first), Label(first + 1), Label(first + 2));
-    let store_status = |status: i64| {
-        vec![
-            Inst::Const(B, status),
-            Inst::AddressOf(A, Data::Global(Global::OutBuf)),
-            Inst::StoreByte {
-                base: A,
-                offset: 0,
-                from: B,
-            },
-            Inst::Const(B, 0),
-            Inst::Store {
-                base: A,
-                offset: 1,
-                from: B,
-            },
-            Inst::Jump(done),
-        ]
+    let out = Inst::AddressOf(A, Data::Global(Global::OutBuf));
+    let status = |s: i64| {
+        let byte = Inst::StoreByte {
+            base: A,
+            offset: 0,
+            from: B,
+        };
+        let (set, clear) = (Inst::Const(B, s), Inst::Const(B, 0));
+        [out.clone(), store(9, B), set, byte, clear, store(1, B)]
     };
     let mut body = vec![Inst::Const(A, x), Inst::Const(B, y), op(range, zero)];
+    // On success `a` is the result; `b` is saved while it holds the address' partner.
     body.extend([
+        Inst::Push(B),
         Inst::Move { to: B, from: A },
-        Inst::AddressOf(A, Data::Global(Global::OutBuf)),
-        Inst::Store {
-            base: A,
-            offset: 1,
-            from: B,
-        },
+        out.clone(),
+        store(1, B),
+        Inst::Pop(B),
+        store(9, B),
         Inst::Const(B, 0),
         Inst::StoreByte {
             base: A,
@@ -88,38 +91,39 @@ fn block(x: i64, y: i64, first: u32, op: impl Fn(Label, Label) -> Inst) -> Vec<I
         Inst::Jump(done),
         Inst::Mark(range),
     ]);
-    body.extend(store_status(1));
-    body.push(Inst::Mark(zero));
-    body.extend(store_status(2));
+    body.extend(status(1));
+    body.extend([Inst::Jump(done), Inst::Mark(zero)]);
+    body.extend(status(2));
     body.extend([
         Inst::Mark(done),
         Inst::Const(A, 1),
         Inst::Push(A),
-        Inst::AddressOf(A, Data::Global(Global::OutBuf)),
+        out.clone(),
         Inst::Push(A),
-        Inst::Const(A, 9),
+        Inst::Const(A, 17),
         Inst::Push(A),
         Inst::System(Prim::Write),
     ]);
     body
 }
 
-#[test]
-fn multiplication_division_and_remainder_equal_the_reference() {
+/// Runs `mul`, `div` and `rem` on every pair in the machine and compares with `Number`.
+fn check(name: &str, pairs: &[(i64, i64)]) {
     let mut body = vec![Inst::Enter(0)];
     let mut want = Vec::new();
-    for (x, y) in pairs() {
+    let mut label = 0;
+    for &(x, y) in pairs {
         let (nx, ny) = (Number(x), Number(y));
-        let n = body.len() as u32 * 3;
-        body.extend(block(x, y, n, |range, _| Inst::NumMul { range }));
-        want.extend(expected(nx.mul_round(ny)));
-        body.extend(block(x, y, n + 1_000_000, |range, zero| Inst::NumDiv {
+        body.extend(block(x, y, label, |range, _| Inst::NumMul { range }));
+        want.extend(expected(nx.mul_round(ny), y));
+        body.extend(block(x, y, label + 3, |range, zero| Inst::NumDiv {
             zero,
             range,
         }));
-        want.extend(expected(nx.div_round(ny)));
-        body.extend(block(x, y, n + 2_000_000, |_, zero| Inst::NumRem { zero }));
-        want.extend(expected(nx.rem(ny)));
+        want.extend(expected(nx.div_round(ny), y));
+        body.extend(block(x, y, label + 6, |_, zero| Inst::NumRem { zero }));
+        want.extend(expected(nx.rem(ny), y));
+        label += 9;
     }
     body.extend([Inst::Const(A, 0), Inst::Push(A), Inst::System(Prim::Exit)]);
     let mut m = Module::default();
@@ -130,7 +134,7 @@ fn multiplication_division_and_remainder_equal_the_reference() {
         body,
     });
     let bytes = x86_64_linux().executable(&m).expect("the module builds");
-    let dir = TempDir::new("number-machine");
+    let dir = TempDir::new(name);
     let path = dir.0.join("prog");
     std::fs::write(&path, bytes).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -138,9 +142,64 @@ fn multiplication_division_and_remainder_equal_the_reference() {
         let (status, out, err) = ran.unwrap();
         assert_eq!((status, err), (0, Vec::new()));
         assert_eq!(out.len(), want.len());
-        for (i, (got, want)) in out.chunks(9).zip(want.chunks(9)).enumerate() {
-            let (pair, op) = (pairs()[i / 3], ["mul", "div", "rem"][i % 3]);
+        for (i, (got, want)) in out.chunks(17).zip(want.chunks(17)).enumerate() {
+            let (pair, op) = (pairs[i / 3], ["mul", "div", "rem"][i % 3]);
             assert_eq!(got, want, "{op} of {pair:?}");
         }
     }
+}
+
+#[test]
+fn multiplication_division_and_remainder_equal_the_reference() {
+    check("number-machine", &pairs());
+}
+
+/// The reviewer's 61 edge values: the ends of the range, the scale and its halves, and
+/// the products and quotients that land on the ends after rounding.
+fn edge_values() -> Vec<i64> {
+    let (min, max) = (i64::MIN, i64::MAX);
+    let mut edge = vec![min, min + 1, min + 2, max, max - 1, max - 2, 0];
+    let ns = [
+        1,
+        2,
+        3,
+        4999,
+        5000,
+        5001,
+        9999,
+        10000,
+        10001,
+        19999,
+        20000,
+        15000,
+        25000,
+        max / 10000,
+        max / 10000 + 1,
+        max / 10000 - 1,
+        1 << 31,
+        1 << 32,
+        1 << 62,
+        (1 << 62) + 1,
+        3_037_000_499,
+        3_037_000_500,
+        303_700_049_997,
+        303_700_049_998,
+        303_700_050_000,
+        min / -10000,
+        max / 10000 * 10000,
+    ];
+    edge.extend(ns.iter().flat_map(|&n: &i64| [n, -n]));
+    edge
+}
+
+#[test]
+fn the_edge_cross_product_equals_the_reference() {
+    let edge = edge_values();
+    assert_eq!(edge.len(), 61);
+    let pairs: Vec<(i64, i64)> = edge
+        .iter()
+        .flat_map(|&x| edge.iter().map(move |&y| (x, y)))
+        .collect();
+    assert_eq!(pairs.len(), 3721);
+    check("number-edges", &pairs);
 }
