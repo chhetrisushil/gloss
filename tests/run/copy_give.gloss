@@ -1,0 +1,12 @@
+record P
+  age as number
+
+feature pick
+  needs p as P
+  give p
+
+feature start
+  set a to P with age 1
+  set b to pick with a
+  set age of b to 2
+  show a, " ", b
