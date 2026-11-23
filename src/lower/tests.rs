@@ -271,3 +271,13 @@ fn the_check_counts_the_callees_named_and_hidden_slots() {
     let t = start_text(&m);
     assert!(t.contains(&want), "{want} in {t}");
 }
+
+#[test]
+fn the_source_in_a_failure_message_spells_invisible_characters() {
+    let m = lowered("feature start\n  show \"a\u{200F}b\u{202E}x\" as number\n").unwrap();
+    let spelled = b"\"a\\u{200F}b\\u{202E}x\" as number".to_vec();
+    assert!(m.texts.contains(&spelled), "{:?}", m.texts);
+    let raw = "as number".as_bytes();
+    let unspelled = |t: &Vec<u8>| t.windows(raw.len()).any(|w| w == raw) && t != &spelled;
+    assert!(!m.texts.iter().any(unspelled));
+}

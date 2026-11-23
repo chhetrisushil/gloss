@@ -15,6 +15,16 @@ pub(crate) struct Fail {
     shown: Option<u32>,
 }
 
+/// `text` with each invisible character written `\u{XXXX}`, the same set and form as the
+/// text of failure 5, so the source in a message cannot reorder or hide anything (M2-R30).
+fn spell_invisible(text: &str) -> String {
+    let spell = |c: char| match crate::chars::unshowable(c) {
+        true => format!("\\u{{{:04X}}}", c as u32),
+        false => c.to_string(),
+    };
+    text.chars().map(spell).collect()
+}
+
 impl Lowerer<'_> {
     pub fn new_label(&mut self) -> Label {
         self.labels += 1;
@@ -28,7 +38,8 @@ impl Lowerer<'_> {
 
     fn fail_label_with(&mut self, code: i64, parts: [&str; 3], value: Option<u32>) -> Label {
         let label = self.new_label();
-        let parts = parts.map(String::from);
+        let mut parts = parts.map(String::from);
+        parts[1] = spell_invisible(&parts[1]);
         let line = self.line;
         self.fails.push(Fail {
             label,
