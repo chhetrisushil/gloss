@@ -6,8 +6,8 @@
 
 use std::collections::HashMap;
 
-use super::inst::{AluOp, Mem, R, Sym, X};
-use crate::ir::{Data, Function, Inst, Reg, inst_text};
+use super::inst::{AluOp, Cc, Mem, R, Sym, X};
+use crate::ir::{Cond, Data, Function, Global, Inst, Label, Reg, inst_text};
 
 /// Lowers one function; `params` maps every callable function to its parameter count.
 pub fn lower_function(f: &Function, params: &HashMap<String, u32>) -> Result<Vec<X>, String> {
@@ -24,6 +24,20 @@ fn reg(r: Reg) -> R {
         Reg::B => R::Rcx,
     }
 }
+fn label(f: &Function, l: Label) -> String {
+    format!("L{}_{}", f.name, l.0)
+}
+
+fn cc(c: Cond) -> Cc {
+    match c {
+        Cond::Eq => Cc::E,
+        Cond::Ne => Cc::Ne,
+        Cond::Lt => Cc::L,
+        Cond::Le => Cc::Le,
+        Cond::Gt => Cc::G,
+        Cond::Ge => Cc::Ge,
+    }
+}
 fn slot(k: u32) -> Mem {
     Mem::Base(R::Rbp, -8 * k as i32)
 }
@@ -34,7 +48,7 @@ fn arg(n: u32, k: u32) -> Mem {
 
 fn inst_x(
     f: &Function,
-    _params: &HashMap<String, u32>,
+    params: &HashMap<String, u32>,
     inst: &Inst,
     out: &mut Vec<X>,
 ) -> Result<(), String> {
@@ -75,16 +89,32 @@ fn inst_x(
         Inst::StoreByte { base, offset, from } => {
             out.push(X::MovM8R(Mem::Base(reg(*base), *offset), reg(*from)));
         }
+        Inst::Compare => out.push(X::Alu(AluOp::Cmp, R::Rax, R::Rcx)),
+        Inst::JumpIf(c, l) => out.push(X::Jcc(cc(*c), label(f, *l))),
+        Inst::SetIf(c) => {
+            out.push(X::Setcc(cc(*c), R::Rax));
+            out.push(X::AluI(AluOp::And, R::Rax, 255));
+        }
+        Inst::Jump(l) => out.push(X::Jmp(label(f, *l))),
+        Inst::Mark(l) => out.push(X::Label(label(f, *l))),
+        Inst::Call(name) => {
+            let Some(p) = params.get(name) else {
+                return Err(format!("call to unknown function {name}"));
+            };
+            out.push(X::Call(name.clone()));
+            if *p > 0 {
+                out.push(X::AluI(AluOp::Add, R::Rsp, 8 * *p as i32));
+            }
+        }
+        Inst::StackCheck { bytes, fail } => {
+            out.push(X::Lea(R::Rdx, Mem::Base(R::Rsp, -(*bytes as i32))));
+            out.push(X::MovRM(R::Rsi, Mem::Rip(Sym::Global(Global::StackLimit))));
+            out.push(X::Alu(AluOp::Cmp, R::Rdx, R::Rsi));
+            out.push(X::Jcc(Cc::B, label(f, *fail)));
+        }
         Inst::Int(_)
         | Inst::AddImm(..)
         | Inst::Shift(..)
-        | Inst::Compare
-        | Inst::JumpIf(..)
-        | Inst::SetIf(_)
-        | Inst::Jump(_)
-        | Inst::Mark(_)
-        | Inst::Call(_)
-        | Inst::StackCheck { .. }
         | Inst::NumAdd { .. }
         | Inst::NumSub { .. }
         | Inst::NumNeg { .. }
