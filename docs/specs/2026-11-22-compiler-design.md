@@ -1,9 +1,9 @@
 # Gloss v0 compiler - design spec
 
 - **Date:** 2026-11-22
-- **Status:** built (milestone 1); milestone 2 approved for planning (section 4.6); milestones 3–7 not started
+- **Status:** built (milestones 1 and 2, section 6); milestones 3–7 not started
 - **Context:** Implements the language defined in `spec/v0.md` (the *language spec*). This document decides *how* the compiler is built. Where the two disagree about the language, the language spec wins. Where they disagree about the implementation, this document wins.
-- **Plan:** `docs/plans/2026-11-22-compiler-m1-front-end.md` (milestone 1). Later milestones get their own plans.
+- **Plans:** `docs/plans/2026-11-22-compiler-m1-front-end.md` (milestone 1). Milestone 2: `docs/plans/2026-11-23-compiler-m2-codegen.md`. Later milestones get their own plans.
 
 ## 1. Goals and non-goals
 
@@ -195,3 +195,39 @@ Table paths are the only security boundary in M1. The checker rejects absolute p
   - Negating the most negative number is failure 4.
 
 The milestone ledger (every ruling R2–R49 and the review record) is kept at `~/.gloss/ledgers/2026-11-22-compiler-m1-front-end/`.
+
+### Milestone 2 (code generation and runtime), finished 2026-11-23, `main` @ ae91377 plus this documentation
+
+**What shipped:** `gloss build x.gloss` checks the program and writes the static x86-64 Linux ELF `x` beside the source (atomically, mode 0755), printing `Built x`. The pipeline is check → `lower` → Gloss IR (the user's features plus the reachable runtime routines, which are written in IR, D19) → x86-64 backend → encoder → ELF writer. Every statement and expression of the language spec except tables, `load`, `save`, `clear`, `expect` and `input` builds; run-time failures 1–5, 9 and 10 stop the program with the spec's messages. `irsim`, a test-only IR interpreter, is the reference the real executables are compared with (D21). A run harness (`tests/run_support`) builds, runs and times executables through `GLOSS_RUNNER`, and 89 `tests/run/*.gloss` cases run both as real executables and under `irsim`. `examples/` holds eight programs that are built, run and format-checked by `tests/examples.rs`. The language spec's complete programs and its §10 failure messages are checked end to end.
+
+**Pull requests** (all rebase-merged, one at a time; the plan itself was #101):
+
+| Task | What | PRs |
+|---|---|---|
+| 1 | Number arithmetic (checked add/sub/mul/div/rem/whole) | #102 |
+| 2a, 2b | IR types, module and interning; IR text form | #103–#104, #105–#106 |
+| 3a, 3b | `irsim` core; number, system and memory primitives | #107–#114, #115–#118 |
+| 4 | x86-64 instruction type and Intel text | #119–#122 |
+| 5a, 5b, 5c | Encoder: moves and memory; arithmetic; flow | #123–#124, #125–#126, #127–#128 |
+| 6 | Static ELF writer, run support | #129–#132 |
+| 7 | Opt-in `objdump` cross-check | #133–#135 |
+| 8a, 8b, 8c | Backend; number routines and differential tests; Mac output capture | #136–#140, #141–#157, #158 |
+| 9 | Runtime core (start, output, failures, memory, stack) | #159–#168 |
+| 10a, 10b | Lowering skeleton; `gloss build` and the run cases | #169–#170, #171–#172 |
+| 11, 12a–c | Showing numbers; number expressions, verbs, reference sweep | #173–#176, #177–#179, #180–#181, #182 |
+| 13, 14 | Truths, `if`, `repeat while`; counting loops | #183–#186, #187–#193 |
+| 15 | Features, `give`, `run`, recursion, stack check | #194–#201 |
+| 16, 17 | Text, equality, `as text`, `with N places`; `as number` | #202–#207, #208–#221 |
+| Examples | Seven programs, then binary search | #222–#224 |
+| 18 | `ask` | #225–#231 |
+| 19, 20, 21, 22 | Records; lists; showing and comparing lists and records; copies | #232–#237, #238–#248, #249–#254, #255–#263 |
+| 23, 24 | Out of memory; the spec's programs and failure messages | #264, #265–#266 |
+
+**Deviations from the decisions above** (rulings are numbered M2-R1 … M2-R35 in the milestone ledger):
+- **D14 (200-line PRs):** tasks over the cap were split into sequential PRs, never stacked and never trimmed to fit (M2-R2, M2-R4, M2-R5, M2-R6); a stack of work goes in as one branch per commit.
+- **D2 and D17:** the machine is Alpine 3.23 `gloss-amd64` under Rosetta; `objdump` comes from `apk add binutils`. Rosetta is not a real kernel, so CI (`ubuntu-latest`) is the check of the real loader.
+- **D21 (irsim):** the `.ulimit` run cases are skipped under `irsim`, which has a fixed 8 MiB stack.
+- **D22:** the refusal prints as `tables arrive in milestone 3.` (the renderer adds the period to a program-level problem).
+- **§4.2 pipeline:** there is no `codegen` module; `lower` and `target` take its place.
+- **IR machine (§4.6):** `b` (`rcx`) survives a call, so each callee saves it in an extra frame word (M2-R12). `cmp r,[mem]` and `movzx` were not added to the encoder; the backend uses existing forms (M2-R13).
+- **Plan rulings:** P1: a `for each … from … to` start that is not whole is failure 3, `the start of a count must be whole (<source> is <value>)`. P2: a feature that falls off its end stops with `internal error: feature <name> ended without giving a value`, status 2 (worded and placed by M2-R25). P3: failure routines take the line as an argument; there is no current-line global.
