@@ -37,6 +37,8 @@ pub struct Faults {
     pub short_write: Option<u64>,
     /// `Write` to these descriptors fails with a negative result.
     pub failing_fds: Vec<i64>,
+    /// `Read` fails with a negative result.
+    pub failing_read: bool,
 }
 
 /// Runs the function `entry` as a program, feeding it `stdin`.
