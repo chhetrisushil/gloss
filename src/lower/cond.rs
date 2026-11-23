@@ -102,17 +102,22 @@ impl Lowerer<'_> {
         self.emit(Inst::JumpIf(Cond::Eq, to));
     }
 
-    /// Shows `yes` or `no`: the truth is in `a`.
-    pub fn show_truth(&mut self) {
+    /// Puts the text `yes` or `no` in `a`: the truth is in `a`.
+    pub fn truth_text(&mut self) {
         let (no, end) = (self.new_label(), self.new_label());
         self.jump_if_a_is(0, no);
-        self.push_text(b"yes");
-        self.call("out_text");
+        self.text_address(b"yes");
         self.emit(Inst::Jump(end));
         self.emit(Inst::Mark(no));
-        self.push_text(b"no");
-        self.call("out_text");
+        self.text_address(b"no");
         self.emit(Inst::Mark(end));
+    }
+
+    /// Shows `yes` or `no`: the truth is in `a`.
+    pub fn show_truth(&mut self) {
+        self.truth_text();
+        self.emit(Inst::Push(Reg::A));
+        self.call("out_text");
     }
 }
 

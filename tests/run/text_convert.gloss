@@ -1,0 +1,12 @@
+feature start
+  set n to 3.25
+  set t to n as text
+  show t, (t is "3.25"), (n as text is "3.25"), (n as text is not "3.25")
+  show (1 is 1) as text, (1 is 2) as text, ((1 is 1) as text is "yes")
+  set a to 120.5 as text
+  set b to -0.5 as text
+  set c to 100 as text
+  show a, b, c, (a is "120.5"), (b is "-0.5")
+  set before to 7 as text
+  show 99 as text
+  show before, (before is "7"), (before is not 99 as text)

@@ -1,7 +1,7 @@
 //! Lowering expressions: the value ends up in register `a`.
 use super::Lowerer;
 use crate::ast::print;
-use crate::ast::{ArithOp, Expr, ExprKind, Fact};
+use crate::ast::{ArithOp, Conversion, Expr, ExprKind, Fact};
 use crate::check::NameKind;
 use crate::diag::Diagnostic;
 use crate::ir::{Inst, Reg};
@@ -23,6 +23,21 @@ impl Lowerer<'_> {
             }
             ExprKind::Text(text) => {
                 self.text_address(text.as_bytes());
+                Ok(())
+            }
+            ExprKind::Convert {
+                value,
+                to: Conversion::ToText,
+            } => {
+                self.expr(value)?;
+                if self.is_truth(value) {
+                    self.truth_text();
+                } else {
+                    self.emit(Inst::Push(Reg::A));
+                    self.emit(Inst::Const(Reg::A, i64::from(self.line)));
+                    self.emit(Inst::Push(Reg::A));
+                    self.call("number_text");
+                }
                 Ok(())
             }
             ExprKind::Paren(inner) => self.expr(inner),
