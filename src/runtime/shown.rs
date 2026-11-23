@@ -57,30 +57,45 @@ fn put_byte(s: &mut Asm) {
     s.call("write_all");
 }
 
-/// The code point at `AT` into `CP`, its length in bytes into `LEN`.
-fn decode(s: &mut Asm) {
-    let [two, three, four, rest, more, done] = [(); 6].map(|_| s.label());
+/// The code point at `AT` into `CP`, its length in bytes into `LEN`. A byte that does not
+/// start a valid sequence of the text (a bad lead, a sequence cut by `END`, a bad
+/// continuation, an overlong or surrogate or too large value) is one character, `U+FFFD`
+/// of length 1, and the jump goes to `hidden` to have it spelled.
+fn decode(s: &mut Asm, hidden: Label) {
+    let [bad, rest, more, done, ok] = [(); 5].map(|_| s.label());
     s.i(LoadSlot(A, AT));
     byte_at(s);
     s.i(StoreSlot(CP, A));
-    for (limit, len, mask, next) in [
-        (0x80, 1, 0x7F, two),
-        (0xE0, 2, 0x1F, three),
-        (0xF0, 3, 0x0F, four),
+    // Below `limit` the byte is a lead of `len` bytes (or invalid when `len` is 0).
+    for (limit, len, mask) in [
+        (0x80, 1, 0x7F),
+        (0xC0, 0, 0),
+        (0xE0, 2, 0x1F),
+        (0xF0, 3, 0x0F),
+        (0xF8, 4, 7),
     ] {
+        let next = s.label();
         s.i(LoadSlot(A, CP));
         s.i(Const(B, limit));
         s.jump_if(Ge, next);
-        s.i(Const(A, len));
-        s.i(StoreSlot(LEN, A));
-        update(s, CP, IntOp::And, mask);
-        s.i(Jump(rest));
+        if len == 0 {
+            s.i(Jump(bad));
+        } else {
+            s.i(Const(A, len));
+            s.i(StoreSlot(LEN, A));
+            update(s, CP, IntOp::And, mask);
+            s.i(Jump(rest));
+        }
         s.i(Mark(next));
     }
-    s.i(Const(A, 4));
-    s.i(StoreSlot(LEN, A));
-    update(s, CP, IntOp::And, 0x07);
+    s.i(Jump(bad));
     s.i(Mark(rest));
+    // The whole sequence must lie within the text.
+    s.i(LoadSlot(A, AT));
+    s.i(LoadSlot(B, LEN));
+    s.i(Int(IntOp::Add));
+    s.i(LoadSlot(B, END));
+    s.jump_if(Gt, bad);
     s.i(Const(A, 1));
     s.i(StoreSlot(K, A));
     s.i(Mark(more));
@@ -91,6 +106,12 @@ fn decode(s: &mut Asm) {
     s.i(LoadSlot(B, K));
     s.i(Int(IntOp::Add));
     byte_at(s);
+    s.i(StoreSlot(TMP, A));
+    s.i(Const(B, 0xC0));
+    s.i(Int(IntOp::And));
+    s.i(Const(B, 0x80));
+    s.jump_if(Ne, bad);
+    s.i(LoadSlot(A, TMP));
     s.i(Const(B, 0x3F));
     s.i(Int(IntOp::And));
     s.i(StoreSlot(TMP, A));
@@ -101,6 +122,33 @@ fn decode(s: &mut Asm) {
     update(s, K, IntOp::Add, 1);
     s.i(Jump(more));
     s.i(Mark(done));
+    // Overlong forms, surrogates and values past U+10FFFF are invalid.
+    for (len, least) in [(2, 0x80), (3, 0x800), (4, 0x1_0000)] {
+        let next = s.label();
+        s.i(LoadSlot(A, LEN));
+        s.i(Const(B, len));
+        s.jump_if(Ne, next);
+        s.i(LoadSlot(A, CP));
+        s.i(Const(B, least));
+        s.jump_if(Lt, bad);
+        s.i(Mark(next));
+    }
+    for (value, cond) in [(0xD7FF, Le), (0x10_FFFF, Gt)] {
+        s.i(LoadSlot(A, CP));
+        s.i(Const(B, value));
+        s.jump_if(cond, if cond == Le { ok } else { bad });
+    }
+    s.i(Const(B, 0xDFFF));
+    s.i(LoadSlot(A, CP));
+    s.jump_if(Gt, ok);
+    s.i(Jump(bad));
+    s.i(Mark(bad));
+    s.i(Const(A, 0xFFFD));
+    s.i(StoreSlot(CP, A));
+    s.i(Const(A, 1));
+    s.i(StoreSlot(LEN, A));
+    s.i(Jump(hidden));
+    s.i(Mark(ok));
 }
 
 /// The table entry field at `offset` (8 for a range's first code point, 16 for its last),
@@ -212,7 +260,7 @@ fn err_shown() -> Function {
     s.i(LoadSlot(A, COUNT));
     s.i(Const(B, SHOWN_CHARS));
     s.jump_if(Ge, cut);
-    decode(&mut s);
+    decode(&mut s, hidden);
     lookup(&mut s, hidden);
     s.push_const(2);
     s.i(LoadArg(A, 1));
@@ -344,6 +392,95 @@ mod tests {
         let want: String = texts.iter().map(|t| format!("{}\n", shown(t))).collect();
         assert_eq!(o.status, 0);
         assert_eq!(String::from_utf8(o.stderr).unwrap(), want);
+    }
+
+    /// What `err_shown` should write for raw bytes: an invalid byte is one character,
+    /// `\u{FFFD}`, and decoding resumes at the next byte.
+    fn shown_bytes(b: &[u8]) -> String {
+        let (mut at, mut out, mut count) = (0, String::new(), 0);
+        while at < b.len() && count < 40 {
+            let len = match b[at] {
+                0..=0x7F => 1,
+                0xC0..=0xDF => 2,
+                0xE0..=0xEF => 3,
+                0xF0..=0xF7 => 4,
+                _ => 0,
+            };
+            let decoded = b
+                .get(at..at + len)
+                .filter(|_| len > 0)
+                .and_then(|s| std::str::from_utf8(s).ok());
+            let c = decoded.and_then(|s| s.chars().next()).unwrap_or('\u{FFFD}');
+            out.push_str(&match decoded.is_some() && !unshowable(c) {
+                true => c.to_string(),
+                false => format!("\\u{{{:04X}}}", c as u32),
+            });
+            at += decoded.map_or(1, str::len);
+            count += 1;
+        }
+        if at < b.len() {
+            out.push('\u{2026}');
+        }
+        out
+    }
+
+    /// Runs `err_shown` on each byte string, which sits in memory as a text followed by four
+    /// continuation bytes, so a read past its end would look like part of a character.
+    fn shown_by_runtime(cases: &[Vec<u8>]) -> Vec<u8> {
+        let blobs: Vec<Vec<u8>> = cases
+            .iter()
+            .map(|c| [&(c.len() as u64).to_le_bytes()[..], c, &[0x80; 4]].concat())
+            .collect();
+        let mut raw: Vec<&[u8]> = vec![b"\n"];
+        let mut body = Vec::new();
+        for blob in &blobs {
+            let at = raw.iter().position(|r| r == blob).unwrap_or(raw.len());
+            if at == raw.len() {
+                raw.push(blob);
+            }
+            body.extend([AddressOf(A, Data::Text(at as u32)), AddImm(A, 8), Push(A)]);
+            body.extend([Call("err_shown".into()), AddressOf(A, Data::Text(0))]);
+            body.extend([Push(A), Call("err_text".into())]);
+        }
+        let o = run(&program(body, &raw));
+        assert_eq!(o.status, 0);
+        o.stderr
+    }
+
+    #[test]
+    fn err_shown_never_reads_past_the_end_and_spells_invalid_bytes() {
+        let mut cases: Vec<Vec<u8>> = [
+            &b"\xC3"[..],
+            b"x\xF0\x9F",
+            b"ab\xE2",
+            b"\xFFzz",
+            b"a\x80b",
+            b"\x80",
+            b"\xC0\x80",
+            b"\xE0\x80\x80",
+            b"\xED\xA0\x80",
+            b"\xF4\x90\x80\x80",
+            b"\xF8\x88\x80\x80\x80",
+            b"\xC3\xA9\xC3\xA9",
+            b"\xE2\x82x",
+        ]
+        .map(<[u8]>::to_vec)
+        .into();
+        for invalid_at in [38, 39, 40, 41] {
+            let mut bytes = vec![b'a'; 43];
+            bytes[invalid_at] = 0xFF;
+            cases.push(bytes);
+        }
+        let mut state = 0x9E37_79B9_7F4A_7C15;
+        for _ in 0..300 {
+            let length = xorshift(&mut state) % 8;
+            cases.push((0..length).map(|_| xorshift(&mut state) as u8).collect());
+        }
+        let want: String = cases
+            .iter()
+            .map(|c| format!("{}\n", shown_bytes(c)))
+            .collect();
+        assert_eq!(shown_by_runtime(&cases), want.as_bytes());
     }
 
     #[test]
