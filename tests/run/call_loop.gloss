@@ -1,0 +1,9 @@
+feature one
+  needs n as number
+  give n + 1
+
+feature start
+  set total to 0
+  for each i from 1 to 100000
+    set total to one with total
+  show total

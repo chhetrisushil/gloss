@@ -59,6 +59,19 @@ impl Lowerer<'_> {
         self.fail_label_with(3, [&before, source, ")"], Some(slot))
     }
 
+    /// The end of a feature that gives a value, which the checker guarantees no path reaches
+    /// (plan ruling P2). If it is reached anyway, flush standard output, write
+    /// `internal error: feature <name> ended without giving a value` and a newline (no
+    /// `line N:` prefix: it is not a language failure, and the spec has no row for it) and
+    /// exit 2.
+    pub fn fall_off_end(&mut self, feature: &str) {
+        self.call("flush");
+        let message = format!("internal error: feature {feature} ended without giving a value");
+        self.push_text(message.as_bytes());
+        self.call("err_text");
+        self.call("fail_end");
+    }
+
     /// Emits the failure blocks collected so far.
     pub fn emit_fails(&mut self) {
         for f in std::mem::take(&mut self.fails) {
