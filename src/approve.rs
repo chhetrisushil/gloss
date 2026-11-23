@@ -283,4 +283,93 @@ mod tests {
         assert_eq!((ran.result, after.as_deref()), (Err(4), Some(old)));
         assert!(p.asked.is_empty());
     }
+
+    #[test]
+    fn the_suggested_flag_is_quoted_for_a_shell() {
+        let dir = folder();
+        let mut p = Fake::new(false, None);
+        let ran = approve_in(&dir, &["data/my file.csv"], &[], &mut p);
+        assert!(
+            ran.err.ends_with("or add --allow 'data/my file.csv'.\n"),
+            "{}",
+            ran.err
+        );
+        assert_eq!(shell_word("it's.csv"), "'it'\\''s.csv'");
+        assert_eq!(shell_word("data/a-b_c.2.csv"), "data/a-b_c.2.csv");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unknown_allow_file_is_refused() {
+        let entries = [entry("a.csv")];
+        let mut err = Vec::new();
+        let flags = ["b.csv".to_string()];
+        assert_eq!(check_flags(&entries, &flags, &mut err), Err(3));
+        assert_eq!(
+            String::from_utf8(err).unwrap(),
+            "--allow b.csv: this program has no table in b.csv.\n"
+        );
+        assert_eq!(check_flags(&[], &flags, &mut Vec::new()), Err(3));
+        assert_eq!(
+            check_flags(&entries, &["a.csv".into()], &mut Vec::new()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn the_refusal_shows_the_escaped_name() {
+        let mut err = Vec::new();
+        let flags = ["re\u{301}.csv".to_string()];
+        assert_eq!(
+            check_flags(&[entry("r\u{e9}.csv")], &flags, &mut err),
+            Err(3)
+        );
+        let said = String::from_utf8(err).unwrap();
+        assert!(
+            said.ends_with("no table in \"re\u{301}.csv\" (re\\u{301}.csv).\n"),
+            "{said}"
+        );
+    }
+
+    fn refuses_to_write(setup: impl Fn(&std::path::Path), problem: &str) {
+        let dir = folder();
+        setup(&dir.join("t.allow"));
+        let mut p = Fake::new(true, Some("yes"));
+        let ran = approve_in(&dir, &["a.csv"], &[], &mut p);
+        assert_eq!((ran.result, ran.out.as_str()), (Err(3), ""));
+        assert_eq!(ran.err, format!("cannot write t.allow: {problem}\n"));
+        assert!(!dir.join(".gloss-write-0.tmp").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_symlinked_or_read_only_allow_is_not_replaced() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        refuses_to_write(
+            |p| symlink("elsewhere", p).unwrap(),
+            "it is a symbolic link",
+        );
+        refuses_to_write(
+            |p| {
+                std::fs::write(p, "note old\n").unwrap();
+                std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o444)).unwrap();
+            },
+            "it is read-only",
+        );
+    }
+
+    #[test]
+    fn an_unreadable_allow_stops_the_build() {
+        let dir = folder();
+        std::fs::create_dir(dir.join("t.allow")).unwrap();
+        let ran = approve_in(&dir, &["a.csv"], &["a.csv"], &mut Fake::new(true, None));
+        assert_eq!(ran.result, Err(3));
+        assert!(ran.err.starts_with("cannot read t.allow: "), "{}", ran.err);
+        std::fs::remove_dir(dir.join("t.allow")).unwrap();
+        std::fs::write(dir.join("t.allow"), [0xff, 0xfe]).unwrap();
+        let ran = approve_in(&dir, &["a.csv"], &["a.csv"], &mut Fake::new(true, None));
+        assert_eq!(ran.result, Err(3));
+        assert_eq!(ran.err, "cannot read t.allow: it is not UTF-8 text\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
