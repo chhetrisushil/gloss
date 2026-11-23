@@ -46,6 +46,17 @@ impl Lowerer<'_> {
                 self.emit(Inst::StoreSlot(self.slots[name], Reg::A));
                 Ok(())
             }
+            StmtKind::Ask { question, into } => {
+                self.line = s.line;
+                self.emit(Inst::Line(s.line));
+                self.expr(question)?;
+                self.emit(Inst::Push(Reg::A));
+                self.emit(Inst::Const(Reg::A, i64::from(s.line)));
+                self.emit(Inst::Push(Reg::A));
+                self.call("ask");
+                self.emit(Inst::StoreSlot(self.slots[into], Reg::A));
+                Ok(())
+            }
             StmtKind::Add {
                 value,
                 target: Target::Var(name),
