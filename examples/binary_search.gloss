@@ -1,0 +1,54 @@
+feature compare
+  needs guess as number, secret as number
+  if guess is less than secret
+    give -1
+  if guess is greater than secret
+    give 1
+  give 0
+
+feature steps_to_find
+  needs secret as number, top as number
+  set low to 1
+  set high to top
+  set steps to 0
+  repeat while low is at most high
+    add 1 to steps
+    set middle to whole of ((low + high) / 2)
+    set answer to compare with middle, secret
+    if answer is 0
+      give steps
+    if answer is -1
+      set low to middle + 1
+    otherwise
+      set high to middle - 1
+  give -1
+
+feature report
+  needs secret as number, top as number
+  set steps to steps_to_find with secret, top
+  if steps is -1
+    show secret, " is not between 1 and ", top
+  otherwise
+    show "found ", secret, " between 1 and ", top, " in ", steps, " steps"
+
+feature whole_root
+  needs n as number
+  set low to 0
+  set high to n
+  repeat while low is less than high
+    set middle to whole of ((low + high + 1) / 2)
+    if middle * middle is at most n
+      set low to middle
+    otherwise
+      set high to middle - 1
+  give low
+
+feature start
+  run report with 37, 100
+  run report with 1, 100
+  run report with 100, 100
+  run report with 999, 1000000
+  run report with 0, 100
+  show "whole root of 1000000 is ", (whole_root with 1000000)
+  show "whole root of 99 is ", (whole_root with 99)
+  show "whole root of 2 is ", (whole_root with 2)

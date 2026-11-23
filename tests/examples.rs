@@ -10,7 +10,7 @@ use std::process::Command;
 use run_support::{TempDir, run};
 
 /// Raised by every change that adds examples, so a lost file fails the sweep.
-const MIN_EXAMPLES: usize = 7;
+const MIN_EXAMPLES: usize = 8;
 
 fn examples() -> Vec<PathBuf> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
