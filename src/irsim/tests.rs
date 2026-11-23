@@ -1,5 +1,6 @@
 use super::{call, run};
 use crate::ir::{Cond, Data, Function, Global, Inst, IntOp, Label, Module, Reg, Shift};
+use crate::number::{NumFail, Number, SCALE};
 use Inst::*;
 use Reg::{A, B};
 
@@ -629,4 +630,92 @@ fn reading_above_the_top_of_the_stack_panics() {
         Return,
     ]);
     call(&m, "f", &[]);
+}
+
+/// What a failed `Num*` instruction returns, so a test can tell which label was taken.
+const RANGE_TAKEN: i64 = 0x5a5a_0001_0000_0000;
+const ZERO_TAKEN: i64 = 0x5a5a_0002_0000_0000;
+
+/// Runs `op` on `a` and `b`, giving the result in `a` or which label was taken.
+fn run_num(op: Inst, a: i64, b: i64) -> i64 {
+    let m = single(vec![
+        Const(A, a),
+        Const(B, b),
+        op,
+        Return,
+        Mark(Label(1)),
+        Const(A, RANGE_TAKEN),
+        Return,
+        Mark(Label(2)),
+        Const(A, ZERO_TAKEN),
+        Return,
+    ]);
+    call(&m, "f", &[])
+}
+
+fn reference(result: Result<Number, NumFail>) -> i64 {
+    match result {
+        Ok(Number(n)) => n,
+        Err(NumFail::OutOfRange) => RANGE_TAKEN,
+        Err(NumFail::DivideByZero) => ZERO_TAKEN,
+    }
+}
+
+const SAMPLES: [i64; 9] = [0, 1, -1, 7, -7, 1_000_000, i64::MAX, i64::MIN, i64::MIN + 1];
+
+#[test]
+fn num_instructions_match_the_number_reference() {
+    let range = Label(1);
+    let zero = Label(2);
+    for &x in &SAMPLES {
+        let (a, nx) = (x, Number(x));
+        assert_eq!(run_num(NumNeg { range }, a, 0), reference(nx.checked_neg()));
+        assert_eq!(run_num(NumWhole, a, 0), nx.whole().0);
+        for &y in &SAMPLES {
+            let ny = Number(y);
+            let ctx = format!("{x} and {y}");
+            assert_eq!(
+                run_num(NumAdd { range }, x, y),
+                reference(nx.checked_add(ny)),
+                "add {ctx}"
+            );
+            assert_eq!(
+                run_num(NumSub { range }, x, y),
+                reference(nx.checked_sub(ny)),
+                "sub {ctx}"
+            );
+            assert_eq!(
+                run_num(NumMul { range }, x, y),
+                reference(nx.mul_round(ny)),
+                "mul {ctx}"
+            );
+            assert_eq!(
+                run_num(NumDiv { zero, range }, x, y),
+                reference(nx.div_round(ny)),
+                "div {ctx}"
+            );
+            assert_eq!(
+                run_num(NumRem { zero }, x, y),
+                reference(nx.rem(ny)),
+                "rem {ctx}"
+            );
+        }
+    }
+}
+
+#[test]
+fn dividing_by_zero_takes_the_zero_label() {
+    let div = NumDiv {
+        zero: Label(2),
+        range: Label(1),
+    };
+    assert_eq!(run_num(div, 5, 0), ZERO_TAKEN);
+}
+
+#[test]
+fn multiplying_past_the_range_takes_the_range_label() {
+    assert_eq!(
+        run_num(NumMul { range: Label(1) }, i64::MAX, 2 * SCALE),
+        RANGE_TAKEN
+    );
 }

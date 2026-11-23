@@ -5,6 +5,7 @@
 mod exec;
 mod machine;
 mod memory;
+mod num;
 #[cfg(test)]
 mod tests;
 
