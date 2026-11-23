@@ -137,7 +137,7 @@ Table paths are the only security boundary in M1. The checker rejects absolute p
 **Runtime rules.** The language-visible rules (copies, `ask`, failure messages) are in the language spec: §7, §10 and §12.
 - **Memory** comes from the OS in 64 MiB pieces, or larger for one big request. It is placed one value after another, 8-byte aligned, and never freed. A refusal is failure 10.
 - **Stack.** The limit is measured from the top of the initial stack: the entry code saves the stack pointer at `argc`, and `_start` walks argv, envp and the auxiliary vector to `AT_EXECFN`, the executable's name, the highest string; its end rounded up to a page is the top (the entry stack pointer's own position is the fallback when the vector has no `AT_EXECFN`). The limit is that top minus the stack size (from `getrlimit`; 8 MiB if unlimited, capped at 1 GiB), plus a 64 KiB margin. Every feature call checks it (failure 10), so a large environment cannot make deep recursion fault. Runtime routines never recurse.
-- **Output** is buffered (4 KiB). It is flushed when full, before `ask` reads, before a failure message and at exit. A failed write ends the program with status 2 and no message.
+- **Output** is buffered (4 KiB). It is flushed when full, before `ask` reads, before a failure message and at exit. A failed write ends the program with status 2 and no message; writing to a closed pipe ends it by SIGPIPE instead, as is usual on Unix.
 
 **Testing.**
 - IR text tests for lowering.
@@ -198,7 +198,7 @@ The milestone ledger (every ruling R2–R49 and the review record) is kept at `~
 
 ### Milestone 2 (code generation and runtime), finished 2026-11-23, `main` @ ae91377 plus this documentation
 
-**What shipped:** `gloss build x.gloss` checks the program and writes the static x86-64 Linux ELF `x` beside the source (atomically, mode 0755), printing `Built x`. The pipeline is check → `lower` → Gloss IR (the user's features plus the reachable runtime routines, which are written in IR, D19) → x86-64 backend → encoder → ELF writer. Every statement and expression of the language spec except tables, `load`, `save`, `clear`, `expect` and `input` builds; run-time failures 1–5, 9 and 10 stop the program with the spec's messages. `irsim`, a test-only IR interpreter, is the reference the real executables are compared with (D21). A run harness (`tests/run_support`) builds, runs and times executables through `GLOSS_RUNNER`, and 89 `tests/run/*.gloss` cases run both as real executables and under `irsim`. `examples/` holds eight programs that are built, run and format-checked by `tests/examples.rs`. The language spec's complete programs and its §10 failure messages are checked end to end.
+**What shipped:** `gloss build x.gloss` checks the program and writes the static x86-64 Linux ELF `x` beside the source (atomically, mode 0755), printing `Built x`. The pipeline is check → `lower` → Gloss IR (the user's features plus the reachable runtime routines, which are written in IR, D19) → x86-64 backend → encoder → ELF writer. Every statement and expression of the language spec except tables, `load`, `save` and `clear` builds, and test blocks (`expect`, `input`) are left out of the built program until milestone 4; run-time failures 1–5, 9 and 10 stop the program with the spec's messages. `irsim`, a test-only IR interpreter, is the reference the real executables are compared with (D21). A run harness (`tests/run_support`) builds, runs and times executables through `GLOSS_RUNNER`, and 97 `tests/run/*.gloss` cases run both as real executables and under `irsim`. `examples/` holds eight programs that are built, run and format-checked by `tests/examples.rs`. The language spec's complete programs and its §10 failure messages are checked end to end.
 
 **Pull requests** (all rebase-merged, one at a time; the plan itself was #101):
 
@@ -223,7 +223,7 @@ The milestone ledger (every ruling R2–R49 and the review record) is kept at `~
 | 19, 20, 21, 22 | Records; lists; showing and comparing lists and records; copies | #232–#237, #238–#248, #249–#254, #255–#263 |
 | 23, 24 | Out of memory; the spec's programs and failure messages | #264, #265–#266 |
 
-**Deviations from the decisions above** (rulings are numbered M2-R1 … M2-R35 in the milestone ledger):
+**Deviations from the decisions above** (rulings are numbered M2-R1 … M2-R36 in the milestone ledger):
 - **D14 (200-line PRs):** tasks over the cap were split into sequential PRs, never stacked and never trimmed to fit (M2-R2, M2-R4, M2-R5). Work happened in the main checkout, one branch at a time, after a worktree was deleted under a running session (M2-R6).
 - **D2 and D17:** the machine is Alpine 3.23 `gloss-amd64` under Rosetta; `objdump` comes from `apk add binutils`. Rosetta is not a real kernel, so CI (`ubuntu-latest`) is the check of the real loader.
 - **D21 (irsim):** the `.ulimit` run cases are skipped under `irsim`, which has no address-space limit; the skips are counted against the `.ulimit` files so none can vanish.
@@ -252,7 +252,7 @@ The milestone ledger (every ruling R2–R49 and the review record) is kept at `~
 - M2-R14: when the runner starts with `orb`, output goes to fresh files in the shared test directory and is read back, because OrbStack's forwarding drops the tail of piped output under load (found with plain `head -c 1MiB`; 0 of 4800 runs short afterwards, against 10 of 3200 before). An `#[ignore]` stress test keeps the evidence.
 
 *Runtime*
-- M2-R15, M2-R32: a failed write (result 0 or below) or a failed read ends the program with status 2 and no message, after flushing.
+- M2-R15, M2-R32: a failed write (result 0 or below) or a failed read ends the program with status 2 and no message, after flushing. A write to a closed pipe never gets that far: the kernel's SIGPIPE ends the program first (M2-R36).
 - M2-R16: `stack_limit(size, sp)` is a separate routine so the cap cases can be tested.
 - M2-R17: `_start` calls `f_start`.
 - M2-R18, superseded by M2-R26: the stack limit is measured from the top of the initial stack (the end of the `AT_EXECFN` string rounded up to a page), falling back to the entry stack pointer; the walks of envp, auxv and the name are bounded (65536, 64, 4096). The 65536 bound is untested (M2-R27).
@@ -268,6 +268,7 @@ The milestone ledger (every ruling R2–R49 and the review record) is kept at `~
 - M2-R33: no run case above 10000 bytes of input; growth is unit-tested at 100000 bytes and 1 MiB was checked by hand.
 - M2-R34: replacing an item of a list a loop is walking (`set`, or an arithmetic verb on an item) is refused with the existing `cannot change while the loop on line N walks it`; changing a field of an item stays allowed (`spec/v0.md` §4 updated).
 - M2-R35: the out-of-memory case runs with a 1 GiB `.ulimit` (the plan said 64 MiB), since Rosetta needs about 800 MB of address space to start.
+- M2-R36: SIGPIPE is not ignored, so writing to a closed pipe ends the program by signal (status 141 under a shell), as is usual on Unix; a failed write that returns an error exits with status 2.
 
 **Tests:** 517 pass and 1 is ignored (the stress test): 414 unit tests and 103 integration tests, including the CLI, 89 run cases (real and `irsim`), the examples, the spec guard, the 2000-result number reference, the objdump check (opt-in, so it skips by default), and the differential tests of backend against `irsim`. Encoder sweeps against `objdump` found 0 mismatches over more than 40,000 instructions; the number routines agreed on 220,000 generated pairs.
 

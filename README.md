@@ -41,7 +41,7 @@ Agents now write most code, and fewer people read it. Gloss aims to make program
 
 ## Status
 
-Milestones 1 and 2 are built. The compiler reads a Gloss program, reports every compile error and warning the spec defines, formats source into its one accepted form, and `gloss build` writes a static x86-64 Linux executable. Programs that declare a table are refused (`tables arrive in milestone 3`); so are `load`, `save`, `clear`, `expect` and `input`, which belong to milestones 3 and 4.
+Milestones 1 and 2 are built. The compiler reads a Gloss program, reports every compile error and warning the spec defines, formats source into its one accepted form, and `gloss build` writes a static x86-64 Linux executable. Programs that declare a table are refused (`tables arrive in milestone 3`); `load`, `save` and `clear` are refused; test blocks (`expect`, `input`) are left out of the built program until milestone 4.
 
 | Milestone | What it adds | State |
 |---|---|---|
