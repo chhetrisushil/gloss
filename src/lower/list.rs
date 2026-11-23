@@ -317,7 +317,7 @@ impl Lowerer<'_> {
     /// risk and the variable keeps the item it was given.
     pub fn for_each(&mut self, var: &str, list: &Expr, body: &[Stmt]) -> Result<(), Diagnostic> {
         let (held, at) = (self.new_temp(), self.new_temp());
-        self.expr(list)?;
+        self.walked_list(list)?;
         self.emit(Inst::StoreSlot(held, Reg::A));
         self.emit(Inst::Const(Reg::A, 0));
         self.emit(Inst::StoreSlot(at, Reg::A));

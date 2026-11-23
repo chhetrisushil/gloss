@@ -1,0 +1,9 @@
+feature same
+  needs xs as list of number
+  give xs
+
+feature start
+  set ps to list of 1, 2, 3
+  for each p in (same with ps)
+    set item 3 of ps to 30
+    show p
