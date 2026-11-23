@@ -16,8 +16,8 @@ impl Target for X86_64Linux {
         "x86-64 Linux"
     }
 
-    fn executable(&self, _m: &crate::ir::Module) -> Result<Vec<u8>, String> {
-        Err("code generation for x86-64 Linux is not finished".to_string())
+    fn executable(&self, m: &crate::ir::Module) -> Result<Vec<u8>, String> {
+        x86_64::program::executable(m)
     }
 }
 
