@@ -1,6 +1,8 @@
 //! The x86-64 target: typed instructions, their text and their bytes.
 
 pub mod arith;
+#[cfg(test)]
+mod difftest;
 pub mod emit;
 pub mod encode;
 mod encode_alu;
