@@ -217,6 +217,14 @@ pub struct Function {
 }
 
 /// A type descriptor the runtime uses to print values.
+///
+/// In memory (read-only), every field is 8 bytes. A descriptor starts with its kind: 0
+/// number, 1 text, 2 truth, 3 record, 4 list. A record continues with the address of its
+/// name text, its field count, then per field the address of the field-name text and of the
+/// field's descriptor. A list continues with the address of its item descriptor. Values:
+/// a text is the address of its 8-byte length, followed by the bytes; a list is the address
+/// of a header `[count, capacity, items]` whose `items` is the address of `capacity` slots;
+/// a record is one slot per declared field, in declaration order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Desc {
     Number,

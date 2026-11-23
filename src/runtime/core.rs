@@ -1,4 +1,4 @@
-//! The allocator.
+//! The entry routine, the allocator and the stack limit.
 
 use super::asm::Asm;
 use crate::ir::Cond::{Ge, Le, Ne};
@@ -7,6 +7,23 @@ use crate::ir::{Function, Global, Inst::*, IntOp, Prim};
 
 /// The least the allocator maps at a time.
 const PIECE: i64 = 64 << 20;
+/// The stack size assumed when the limit is unlimited (`StackSize` gives -1).
+const DEFAULT_STACK: i64 = 8 << 20;
+/// The most of the stack the limit allows.
+const MAX_STACK: i64 = 1 << 30;
+/// How far above the real end of the stack the limit sits.
+const STACK_MARGIN: i64 = 64 << 10;
+
+fn start() -> Function {
+    let mut s = Asm::default();
+    s.call("heap_init");
+    s.call("stack_init");
+    s.call("start");
+    s.call("flush");
+    s.push_const(0);
+    s.i(System(Prim::Exit));
+    s.finish("_start", 0, 0)
+}
 
 fn heap_init() -> Function {
     let mut s = Asm::default();
@@ -75,6 +92,46 @@ fn fail_memory() -> Function {
     s.finish("fail_memory", 1, 0)
 }
 
+/// `stack_limit(size, sp)`: the limit for a stack pointer `sp` and a `StackSize` of `size`
+/// (-1 for unlimited): `sp - min(size, 1 GiB) + 64 KiB`, with `size` 8 MiB when unlimited.
+fn stack_limit() -> Function {
+    let mut s = Asm::default();
+    let (known, capped) = (s.label(), s.label());
+    s.i(LoadArg(A, 1));
+    s.i(Const(B, 0));
+    s.jump_if(Ge, known);
+    s.i(Const(A, DEFAULT_STACK));
+    s.i(Mark(known));
+    s.i(Const(B, MAX_STACK));
+    s.jump_if(Le, capped);
+    s.i(Move { to: A, from: B });
+    s.i(Mark(capped));
+    s.i(Move { to: B, from: A });
+    s.i(LoadArg(A, 2));
+    s.i(Int(IntOp::Sub));
+    s.i(AddImm(A, STACK_MARGIN as i32));
+    s.i(Return);
+    s.finish("stack_limit", 2, 0)
+}
+
+fn stack_init() -> Function {
+    let mut s = Asm::default();
+    s.i(System(Prim::StackSize));
+    s.i(Push(A));
+    s.i(StackPointer(A));
+    s.i(Push(A));
+    s.call("stack_limit");
+    s.gstore(Global::StackLimit, A, B);
+    s.finish("stack_init", 0, 0)
+}
+
 pub fn routines() -> Vec<Function> {
-    vec![heap_init(), alloc(), fail_memory()]
+    vec![
+        start(),
+        heap_init(),
+        alloc(),
+        fail_memory(),
+        stack_limit(),
+        stack_init(),
+    ]
 }
