@@ -1,0 +1,13 @@
+feature start
+  set price to 90
+  if price is greater than 100
+    show "dear"
+  otherwise if price is less than 80
+    show "cheap"
+  otherwise
+    show "fair"
+  set n to 1
+  repeat while n is at most 3
+    show n
+    add 1 to n
+  show (2 is 2 and not (3 is less than 1)), (1 is 2 or no)

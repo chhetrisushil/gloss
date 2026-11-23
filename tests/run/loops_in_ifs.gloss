@@ -1,0 +1,14 @@
+feature start
+  set n to 5
+  repeat while n is less than 5
+    show "never"
+  set i to 1
+  repeat while i is at most 6
+    if remainder of i by 2 is 0
+      show i, " even"
+    otherwise if i is 5
+      show "five"
+    otherwise
+      show i
+    add 1 to i
+  show "done"

@@ -172,3 +172,36 @@ fn comparing_texts_is_not_built_yet() {
     let d = lowered("feature start\n  show (\"a\" is \"b\")\n").unwrap_err();
     assert_eq!(d.problem, "this compiler cannot build this expression yet");
 }
+
+#[test]
+fn an_if_with_otherwise_lowers_to_jumps_over_each_branch() {
+    let m = lowered("feature start\n  if 1 is 1\n    show \"a\"\n  otherwise\n    show \"b\"\n")
+        .unwrap();
+    let t = start_text(&m);
+    assert!(
+        t.contains("  jump if eq L1\n") && t.contains("  jump L0\nL1:\n") && t.contains("L0:\n"),
+        "{t}"
+    );
+}
+
+#[test]
+fn a_while_loop_tests_its_condition_before_each_turn() {
+    let m =
+        lowered("feature start\n  set n to 0\n  repeat while n is less than 1\n    add 1 to n\n")
+            .unwrap();
+    let t = start_text(&m);
+    let top = t.find("L0:\n").expect("a loop top");
+    assert!(
+        top < t.find("jump if eq L1").unwrap() && t.contains("  jump L0\nL1:\n"),
+        "{t}"
+    );
+}
+
+#[test]
+fn nested_ifs_and_loops_use_distinct_labels() {
+    let text = "feature start\n  set n to 0\n  repeat while n is less than 2\n    if n is 0\n      show \"a\"\n    otherwise\n      show \"b\"\n    add 1 to n\n";
+    let t = start_text(&lowered(text).unwrap());
+    for l in ["L0:\n", "L1:\n", "L2:\n", "L3:\n"] {
+        assert_eq!(t.matches(l).count(), 1, "{l} in {t}");
+    }
+}

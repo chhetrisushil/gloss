@@ -1,5 +1,6 @@
 //! Lowering truths and conditions: a truth is 1 or 0 in register `a`.
 use super::Lowerer;
+use crate::ast::stmt::Stmt;
 use crate::ast::{CompareOp, Expr, ExprKind};
 use crate::check::Ty;
 use crate::diag::Diagnostic;
@@ -90,5 +91,35 @@ impl Lowerer<'_> {
         self.push_text(b"no");
         self.call("out_text");
         self.emit(Inst::Mark(end));
+    }
+}
+
+impl Lowerer<'_> {
+    /// Evaluates `cond` and jumps to `else_to` when it is no.
+    pub fn condition(&mut self, cond: &Expr, else_to: Label) -> Result<(), Diagnostic> {
+        self.line = cond.line;
+        self.emit(Inst::Line(cond.line));
+        self.expr(cond)?;
+        self.jump_if_a_is(0, else_to);
+        Ok(())
+    }
+
+    /// `if` with its `otherwise if` branches and the final `otherwise`.
+    pub fn if_chain(
+        &mut self,
+        branches: &[(Expr, Vec<Stmt>)],
+        otherwise: Option<&[Stmt]>,
+    ) -> Result<(), Diagnostic> {
+        let end = self.new_label();
+        for (cond, body) in branches {
+            let next = self.new_label();
+            self.condition(cond, next)?;
+            self.stmts(body)?;
+            self.emit(Inst::Jump(end));
+            self.emit(Inst::Mark(next));
+        }
+        self.stmts(otherwise.unwrap_or_default())?;
+        self.emit(Inst::Mark(end));
+        Ok(())
     }
 }
