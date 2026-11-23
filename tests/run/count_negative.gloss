@@ -1,0 +1,5 @@
+feature start
+  for each i from -2 to 1
+    show i
+  for each j from 4 to 4
+    show j
