@@ -1,12 +1,13 @@
 //! Every `tests/run/<name>.gloss` is built by the real `gloss` binary and run on Linux.
-//! Beside it: `.out` (required), and optional `.in`, `.err` and `.status`.
+//! Beside it: `.out` (required), and optional `.in`, `.err`, `.status` and `.ulimit` (a
+//! virtual-memory limit in KiB, applied with `ulimit -v` in the shell that runs the program).
 
 mod run_support;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use run_support::{DEADLINE, TempDir, run, run_env};
+use run_support::{DEADLINE, TempDir, run_env, run_limited};
 
 include!("run_sweep.inc");
 
@@ -29,7 +30,7 @@ fn the_sweep_reports_an_orphan() {
     std::fs::write(dir.0.join("a.gloss"), "").unwrap();
     std::fs::write(dir.0.join("a.out"), "").unwrap();
     assert_eq!(sweep(&dir.0).unwrap().len(), 1);
-    for orphan in ["x.out", "b.GLOSS", "a.txt"] {
+    for orphan in ["x.out", "b.GLOSS", "a.txt", "x.ulimit"] {
         std::fs::write(dir.0.join(orphan), "").unwrap();
         let err = sweep(&dir.0).unwrap_err();
         assert!(err.contains(orphan), "{err}");
@@ -50,7 +51,14 @@ fn every_run_case_builds_and_runs() {
             .output()
             .unwrap();
         assert_eq!(built.status.code(), Some(0), "{name}: {built:?}");
-        let Some(ran) = run(&dir.0.join(name), &beside(&case, "in").unwrap_or_default()) else {
+        let kib = beside(&case, "ulimit").map(|k| {
+            let text = String::from_utf8(k).unwrap();
+            text.trim()
+                .parse::<u64>()
+                .unwrap_or_else(|e| panic!("{name}.ulimit: {e}"))
+        });
+        let input = beside(&case, "in").unwrap_or_default();
+        let Some(ran) = run_limited(&dir.0.join(name), &input, DEADLINE, &[], kib) else {
             continue;
         };
         let status = beside(&case, "status")

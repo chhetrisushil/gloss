@@ -1,0 +1,4 @@
+feature start
+  set xs to empty list of number
+  repeat while yes
+    append 1 to xs
