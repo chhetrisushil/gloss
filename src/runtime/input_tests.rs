@@ -234,3 +234,30 @@ fn a_hundred_thousand_bytes_on_one_line_grow_the_text_by_doubling() {
     let line = vec![b'q'; 100_000];
     asked(1, &[&line[..], b"\n"].concat(), &[&line]);
 }
+
+#[test]
+fn a_line_one_byte_past_the_first_room_stays_inside_its_own_block() {
+    // The first text has room for 64 bytes. Asking twice puts the second block right after
+    // the first; an overrun by the 65th byte would show in the second length word or in the
+    // first text read again at the end.
+    let (a, b) = ([b'a'; 65], [b'b'; 65]);
+    let ask = [Const(A, LINE), Push(A), Call("ask".into())];
+    let question = [AddressOf(A, Data::Text(0)), Push(A)];
+    let show = [Push(A), Call("out_text".into())];
+    let body = [
+        &question[..],
+        &ask,
+        &[Push(A)],
+        &question,
+        &ask,
+        &show,
+        &[Pop(A)],
+        &show,
+        &[Call("flush".into())],
+    ]
+    .concat();
+    let input = [&a[..], b"\n", &b, b"\n"].concat();
+    let o = irsim::run(&program(body, &[b"?"]), "_start", &input);
+    assert_eq!((o.status, o.stderr), (0, vec![]));
+    assert_eq!(o.stdout, [&b"?\n?\n"[..], &b, &a].concat());
+}
