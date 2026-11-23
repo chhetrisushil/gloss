@@ -1,7 +1,8 @@
-//! Writing to the output descriptors, with standard output buffered.
+//! Writing to the output descriptors, with standard output buffered, and the failure
+//! message pieces.
 
 use super::asm::Asm;
-use crate::ir::Cond::{Ge, Le};
+use crate::ir::Cond::{Ge, Le, Lt};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Data, Function, Global, Inst::*, IntOp, Prim};
 
@@ -122,6 +123,75 @@ fn out_text() -> Function {
     s.finish("out_text", 1, 0)
 }
 
+fn err_text() -> Function {
+    let mut s = Asm::default();
+    s.push_const(2);
+    s.push_text_arg(1);
+    s.call("write_all");
+    s.finish("err_text", 1, 0)
+}
+
+/// `err_int(n)`: `n` in decimal, for `n >= 0`. Each digit is written from the stack.
+fn err_int() -> Function {
+    let mut s = Asm::default();
+    let digit = s.label();
+    s.i(LoadArg(A, 1));
+    s.i(Const(B, 10));
+    s.jump_if(Lt, digit);
+    s.i(Int(IntOp::Div));
+    s.i(Push(A));
+    s.call("err_int");
+    s.i(Mark(digit));
+    s.i(LoadArg(A, 1));
+    s.i(Const(B, 10));
+    s.i(Int(IntOp::Rem));
+    s.i(AddImm(A, i32::from(b'0')));
+    s.i(Push(A));
+    s.push_const(2);
+    s.i(StackPointer(A));
+    s.i(AddImm(A, 8));
+    s.i(Push(A));
+    s.push_const(1);
+    s.i(System(Prim::Write));
+    s.i(Pop(B));
+    s.finish("err_int", 1, 0)
+}
+
+/// `fail_begin(line, code)`: flushes, then starts `line <line>: failure <code>: `.
+fn fail_begin() -> Function {
+    let mut s = Asm::default();
+    s.call("flush");
+    s.push_text(super::LINE);
+    s.call("err_text");
+    s.push_arg(1);
+    s.call("err_int");
+    s.push_text(super::FAILURE);
+    s.call("err_text");
+    s.push_arg(2);
+    s.call("err_int");
+    s.push_text(super::COLON);
+    s.call("err_text");
+    s.finish("fail_begin", 2, 0)
+}
+
+fn fail_end() -> Function {
+    let mut s = Asm::default();
+    s.push_text(super::NEWLINE);
+    s.call("err_text");
+    s.push_const(2);
+    s.i(System(Prim::Exit));
+    s.finish("fail_end", 0, 0)
+}
+
 pub fn routines() -> Vec<Function> {
-    vec![write_all(), flush(), out_bytes(), out_text()]
+    vec![
+        write_all(),
+        flush(),
+        out_bytes(),
+        out_text(),
+        err_text(),
+        err_int(),
+        fail_begin(),
+        fail_end(),
+    ]
 }

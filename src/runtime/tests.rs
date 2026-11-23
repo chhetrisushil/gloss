@@ -119,3 +119,49 @@ fn only_the_reachable_routines_are_added_once_each() {
     names.sort();
     assert_eq!(names, ["flush", "out_bytes", "out_text", "write_all"]);
 }
+
+#[test]
+fn err_text_writes_to_standard_error_unbuffered() {
+    let body = vec![
+        AddressOf(A, Data::Text(0)),
+        Push(A),
+        Call("err_text".into()),
+    ];
+    let o = run(&program(body, &[b"oops"]));
+    assert_eq!(o.stderr, b"oops");
+    assert!(o.stdout.is_empty());
+}
+
+#[test]
+fn err_int_writes_decimal_digits() {
+    for (n, want) in [
+        (0, "0"),
+        (7, "7"),
+        (10, "10"),
+        (4096, "4096"),
+        (i64::MAX, "9223372036854775807"),
+    ] {
+        let body = vec![Const(A, n), Push(A), Call("err_int".into())];
+        assert_eq!(run(&program(body, &[])).stderr, want.as_bytes(), "{n}");
+    }
+}
+
+#[test]
+fn a_failure_flushes_output_then_writes_its_message_and_exits_2() {
+    let mut body = out_text(0);
+    body.extend([
+        Const(A, 7),
+        Push(A),
+        Const(A, 3),
+        Push(A),
+        Call("fail_begin".into()),
+        AddressOf(A, Data::Text(1)),
+        Push(A),
+        Call("err_text".into()),
+        Call("fail_end".into()),
+    ]);
+    let o = run(&program(body, &[b"before", b"boom"]));
+    assert_eq!(o.status, 2);
+    assert_eq!(o.stdout, b"before");
+    assert_eq!(o.stderr, b"line 7: failure 3: boom\n");
+}
