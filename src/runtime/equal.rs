@@ -165,9 +165,10 @@ pub(super) fn routines() -> Vec<Function> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::heap_tests::{Heap, W};
     use super::super::tests::{program, run};
     use crate::ir::Reg::A;
-    use crate::ir::{Data, Desc, Inst::*};
+    use crate::ir::{Data, Desc, Inst::*, Module};
 
     /// Whether `equal_values` finds texts `x` and `y` equal.
     fn texts_equal(x: &[u8], y: &[u8]) -> bool {
@@ -194,5 +195,80 @@ mod tests {
         assert!(texts_equal(b"Asha", b"Asha"));
         assert!(!texts_equal(b"Asha", b"Ashe"));
         assert!(!texts_equal(b"Asha", b"Ash"));
+    }
+
+    /// A record of a text, a number and a truth, and the descriptors of its type and lists.
+    fn types() -> (Module, [u32; 3]) {
+        let mut d = Module::default();
+        let (number, text, truth) = (
+            d.desc(Desc::Number),
+            d.desc(Desc::Text),
+            d.desc(Desc::Truth),
+        );
+        let fields = vec![
+            ("n".into(), text),
+            ("a".into(), number),
+            ("t".into(), truth),
+        ];
+        let record = d.desc(Desc::Record {
+            name: "E".into(),
+            fields,
+        });
+        let (numbers, records) = (d.desc(Desc::List(number)), d.desc(Desc::List(record)));
+        (d, [record, numbers, records])
+    }
+
+    fn records(a: [i64; 3], b: [i64; 3]) -> bool {
+        let (d, [record, ..]) = types();
+        let mut h = Heap::default();
+        let mut make = |x: [i64; 3]| h.block(&[W::T(x[0] as u32), W::N(x[1]), W::N(x[2])]);
+        let (x, y) = (make(a), make(b));
+        h.call("equal_values", &[x, y], record, d) == b"0.0001"
+    }
+
+    #[test]
+    fn records_are_equal_field_by_field() {
+        assert!(records([2, 9, 1], [2, 9, 1]));
+        assert!(!records([2, 9, 1], [2, 9, 0]));
+        assert!(!records([2, 9, 1], [2, 8, 1]));
+    }
+
+    fn numbers(a: &[i64], b: &[i64]) -> bool {
+        let (d, [_, list, _]) = types();
+        let mut h = Heap::default();
+        let items = |v: &[i64]| v.iter().map(|n| W::N(*n)).collect::<Vec<_>>();
+        let (x, y) = (h.list(&items(a)), h.list(&items(b)));
+        h.call("equal_values", &[x, y], list, d) == b"0.0001"
+    }
+
+    #[test]
+    fn lists_are_equal_by_count_then_every_item() {
+        assert!(numbers(&[1, 2, 3], &[1, 2, 3]));
+        assert!(numbers(&[], &[]));
+        assert!(!numbers(&[1, 2, 3], &[1, 2]));
+        assert!(!numbers(&[1, 2], &[1, 2, 3]));
+        assert!(!numbers(&[1, 2, 3], &[1, 2, 4]));
+    }
+
+    fn record_lists(a: [[i64; 3]; 2], b: [[i64; 3]; 2]) -> bool {
+        let (d, [_, _, list]) = types();
+        let mut h = Heap::default();
+        let mut make = |l: [[i64; 3]; 2]| {
+            let items: Vec<W> = l
+                .iter()
+                .map(|r| W::S(h.block(&[W::T(r[0] as u32), W::N(r[1]), W::N(r[2])])))
+                .collect();
+            h.list(&items)
+        };
+        let (x, y) = (make(a), make(b));
+        h.call("equal_values", &[x, y], list, d) == b"0.0001"
+    }
+
+    #[test]
+    fn lists_of_records_compare_every_field_of_every_record() {
+        let base = [[2, 1, 1], [3, 2, 0]];
+        assert!(record_lists(base, base));
+        assert!(!record_lists(base, [[2, 1, 1], [3, 2, 1]]));
+        assert!(!record_lists(base, [[2, 1, 1], [3, 5, 0]]));
     }
 }
