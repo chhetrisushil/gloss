@@ -299,3 +299,58 @@ fn ask_lowers_to_a_call_with_the_question_and_the_line() {
     ));
     assert!(m.functions.iter().any(|f| f.name == "ask"));
 }
+
+const TABLE_PROGRAM: &str = "record Row\n  name as text\n\ntable rows of Row in \"rows.csv\"\n\n\
+                             feature start\n  show \"ran\"\n";
+
+fn run_with_args(text: &str, args: &[&str]) -> crate::irsim::Outcome {
+    let src = Source::new(text);
+    let program = crate::parse_source(&src).expect("parses");
+    let types = check(&program, &src).types.expect("checks clean");
+    let m = super::lower_allowing_tables(&program, &types, &src).expect("lowers");
+    crate::irsim::run_with(&m, "_start", b"", args, crate::irsim::Faults::default())
+}
+
+fn list_of(text: &str) -> String {
+    let program = crate::parse_source(&Source::new(text)).expect("parses");
+    crate::permissions::render(&crate::permissions::list(&program))
+}
+
+#[test]
+fn permissions_prints_the_list_and_exits_0() {
+    let o = run_with_args(TABLE_PROGRAM, &["--permissions"]);
+    let list = list_of(TABLE_PROGRAM);
+    assert!(list.contains("rows.csv"), "{list}");
+    assert_eq!(
+        (o.stdout, o.stderr, o.status),
+        (list.into_bytes(), vec![], 0)
+    );
+}
+
+#[test]
+fn other_arguments_are_ignored() {
+    let cases: [&[&str]; 6] = [
+        &["--permissions", "x"],
+        &["-p"],
+        &["--permissionsX"],
+        &["--permission"],
+        &[""],
+        &[],
+    ];
+    for args in cases {
+        let o = run_with_args(TABLE_PROGRAM, args);
+        assert_eq!(
+            (o.stdout.as_slice(), o.status),
+            (&b"ran\n"[..], 0),
+            "{args:?}"
+        );
+    }
+}
+
+#[test]
+fn a_program_without_tables_prints_nothing_else() {
+    let text = "feature start\n  show \"ran\"\n";
+    let o = run_with_args(text, &["--permissions"]);
+    assert_eq!(o.stdout, crate::permissions::render(&[]).into_bytes());
+    assert_eq!(o.status, 0);
+}

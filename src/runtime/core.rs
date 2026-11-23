@@ -20,6 +20,7 @@ fn start() -> Function {
     let mut s = Asm::default();
     s.call("heap_init");
     s.call("stack_init");
+    s.call("args_check");
     s.call("f_start");
     s.call("flush");
     s.push_const(0);

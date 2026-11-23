@@ -5,6 +5,7 @@
 //! index into it, and `add_reachable` moves the ones it needs into the module. So
 //! `routines()` is only meaningful as input to `add_reachable`.
 
+mod args;
 mod asm;
 mod copy;
 mod core;
@@ -46,12 +47,13 @@ const TEXT: u32 = 15;
 const TRUTH: u32 = 16;
 const OPEN: u32 = 17;
 const CLOSE: u32 = 18;
+const PERMISSIONS_FLAG: u32 = 19;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 19] = [
+const TEXTS: [&[u8]; 20] = [
     b"line ",
     b": failure ",
     b": ",
@@ -71,6 +73,7 @@ const TEXTS: [&[u8]; 19] = [
     b"truth",
     b"(",
     b")",
+    b"--permissions\0",
 ];
 
 /// The bytes of the runtime text `i`.
@@ -85,6 +88,7 @@ fn text_bytes(i: u32) -> Vec<u8> {
 /// Every runtime routine.
 pub fn routines() -> Vec<Function> {
     let mut all = core::routines();
+    all.extend(args::routines());
     all.extend(copy::routines());
     all.extend(equal::routines());
     all.extend(output::routines());
