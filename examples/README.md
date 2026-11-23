@@ -11,6 +11,7 @@ Small Gloss programs that compile to x86-64 Linux executables with today's compi
 | [collatz.gloss](collatz.gloss) | Collatz step counts in a `repeat while`, and the longest run below 31 |
 | [square_root.gloss](square_root.gloss) | Newton's method on fixed-point numbers, and `as text with 2 places` |
 | [palindromes.gloss](palindromes.gloss) | Reversing a number's digits with `remainder of` and `whole of` |
+| [binary_search.gloss](binary_search.gloss) | Binary search: finding a hidden number in a range, counting the steps, and the whole square root of a number |
 
 Build and run one (on a Mac, through the `gloss-amd64` OrbStack machine):
 
