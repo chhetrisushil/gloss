@@ -4,7 +4,7 @@ use super::encode::encode;
 use super::inst::{X, text};
 use super::lower::lower_function;
 use crate::ir::Reg::{A, B};
-use crate::ir::{Function, Inst, Prim};
+use crate::ir::{Data, Function, Global, Inst, Prim};
 
 fn func(params: u32, slots: u32, body: Vec<Inst>) -> Function {
     Function {
@@ -82,6 +82,55 @@ fn slots_and_arguments_have_frame_addresses() {
     assert_eq!(one(Inst::StoreSlot(1, B)), ["mov [rbp-8], rcx"]);
     assert_eq!(one(Inst::LoadArg(B, 1)), ["mov rcx, [rbp+24]"]);
     assert_eq!(one(Inst::LoadArg(A, 2)), ["mov rax, [rbp+16]"]);
+}
+
+#[test]
+fn moves() {
+    assert_eq!(one(Inst::Const(B, -5)), ["movabs rcx, -5"]);
+    assert_eq!(one(Inst::Move { to: A, from: B }), ["mov rax, rcx"]);
+    assert_eq!(one(Inst::Push(A)), ["push rax"]);
+    assert_eq!(one(Inst::Pop(B)), ["pop rcx"]);
+}
+
+#[test]
+fn memory() {
+    assert_eq!(one(Inst::StackPointer(A)), ["mov rax, rsp"]);
+    assert_eq!(
+        one(Inst::AddressOf(A, Data::Text(2))),
+        ["lea rax, [rip+text_2]"]
+    );
+    assert_eq!(
+        one(Inst::AddressOf(B, Data::Desc(1))),
+        ["lea rcx, [rip+desc_1]"]
+    );
+    assert_eq!(
+        one(Inst::AddressOf(A, Data::Global(Global::HeapNext))),
+        ["lea rax, [rip+heap_next]"]
+    );
+    let load = Inst::Load {
+        to: A,
+        base: B,
+        offset: 8,
+    };
+    assert_eq!(one(load), ["mov rax, [rcx+8]"]);
+    let store = Inst::Store {
+        base: A,
+        offset: -8,
+        from: B,
+    };
+    assert_eq!(one(store), ["mov [rax-8], rcx"]);
+    let lb = Inst::LoadByte {
+        to: B,
+        base: A,
+        offset: 1,
+    };
+    assert_eq!(one(lb), ["movzx ecx, byte [rax+1]"]);
+    let sb = Inst::StoreByte {
+        base: B,
+        offset: 0,
+        from: A,
+    };
+    assert_eq!(one(sb), ["mov byte [rcx+0], al"]);
 }
 
 #[test]

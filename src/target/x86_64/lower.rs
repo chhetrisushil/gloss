@@ -6,8 +6,8 @@
 
 use std::collections::HashMap;
 
-use super::inst::{AluOp, Mem, R, X};
-use crate::ir::{Function, Inst, Reg, inst_text};
+use super::inst::{AluOp, Mem, R, Sym, X};
+use crate::ir::{Data, Function, Inst, Reg, inst_text};
 
 /// Lowers one function; `params` maps every callable function to its parameter count.
 pub fn lower_function(f: &Function, params: &HashMap<String, u32>) -> Result<Vec<X>, String> {
@@ -50,17 +50,32 @@ fn inst_x(
             out.push(X::Ret);
         }
         Inst::Enter(n) => enter(*n, out),
-        Inst::Const(..)
-        | Inst::Move { .. }
-        | Inst::Push(_)
-        | Inst::Pop(_)
-        | Inst::AddressOf(..)
-        | Inst::StackPointer(_)
-        | Inst::Load { .. }
-        | Inst::Store { .. }
-        | Inst::LoadByte { .. }
-        | Inst::StoreByte { .. }
-        | Inst::Int(_)
+        Inst::Const(r, v) => out.push(X::MovRI(reg(*r), *v)),
+        Inst::Move { to, from } => out.push(X::MovRR(reg(*to), reg(*from))),
+        Inst::Push(r) => out.push(X::Push(reg(*r))),
+        Inst::Pop(r) => out.push(X::Pop(reg(*r))),
+        Inst::AddressOf(r, d) => {
+            let sym = match d {
+                Data::Text(n) => Sym::Text(*n),
+                Data::Desc(n) => Sym::Desc(*n),
+                Data::Global(g) => Sym::Global(*g),
+            };
+            out.push(X::Lea(reg(*r), Mem::Rip(sym)));
+        }
+        Inst::StackPointer(r) => out.push(X::MovRR(reg(*r), R::Rsp)),
+        Inst::Load { to, base, offset } => {
+            out.push(X::MovRM(reg(*to), Mem::Base(reg(*base), *offset)));
+        }
+        Inst::Store { base, offset, from } => {
+            out.push(X::MovMR(Mem::Base(reg(*base), *offset), reg(*from)));
+        }
+        Inst::LoadByte { to, base, offset } => {
+            out.push(X::MovzxRM8(reg(*to), Mem::Base(reg(*base), *offset)));
+        }
+        Inst::StoreByte { base, offset, from } => {
+            out.push(X::MovM8R(Mem::Base(reg(*base), *offset), reg(*from)));
+        }
+        Inst::Int(_)
         | Inst::AddImm(..)
         | Inst::Shift(..)
         | Inst::Compare
