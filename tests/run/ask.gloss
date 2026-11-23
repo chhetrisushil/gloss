@@ -1,0 +1,5 @@
+feature start
+  ask "Name?" into name
+  show "Hi ", name
+  ask "Name?" into name
+  show "Hi ", name

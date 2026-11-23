@@ -118,7 +118,7 @@ fn build_with_only_warnings_exits_0() {
 #[test]
 fn warnings_print_before_a_build_the_compiler_cannot_do_yet() {
     // A warning prints even when the build then stops on something not built yet.
-    let p = temp_file("warn2", "feature start\n  ask \"x\" into unused\n");
+    let p = temp_file("warn2", "feature start\n  set unused to list of 1\n");
     let (code, out, err) = gloss(&["build", p.to_str().unwrap()]);
     assert_eq!((code, out.as_str()), (3, ""));
     assert!(err.starts_with("line 2: warning: "), "{err}");

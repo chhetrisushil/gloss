@@ -281,3 +281,13 @@ fn the_source_in_a_failure_message_spells_invisible_characters() {
     let unspelled = |t: &Vec<u8>| t.windows(raw.len()).any(|w| w == raw) && t != &spelled;
     assert!(!m.texts.iter().any(unspelled));
 }
+
+#[test]
+fn ask_lowers_to_a_call_with_the_question_and_the_line() {
+    let m = lowered("feature start\n  ask \"Q\" into s\n  show s\n").unwrap();
+    let f = m.functions.iter().find(|f| f.name == "f_start").unwrap();
+    assert!(function_text(f).contains(
+        "line 2\n  a = address of text 0\n  push a\n  a = 2\n  push a\n  call ask\n  slot 1 = a\n"
+    ));
+    assert!(m.functions.iter().any(|f| f.name == "ask"));
+}
