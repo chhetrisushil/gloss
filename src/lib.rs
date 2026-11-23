@@ -49,19 +49,46 @@ pub fn check_source(text: &str) -> Vec<Diagnostic> {
     }
 }
 
+/// A program that checked without errors, ready to build.
+pub struct Checked {
+    program: Program,
+    src: Source,
+    types: check::TypeInfo,
+}
+
+impl Checked {
+    /// Lowers and encodes the program as an x86-64 Linux executable.
+    pub fn executable(&self) -> Result<Vec<u8>, Diagnostic> {
+        let module = lower::lower(&self.program, &self.types, &self.src)?;
+        target::x86_64_linux()
+            .executable(&module)
+            .map_err(Diagnostic::program)
+    }
+}
+
+/// Parses and checks a program once: the diagnostics, and the program when none is an error.
+pub fn check_program(text: &str) -> (Vec<Diagnostic>, Option<Checked>) {
+    let (program, src) = match front_end(&Source::new(text)) {
+        Ok(parsed) => parsed,
+        Err(d) => return (vec![d], None),
+    };
+    let checked = check::check(&program, &src);
+    let clean = !checked.diagnostics.iter().any(Diagnostic::is_error);
+    let built = checked.types.filter(|_| clean).map(|types| Checked {
+        program,
+        src,
+        types,
+    });
+    (checked.diagnostics, built)
+}
+
 /// Checks, lowers and encodes a program as an x86-64 Linux executable. A program with an
 /// error, or one that cannot be built yet, gives its diagnostics instead.
 pub fn build_executable(text: &str) -> Result<Vec<u8>, Vec<Diagnostic>> {
-    let (program, src) = front_end(&Source::new(text)).map_err(|d| vec![d])?;
-    let checked = check::check(&program, &src);
-    let types = match checked.types {
-        Some(types) if !checked.diagnostics.iter().any(Diagnostic::is_error) => types,
-        _ => return Err(checked.diagnostics),
-    };
-    let module = lower::lower(&program, &types, &src).map_err(|d| vec![d])?;
-    target::x86_64_linux()
-        .executable(&module)
-        .map_err(|e| vec![Diagnostic::program(e)])
+    match check_program(text) {
+        (_, Some(checked)) => checked.executable().map_err(|d| vec![d]),
+        (diagnostics, None) => Err(diagnostics),
+    }
 }
 
 #[cfg(test)]

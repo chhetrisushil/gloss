@@ -8,18 +8,10 @@ use std::process::Command;
 
 use run_support::{TempDir, run};
 
-/// Raised by every task that adds cases.
-const MIN_CASES: usize = 2;
+include!("run_sweep.inc");
 
 fn cases() -> Vec<PathBuf> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/run");
-    let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|x| x == "gloss"))
-        .collect();
-    found.sort();
-    found
+    sweep(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/run")).unwrap()
 }
 
 fn beside(case: &Path, ext: &str) -> Option<Vec<u8>> {
@@ -29,6 +21,20 @@ fn beside(case: &Path, ext: &str) -> Option<Vec<u8>> {
 #[test]
 fn the_sweep_finds_the_run_cases() {
     assert!(cases().len() >= MIN_CASES, "too few run cases");
+}
+
+#[test]
+fn the_sweep_reports_an_orphan() {
+    let dir = TempDir::new("sweep");
+    std::fs::write(dir.0.join("a.gloss"), "").unwrap();
+    std::fs::write(dir.0.join("a.out"), "").unwrap();
+    assert_eq!(sweep(&dir.0).unwrap().len(), 1);
+    for orphan in ["x.out", "b.GLOSS", "a.txt"] {
+        std::fs::write(dir.0.join(orphan), "").unwrap();
+        let err = sweep(&dir.0).unwrap_err();
+        assert!(err.contains(orphan), "{err}");
+        std::fs::remove_file(dir.0.join(orphan)).unwrap();
+    }
 }
 
 #[test]
