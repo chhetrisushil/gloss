@@ -7,6 +7,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use gloss::ir::Global;
@@ -61,10 +62,30 @@ pub fn run_within(path: &Path, stdin: &[u8], deadline: Duration) -> Option<Ran> 
         skip();
         return None;
     };
+    // OrbStack's `orb` drops the tail of a program's stdout and stderr when the program exits
+    // while output is still in flight, so under `orb` (the runner's first word, exactly; a
+    // wrapped runner such as `env orb ...` is not covered) the program writes them to files in
+    // its shared folder instead, read back once it has exited.
+    let files = (prefix.first().map(String::as_str) == Some("orb")).then(|| {
+        // Fresh names, so concurrent or repeated runs of one program never share a file.
+        static RUNS: AtomicUsize = AtomicUsize::new(0);
+        let n = RUNS.fetch_add(1, Ordering::SeqCst);
+        let ext = |what: &str| path.with_extension(format!("{what}-{n}"));
+        let files = (ext("stdout"), ext("stderr"));
+        let _ = std::fs::remove_file(&files.0);
+        let _ = std::fs::remove_file(&files.1);
+        files
+    });
     let mut cmd = match prefix.split_first() {
         Some((program, args)) => {
             let mut c = Command::new(program);
-            c.args(args).arg(path);
+            c.args(args);
+            if let Some((o, e)) = &files {
+                c.args(["sh", "-c", r#"exec "$0" >"$1" 2>"$2""#])
+                    .args([path, o, e]);
+            } else {
+                c.arg(path);
+            }
             c
         }
         None => Command::new(path),
@@ -101,7 +122,21 @@ pub fn run_within(path: &Path, stdin: &[u8], deadline: Duration) -> Option<Ran> 
         std::thread::sleep(Duration::from_millis(5));
     };
     let _ = feeder.join();
-    let (out, err) = (out.join().expect("stdout"), err.join().expect("stderr"));
+    let (mut out, mut err) = (out.join().expect("stdout"), err.join().expect("stderr"));
+    if let (Some((o, e)), Some(_)) = (&files, status) {
+        let read = read_back(o, e);
+        let _ = (std::fs::remove_file(o), std::fs::remove_file(e));
+        match read {
+            Ok((o, e)) => {
+                out.extend(o);
+                err.extend(e);
+            }
+            Err(msg) => {
+                let runner_err = String::from_utf8_lossy(&err);
+                return Some(Err(format!("{msg}; runner stderr: {runner_err}")));
+            }
+        }
+    }
     let stderr = String::from_utf8_lossy(&err);
     Some(match status {
         None => Err(format!("timed out after {deadline:?}; stderr: {stderr}")),
@@ -111,6 +146,16 @@ pub fn run_within(path: &Path, stdin: &[u8], deadline: Duration) -> Option<Ran> 
             (None, None) => Err(format!("ended without a status; stderr: {stderr}")),
         },
     })
+}
+
+/// The standard output and error a program redirected into files; an `Err` naming the file
+/// that is missing or unreadable (never mistaken for empty output).
+pub fn read_back(out: &Path, err: &Path) -> Result<(Vec<u8>, Vec<u8>), String> {
+    let read = |p: &Path| {
+        std::fs::read(p)
+            .map_err(|e| format!("cannot read the program's output file {}: {e}", p.display()))
+    };
+    Ok((read(out)?, read(err)?))
 }
 
 /// A temporary folder under `target/`, which the Linux machine can see (the system temp

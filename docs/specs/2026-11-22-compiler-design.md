@@ -101,7 +101,7 @@ pub enum Ty { Number, Text, Truth, Record(String), List(Box<Ty>), Table(String),
 ### 4.4 Running produced executables (M2 onward)
 
 - **On the Mac:** `brew install --cask orbstack`, `orb start`, then `orb create --arch amd64 alpine gloss-amd64` (D17). OrbStack shares `/Users` with the machine, so `orb -m gloss-amd64 /Users/.../program` runs a binary built on the Mac.
-- **The harness** reads `GLOSS_RUNNER` and splits it on spaces to form the command prefix.
+- **The harness** reads `GLOSS_RUNNER` and splits it on spaces to form the command prefix. Output capture (the program writes stdout and stderr to files in its shared folder, read back after it exits, because `orb` can drop the tail of piped output) applies when the runner's first word is `orb`; a wrapped runner such as `env orb ...` set via `GLOSS_RUNNER` is not covered.
 - **CI** runs on `ubuntu-latest` (x86-64) with `GLOSS_RUNNER` empty.
 
 ### 4.5 Security
