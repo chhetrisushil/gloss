@@ -67,6 +67,12 @@ impl Lowerer<'_> {
                 otherwise,
             } => self.if_chain(branches, otherwise.as_deref()),
             StmtKind::RepeatWhile { cond, body } => self.repeat_while(cond, body),
+            StmtKind::ForEachRange {
+                var,
+                from,
+                to,
+                body,
+            } => self.count(s.line, var, from, to, body),
             StmtKind::Skip | StmtKind::Stop => {
                 let (skip, stop) = *self.loops.last().expect("skip and stop sit inside a loop");
                 let target = if matches!(s.kind, StmtKind::Skip) {
