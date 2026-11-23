@@ -8,6 +8,8 @@ pub(crate) struct Fail {
     line: u32,
     code: i64,
     parts: [String; 3],
+    /// A slot whose number is written between the source and the last part, after ` is `.
+    value: Option<u32>,
 }
 
 impl Lowerer<'_> {
@@ -18,14 +20,19 @@ impl Lowerer<'_> {
 
     /// A label that reports failure `code` at the current line: `<before><source><after>`.
     fn fail_label(&mut self, code: i64, before: &str, source: &str, after: &str) -> Label {
+        self.fail_label_with(code, [before, source, after], None)
+    }
+
+    fn fail_label_with(&mut self, code: i64, parts: [&str; 3], value: Option<u32>) -> Label {
         let label = self.new_label();
-        let parts = [before, source, after].map(String::from);
+        let parts = parts.map(String::from);
         let line = self.line;
         self.fails.push(Fail {
             label,
             line,
             code,
             parts,
+            value,
         });
         label
     }
@@ -40,6 +47,13 @@ impl Lowerer<'_> {
         self.fail_label(1, "dividing by zero (", source, " is 0)")
     }
 
+    /// Failure 3 for a count end or start whose source is `source` and whose value is in
+    /// `slot`; `what` is `end` or `start`.
+    pub fn not_whole(&mut self, what: &str, source: &str, slot: u32) -> Label {
+        let before = format!("the {what} of a count must be whole (");
+        self.fail_label_with(3, [&before, source, ")"], Some(slot))
+    }
+
     /// Emits the failure blocks collected so far.
     pub fn emit_fails(&mut self) {
         for f in std::mem::take(&mut self.fails) {
@@ -49,7 +63,14 @@ impl Lowerer<'_> {
             self.emit(Inst::Const(Reg::A, f.code));
             self.emit(Inst::Push(Reg::A));
             self.call("fail_begin");
-            for part in &f.parts {
+            for (i, part) in f.parts.iter().enumerate() {
+                if let (2, Some(slot)) = (i, f.value) {
+                    self.push_text(b" is ");
+                    self.call("err_text");
+                    self.emit(Inst::LoadSlot(Reg::A, slot));
+                    self.emit(Inst::Push(Reg::A));
+                    self.call("err_number");
+                }
                 self.push_text(part.as_bytes());
                 self.call("err_text");
             }

@@ -1,0 +1,4 @@
+feature start
+  set top to 2.5
+  for each i from 1 to top
+    show i
