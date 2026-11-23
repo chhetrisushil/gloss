@@ -31,6 +31,7 @@ impl Lowerer<'_> {
             ExprKind::Compare { op, left, right } if self.is_text(left) => {
                 self.compare_text(*op == CompareOp::IsNot, left, right)
             }
+            ExprKind::IsNumber { value, negated } => self.is_number_check(*negated, value),
             ExprKind::Not(inner) => self.not(inner),
             ExprKind::And(parts) => self.join(parts, 0),
             ExprKind::Or(parts) => self.join(parts, 1),
@@ -60,6 +61,22 @@ impl Lowerer<'_> {
         self.emit(Inst::Push(Reg::A));
         self.call("text_equal");
         if negate {
+            self.emit(Inst::Move {
+                to: Reg::B,
+                from: Reg::A,
+            });
+            self.emit(Inst::Const(Reg::A, 1));
+            self.emit(Inst::Int(IntOp::Sub));
+        }
+        Ok(())
+    }
+
+    /// `parse_number` gives 0 for a number: `is number` is 1 minus that, `is not number` is it.
+    fn is_number_check(&mut self, negated: bool, value: &Expr) -> Result<(), Diagnostic> {
+        self.expr(value)?;
+        self.emit(Inst::Push(Reg::A));
+        self.call("parse_number");
+        if !negated {
             self.emit(Inst::Move {
                 to: Reg::B,
                 from: Reg::A,

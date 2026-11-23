@@ -8,7 +8,7 @@ use crate::ir::{
 use crate::irsim::{self, Faults, Outcome};
 
 /// A module whose `_start` is `body` followed by `exit 0`, with the runtime it calls.
-fn program(body: Vec<Inst>, texts: &[&[u8]]) -> Module {
+pub(super) fn program(body: Vec<Inst>, texts: &[&[u8]]) -> Module {
     let mut m = Module::default();
     for t in texts {
         m.text(t);
@@ -33,7 +33,7 @@ fn program(body: Vec<Inst>, texts: &[&[u8]]) -> Module {
     m
 }
 
-fn run(m: &Module) -> Outcome {
+pub(super) fn run(m: &Module) -> Outcome {
     irsim::run(m, "_start", b"")
 }
 
@@ -374,7 +374,7 @@ fn a_failing_standard_error_write_exits_2() {
 }
 
 /// A small fixed-seed generator (xorshift64*), so the reference test needs no crate.
-fn xorshift(state: &mut u64) -> u64 {
+pub(super) fn xorshift(state: &mut u64) -> u64 {
     *state ^= *state >> 12;
     *state ^= *state << 25;
     *state ^= *state >> 27;

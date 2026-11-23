@@ -1,0 +1,6 @@
+feature start
+  set a to " -7 "
+  show (a is number), (a is not number)
+  show ("0.5" is number), ("1e3" is number), ("1e3" is not number)
+  show ("922337203685477.5807" is number), ("922337203685477.5808" is number)
+  show ("" is number), ("-" is number), ("1." is number), ("0.12345" is number)

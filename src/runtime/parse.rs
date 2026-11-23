@@ -190,3 +190,126 @@ fn parse_number() -> Function {
 pub fn routines() -> Vec<Function> {
     vec![parse_number()]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::tests::{program, run, xorshift};
+    use crate::ir::{Data, Global, Inst::*, Reg::A};
+    use crate::number::Number;
+
+    /// 2000 texts: edge cases, then random strings over the characters that matter.
+    fn inputs() -> Vec<String> {
+        let mut all: Vec<String> = [
+            "",
+            " ",
+            "-",
+            "- ",
+            ".",
+            "-.5",
+            "5.",
+            "0",
+            "-0",
+            "007",
+            " -7 ",
+            "  1.5000  ",
+            "+3",
+            "1,200",
+            "1e3",
+            ".5",
+            "0.12345",
+            "1.2.3",
+            "1 2",
+            "--5",
+            "-+5",
+            "1.-5",
+            "\t5",
+            "5\n",
+            "922337203685477.5807",
+            "922337203685477.5808",
+            "-922337203685477.5808",
+            "-922337203685477.5809",
+            "922337203685478",
+            "99999999999999999999",
+            "0000000000000000000000001",
+            "-0000000000000000000000.0001",
+            "0.0000",
+            "12a",
+            "é",
+        ]
+        .map(String::from)
+        .into();
+        let mut state = 0x1234_5678_9ABC_DEF1;
+        while all.len() < 2000 {
+            let length = xorshift(&mut state) % 24;
+            let digits = xorshift(&mut state) % 3 != 0;
+            let alphabet: &[u8] = if digits {
+                b"0123456789"
+            } else {
+                b"0123456789.- +e,a"
+            };
+            let mut text: String = (0..length)
+                .map(|_| alphabet[(xorshift(&mut state) % alphabet.len() as u64) as usize] as char)
+                .collect();
+            // Dress some of them as numbers: a sign, a point and spaces.
+            match xorshift(&mut state) % 4 {
+                0 => text.insert(0, '-'),
+                1 if text.len() > 2 => text.insert(text.len() - 2, '.'),
+                2 => text = format!(" {text} "),
+                _ => {}
+            }
+            all.push(text);
+        }
+        all
+    }
+
+    #[test]
+    fn parse_number_agrees_with_parse_text_on_2000_texts() {
+        let mut texts: Vec<Vec<u8>> = vec![b" ".to_vec(), b"\n".to_vec()];
+        let at: Vec<usize> = inputs()
+            .iter()
+            .map(|t| match texts.iter().position(|x| x == t.as_bytes()) {
+                Some(i) => i,
+                None => {
+                    texts.push(t.as_bytes().to_vec());
+                    texts.len() - 1
+                }
+            })
+            .collect();
+        let say = |text: u32| {
+            [
+                AddressOf(A, Data::Text(text)),
+                Push(A),
+                Call("out_text".into()),
+            ]
+        };
+        // The number first: showing the status would reuse `NumBuf`. The status waits on
+        // the stack and is the argument of the second `out_number`.
+        let mut body = Vec::new();
+        for i in &at {
+            body.extend([AddressOf(A, Data::Text(*i as u32)), Push(A)]);
+            body.extend([Call("parse_number".into()), Push(A)]);
+            body.push(AddressOf(A, Data::Global(Global::NumBuf)));
+            body.push(Load {
+                to: A,
+                base: A,
+                offset: 0,
+            });
+            body.extend([Push(A), Call("out_number".into())]);
+            body.extend(say(0));
+            body.push(Call("out_number".into()));
+            body.extend(say(1));
+        }
+        body.push(Call("flush".into()));
+        let refs: Vec<&[u8]> = texts.iter().map(|t| t.as_slice()).collect();
+        let o = run(&program(body, &refs));
+        let want: String = inputs()
+            .iter()
+            .map(|t| match Number::parse_text(t) {
+                Ok(n) => format!("{} {}\n", n.show(), Number(0).show()),
+                Err(_) => format!("{} {}\n", Number(0).show(), Number(1).show()),
+            })
+            .collect();
+        assert_eq!(o.status, 0);
+        assert_eq!(String::from_utf8(o.stdout).unwrap(), want);
+    }
+}
