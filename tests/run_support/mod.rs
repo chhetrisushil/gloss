@@ -29,6 +29,7 @@ fn on_path(name: &str) -> bool {
 pub fn runner() -> Option<Vec<String>> {
     if let Some(v) = std::env::var_os("GLOSS_RUNNER") {
         let v = v.into_string().expect("GLOSS_RUNNER must be valid UTF-8");
+        // Split on spaces by design (ruling M2-R11): a runner path with a space is unsupported.
         return Some(
             v.split(' ')
                 .filter(|w| !w.is_empty())

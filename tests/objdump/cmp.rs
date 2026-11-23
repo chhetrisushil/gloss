@@ -1,7 +1,7 @@
 //! Compares the encoder's output with an objdump listing of the same bytes.
 
 use gloss::target::x86_64::encode::{Encoded, encode};
-use gloss::target::x86_64::inst::{X, text};
+use gloss::target::x86_64::inst::{Mem, Sym, X, text};
 
 /// One disassembled instruction.
 #[derive(Debug, PartialEq)]
@@ -137,14 +137,7 @@ pub fn compare(xs: &[X], dis: &str) -> (usize, Vec<String>) {
                 text(x)
             ));
         }
-        for f in &own.fixups {
-            if f.at + 4 != f.end || f.end != own.bytes.len() {
-                bad.push(format!(
-                    "{} at {at}: fixup {f:?} is not the last 4 bytes",
-                    text(x)
-                ));
-            }
-        }
+        bad.extend(fixup_problems(x, &own));
         at += own.bytes.len();
     }
     if at != enc.bytes.len() {
@@ -154,6 +147,32 @@ pub fn compare(xs: &[X], dis: &str) -> (usize, Vec<String>) {
         ));
     }
     (real.len(), bad)
+}
+
+/// A fixup is the last 4 bytes of the instruction, and names the symbol of its `rip` operand.
+fn fixup_problems(x: &X, own: &Encoded) -> Vec<String> {
+    let want: Vec<&Sym> = match x {
+        X::MovRM(_, Mem::Rip(s))
+        | X::MovMR(Mem::Rip(s), _)
+        | X::MovzxRM8(_, Mem::Rip(s))
+        | X::MovM8R(Mem::Rip(s), _)
+        | X::Lea(_, Mem::Rip(s)) => vec![s],
+        _ => vec![],
+    };
+    let got: Vec<&Sym> = own.fixups.iter().map(|f| &f.target).collect();
+    let mut bad = Vec::new();
+    if want != got {
+        bad.push(format!(
+            "{}: fixups name {got:?}, expected {want:?}",
+            text(x)
+        ));
+    }
+    for f in &own.fixups {
+        if f.at + 4 != f.end || f.end != own.bytes.len() {
+            bad.push(format!("{}: fixup {f:?} is not the last 4 bytes", text(x)));
+        }
+    }
+    bad
 }
 
 /// `x` alone; a branch has its label defined just before so that it resolves.
@@ -169,7 +188,7 @@ fn piece(x: &X) -> Encoded {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gloss::target::x86_64::inst::{Mem, R};
+    use gloss::target::x86_64::inst::{Cc, R};
 
     const MOV: &str = "   0:\t48 89 c8             \tmov    rax,rcx\n";
 
@@ -204,5 +223,23 @@ mod tests {
             norm_objdump("lea rax,[rip+0x0]        # 0x7"),
             "lea rax,[rip+0]"
         );
+    }
+
+    #[test]
+    fn a_wrong_branch_target_or_mnemonic_is_reported() {
+        let xs = [X::Label("a".into()), X::Jcc(Cc::Ne, "a".into())];
+        let ok = "   0:\t0f 85 fa ff ff ff    \tjne    0x0\n";
+        assert_eq!(compare(&xs, ok), (1, vec![]));
+        assert_eq!(compare(&xs, &ok.replace("0x0", "0x5")).1.len(), 1);
+        assert_eq!(compare(&xs, &ok.replace("jne", "je ")).1.len(), 1);
+    }
+
+    #[test]
+    fn a_fixup_to_the_wrong_symbol_is_reported() {
+        let x = X::Lea(R::Rax, Mem::Rip(Sym::Text(3)));
+        let mut own = encode(std::slice::from_ref(&x)).unwrap();
+        assert_eq!(fixup_problems(&x, &own), Vec::<String>::new());
+        own.fixups[0].target = Sym::Text(4);
+        assert_eq!(fixup_problems(&x, &own).len(), 1);
     }
 }

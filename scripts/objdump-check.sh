@@ -7,6 +7,9 @@
 # unset runs objdump here). tests/objdump.rs sets it from the same runner the run tests
 # use. The file must be visible on that machine (put it under target/, not in /var/folders).
 #
+# GLOSS_RUNNER is split on spaces (ruling M2-R11), so a runner whose path contains a space
+# is not supported.
+#
 # One-time setup of the OrbStack machine (done on the owner's machine, 2026-11-23):
 #   orb -m gloss-amd64 sudo apk add binutils
 set -eu
