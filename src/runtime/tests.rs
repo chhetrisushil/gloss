@@ -738,3 +738,49 @@ fn put_decimal_appends_zero_padded_digits_and_returns_the_new_length() {
         .collect();
     assert_eq!(String::from_utf8(o.stdout).unwrap(), want);
 }
+
+#[test]
+fn number_places_equals_with_places_for_3000_values_at_every_place_count() {
+    use crate::number::{Number, Places};
+    let mut values = vec![
+        i64::MIN,
+        i64::MAX,
+        0,
+        1,
+        -1,
+        5,
+        -5,
+        49,
+        -49,
+        50,
+        -50,
+        499,
+        -500,
+        -9,
+    ];
+    let mut state = 0xD1B5_4A32_D192_ED03;
+    while values.len() < 3000 {
+        let r = xorshift(&mut state);
+        values.push((r as i64) >> (xorshift(&mut state) % 64));
+    }
+    let mut body = Vec::new();
+    for v in &values {
+        for places in 0..=4 {
+            body.extend([Const(A, *v), Push(A), Const(A, places), Push(A)]);
+            body.extend([Const(A, 1), Push(A), Call("number_places".into())]);
+            body.extend([Push(A), Call("out_text".into())]);
+            body.extend(out_text(0));
+        }
+    }
+    body.push(Call("flush".into()));
+    let o = run(&program(body, &[b"\n"]));
+    let mut want = String::new();
+    for v in &values {
+        for places in 0..=4 {
+            let p = Places::new(places).unwrap();
+            want.push_str(&format!("{}\n", Number(*v).with_places(p)));
+        }
+    }
+    assert_eq!(o.status, 0);
+    assert_eq!(String::from_utf8(o.stdout).unwrap(), want);
+}
