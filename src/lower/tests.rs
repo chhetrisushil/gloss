@@ -117,3 +117,15 @@ fn a_sum_lowers_to_num_add_with_a_failure_block() {
     assert_eq!(m.texts[1], b"a number went out of range (");
     assert_eq!(m.texts[2], b"1 + 2");
 }
+
+#[test]
+fn a_division_reports_a_zero_divisor_as_failure_1() {
+    let m = lowered("feature start\n  set a to 1\n  set b to 0\n  show a / b\n").unwrap();
+    let t = start_text(&m);
+    assert!(
+        t.contains("a = num_div a, b; zero L0; out of range L1\n"),
+        "{t}"
+    );
+    assert!(m.texts.contains(&b"dividing by zero (".to_vec()));
+    assert!(m.texts.contains(&b" is 0)".to_vec()));
+}
