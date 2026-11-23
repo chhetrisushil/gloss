@@ -1,0 +1,9 @@
+feature start
+  set n to 0
+  repeat while n is less than 10
+    add 1 to n
+    if n is 2
+      skip
+    if n is 4
+      stop
+    show n

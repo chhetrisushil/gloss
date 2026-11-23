@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use crate::ast::program::{FeatureDecl, Program};
 use crate::check::TypeInfo;
 use crate::diag::Diagnostic;
-use crate::ir::{Function, Inst, Module, Reg};
+use crate::ir::{Function, Inst, Label, Module, Reg};
 use crate::runtime;
 use crate::source::Source;
 
@@ -31,6 +31,8 @@ pub(crate) struct Lowerer<'a> {
     pub fails: Vec<fail::Fail>,
     /// The source line of the statement being lowered.
     pub line: u32,
+    /// The `skip` and `stop` targets of the loops being lowered, innermost last.
+    pub loops: Vec<(Label, Label)>,
 }
 
 impl Lowerer<'_> {
@@ -79,6 +81,7 @@ fn lower_feature(
         labels: 0,
         fails: Vec::new(),
         line: 0,
+        loops: Vec::new(),
     };
     l.stmts(&feature.body)?;
     l.emit(Inst::Return);
