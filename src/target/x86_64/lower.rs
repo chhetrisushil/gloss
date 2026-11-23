@@ -158,7 +158,11 @@ fn inst_x(
             X::Idiv(R::Rsi),
             X::Imul(R::Rax, R::Rsi),
         ]),
-        Inst::System(p) => linux::system(*p, &format!("L{}_s{}", f.name, out.len()), out),
+        Inst::System(p) => linux::system(
+            *p,
+            &format!("{}{}_s{}", arith::PREFIX, f.name, out.len()),
+            out,
+        ),
         Inst::NumMul { range } => {
             out.extend([
                 X::Call(arith::MULTIPLY.to_string()),

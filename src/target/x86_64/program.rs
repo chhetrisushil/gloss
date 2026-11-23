@@ -59,6 +59,17 @@ pub fn executable(m: &Module) -> Result<Vec<u8>, String> {
         .iter()
         .map(|f| (f.name.clone(), f.params))
         .collect();
+    if let Some(f) = m
+        .functions
+        .iter()
+        .find(|f| f.name.starts_with(arith::PREFIX))
+    {
+        return Err(format!(
+            "function {} uses the reserved {} prefix",
+            f.name,
+            arith::PREFIX
+        ));
+    }
     let mut xs: Vec<X> = Vec::new();
     for f in &m.functions {
         xs.extend(lower_function(f, &params)?);

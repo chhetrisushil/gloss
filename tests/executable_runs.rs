@@ -55,3 +55,56 @@ fn a_module_without_start_is_refused() {
     let err = x86_64_linux().executable(&Module::default()).unwrap_err();
     assert_eq!(err, "the module has no _start function");
 }
+
+fn function(name: &str, body: Vec<Inst>) -> Function {
+    Function {
+        name: name.to_string(),
+        params: 0,
+        slots: 0,
+        body,
+    }
+}
+
+#[test]
+fn a_function_named_like_a_helper_does_not_clash() {
+    let (range, exit) = (gloss::ir::Label(1), |status| {
+        vec![
+            Inst::Const(A, status),
+            Inst::Push(A),
+            Inst::System(Prim::Exit),
+        ]
+    });
+    let mut m = Module::default();
+    m.functions.push(function(
+        "multiply_number",
+        vec![Inst::Enter(0), Inst::Const(A, 7), Inst::Return],
+    ));
+    let mut body = vec![
+        Inst::Enter(0),
+        Inst::Const(A, 30_000),
+        Inst::Const(gloss::ir::Reg::B, 20_000),
+        Inst::NumMul { range },
+        Inst::Call("multiply_number".to_string()),
+        Inst::Push(A),
+        Inst::System(Prim::Exit),
+        Inst::Mark(range),
+    ];
+    body.extend(exit(99));
+    m.functions.push(function("_start", body));
+    if let Some(ran) = build_and_run(&m, "clash") {
+        assert_eq!(ran.unwrap().0, 7);
+    }
+}
+
+#[test]
+fn a_function_in_the_backend_namespace_is_refused() {
+    let mut m = Module::default();
+    m.functions.push(function("_start", vec![Inst::Enter(0)]));
+    m.functions
+        .push(function("x86_64.multiply_number", vec![Inst::Enter(0)]));
+    let err = x86_64_linux().executable(&m).expect_err("refused");
+    assert_eq!(
+        err,
+        "function x86_64.multiply_number uses the reserved x86_64. prefix"
+    );
+}

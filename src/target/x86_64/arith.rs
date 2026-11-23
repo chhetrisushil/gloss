@@ -9,13 +9,17 @@
 use super::inst::{AluOp, Cc, R, X};
 use crate::number::SCALE;
 
-pub const MULTIPLY: &str = "multiply_number";
-pub const DIVIDE: &str = "divide_number";
-pub const REMAINDER: &str = "remainder_number";
+/// Every label this backend adds starts with this, and IR functions may not (`executable`
+/// refuses them), so a function named like a helper cannot clash.
+pub const PREFIX: &str = "x86_64.";
+
+pub const MULTIPLY: &str = "x86_64.multiply_number";
+pub const DIVIDE: &str = "x86_64.divide_number";
+pub const REMAINDER: &str = "x86_64.remainder_number";
 /// Shared tail: `r9:rax` is the magnitude of the quotient and `r10` its sign (0 or 1).
-const FINISH: &str = "number_finish";
-const RANGE: &str = "number_range";
-const ZERO: &str = "number_zero";
+const FINISH: &str = "x86_64.number_finish";
+const RANGE: &str = "x86_64.number_range";
+const ZERO: &str = "x86_64.number_zero";
 
 fn label(name: &str) -> X {
     X::Label(name.to_string())
@@ -64,20 +68,20 @@ fn multiply(out: &mut Vec<X>) {
         X::MovRR(R::R10, R::Rdx),
         X::Shr(R::R10, 63),
         X::Test(R::R10, R::R10),
-        jcc(Cc::E, "multiply_magnitude"),
+        jcc(Cc::E, "x86_64.multiply_magnitude"),
         // Negate the 128-bit product: -hi, less one more unless the low half is 0.
         X::Neg(R::Rdx),
         X::Test(R::Rax, R::Rax),
-        jcc(Cc::E, "multiply_low"),
+        jcc(Cc::E, "x86_64.multiply_low"),
         X::AluI(AluOp::Sub, R::Rdx, 1),
-        label("multiply_low"),
+        label("x86_64.multiply_low"),
         X::Neg(R::Rax),
-        label("multiply_magnitude"),
+        label("x86_64.multiply_magnitude"),
         // Add half the scale across the pair, so the floor of the quotient rounds.
         X::AluI(AluOp::Add, R::Rax, (SCALE / 2) as i32),
-        jcc(Cc::Ae, "multiply_carried"),
+        jcc(Cc::Ae, "x86_64.multiply_carried"),
         X::AluI(AluOp::Add, R::Rdx, 1),
-        label("multiply_carried"),
+        label("x86_64.multiply_carried"),
     ]);
     divide_by_scale(out);
     out.push(jmp(FINISH));
@@ -131,13 +135,13 @@ fn remainder(out: &mut Vec<X>) {
         X::Test(R::Rcx, R::Rcx),
         jcc(Cc::E, ZERO),
         X::AluI(AluOp::Cmp, R::Rcx, -1),
-        jcc(Cc::E, "remainder_minus_one"),
+        jcc(Cc::E, "x86_64.remainder_minus_one"),
         X::Cqo,
         X::Idiv(R::Rcx),
         X::MovRR(R::Rax, R::Rdx),
         clear(R::Rdx),
         X::Ret,
-        label("remainder_minus_one"),
+        label("x86_64.remainder_minus_one"),
         clear(R::Rax),
         clear(R::Rdx),
         X::Ret,
@@ -156,9 +160,9 @@ fn finish(out: &mut Vec<X>) {
         X::Alu(AluOp::Cmp, R::Rsi, R::Rax),
         jcc(Cc::B, RANGE),
         X::Test(R::R10, R::R10),
-        jcc(Cc::E, "number_signed"),
+        jcc(Cc::E, "x86_64.number_signed"),
         X::Neg(R::Rax),
-        label("number_signed"),
+        label("x86_64.number_signed"),
         clear(R::Rdx),
         X::Ret,
         label(RANGE),
