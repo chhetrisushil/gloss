@@ -12,6 +12,9 @@ const STACK_TOP: u64 = 0x7fff_0000_0000;
 const EXEC_NAME: &[u8] = b"/prog";
 const EXEC_NAME_OFFSET: u64 = 100;
 
+/// What `stack_init` takes as the top of the stack in `irsim`.
+pub const INITIAL_STACK_TOP: u64 = STACK_TOP - 4096;
+
 /// The soft stack limit `Prim::StackSize` reports.
 pub const STACK_SIZE: i64 = 1024 * 1024;
 

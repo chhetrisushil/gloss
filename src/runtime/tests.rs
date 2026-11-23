@@ -497,3 +497,32 @@ fn out_number_never_moves_the_heap() {
     let m = returning(2, body);
     assert_eq!(irsim::call(&m, "main", &[]), 0);
 }
+
+#[test]
+fn the_stack_limit_is_measured_from_the_end_of_the_executable_name() {
+    // irsim's initial stack puts argc and the name below its top, at an odd offset: the limit
+    // is the name's end rounded up to a page, minus 1 MiB, plus 64 KiB.
+    let want = irsim::INITIAL_STACK_TOP as i64 - (1 << 20) + (64 << 10);
+    let m = program(
+        vec![
+            Call("stack_init".into()),
+            AddressOf(A, Data::Global(Global::StackLimit)),
+            Load {
+                to: A,
+                base: A,
+                offset: 0,
+            },
+            Const(B, want),
+            Compare,
+            SetIf(crate::ir::Cond::Eq),
+            // Exit 7 when it is, else 1.
+            Const(B, 6),
+            Int(IntOp::Mul),
+            AddImm(A, 1),
+            Push(A),
+            System(Prim::Exit),
+        ],
+        &[],
+    );
+    assert_eq!(run(&m).status, 7);
+}

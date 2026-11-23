@@ -136,7 +136,7 @@ Table paths are the only security boundary in M1. The checker rejects absolute p
 
 **Runtime rules.** The language-visible rules (copies, `ask`, failure messages) are in the language spec: §7, §10 and §12.
 - **Memory** comes from the OS in 64 MiB pieces, or larger for one big request. It is placed one value after another, 8-byte aligned, and never freed. A refusal is failure 10.
-- **Stack.** The limit is the stack pointer at program entry (`_start`'s own, not the top above argv and the environment) minus the stack size (from `getrlimit`; 8 MiB if unlimited, capped at 1 GiB), plus a 64 KiB margin; a program whose argv, environment and auxiliary vector exceed that margin may fault on very deep recursion instead of failing. Every feature call checks it (failure 10). Runtime routines never recurse.
+- **Stack.** The limit is measured from the top of the initial stack: the entry code saves the stack pointer at `argc`, and `_start` walks argv, envp and the auxiliary vector to `AT_EXECFN`, the executable's name, the highest string; its end rounded up to a page is the top (the entry stack pointer's own position is the fallback when the vector has no `AT_EXECFN`). The limit is that top minus the stack size (from `getrlimit`; 8 MiB if unlimited, capped at 1 GiB), plus a 64 KiB margin. Every feature call checks it (failure 10), so a large environment cannot make deep recursion fault. Runtime routines never recurse.
 - **Output** is buffered (4 KiB). It is flushed when full, before `ask` reads, before a failure message and at exit. A failed write ends the program with status 2 and no message.
 
 **Testing.**
