@@ -25,6 +25,12 @@ pub struct Outcome {
 /// Faults a test can make `Write` show, as a real kernel sometimes does.
 #[derive(Default)]
 pub struct Faults {
+    /// The initial stack's auxiliary vector has no `AT_EXECFN` entry.
+    pub no_exec_name: bool,
+    /// `AT_EXECFN` comes after 64 other pairs, past the walk's bound.
+    pub far_exec_name: bool,
+    /// The executable's name has 5000 bytes before its NUL, past the walk's bound.
+    pub long_exec_name: bool,
     /// `Write` takes at most this many bytes per call (a short write).
     pub short_write: Option<u64>,
     /// `Write` to these descriptors fails with a negative result.

@@ -526,3 +526,60 @@ fn the_stack_limit_is_measured_from_the_end_of_the_executable_name() {
     );
     assert_eq!(run(&m).status, 7);
 }
+
+/// Runs `stack_init` on an initial stack of `words` words with `faults`; true when the limit
+/// is the fallback's: the stack pointer inside `stack_init` (`argc` is `words` words below the
+/// page under the stack top, `_start` takes a 3-word frame, `stack_init` 3 + 3 words), minus
+/// 1 MiB, plus 64 KiB.
+fn falls_back(faults: Faults, words: i64) -> bool {
+    let sp = irsim::INITIAL_STACK_TOP as i64 - 4096 - 8 * words - 24 - 48;
+    let want = sp - (1 << 20) + (64 << 10);
+    let m = program(
+        vec![
+            Call("stack_init".into()),
+            AddressOf(A, Data::Global(Global::StackLimit)),
+            Load {
+                to: A,
+                base: A,
+                offset: 0,
+            },
+            Const(B, want),
+            Compare,
+            SetIf(crate::ir::Cond::Eq),
+            Const(B, 6),
+            Int(IntOp::Mul),
+            AddImm(A, 1),
+            Push(A),
+            System(Prim::Exit),
+        ],
+        &[],
+    );
+    run_with(&m, faults).status == 7
+}
+
+#[test]
+fn without_an_executable_name_the_limit_falls_back_to_the_stack_pointer() {
+    let faults = Faults {
+        no_exec_name: true,
+        ..Faults::default()
+    };
+    assert!(falls_back(faults, 11));
+}
+
+#[test]
+fn an_auxv_that_runs_past_64_pairs_falls_back() {
+    let faults = Faults {
+        far_exec_name: true,
+        ..Faults::default()
+    };
+    assert!(falls_back(faults, 11 + 128));
+}
+
+#[test]
+fn a_name_of_more_than_4096_bytes_falls_back() {
+    let faults = Faults {
+        long_exec_name: true,
+        ..Faults::default()
+    };
+    assert!(falls_back(faults, 11));
+}

@@ -204,23 +204,22 @@ impl<'m> Machine<'m> {
     /// of `argc`.
     fn initial_stack(&mut self) {
         let name_at = STACK_TOP - 8192 + EXEC_NAME_OFFSET;
-        for (i, byte) in EXEC_NAME.iter().chain(&[0]).enumerate() {
+        let name: Vec<u8> = if self.faults.long_exec_name {
+            vec![b'x'; 5000]
+        } else {
+            EXEC_NAME.to_vec()
+        };
+        for (i, byte) in name.iter().chain(&[0]).enumerate() {
             self.memory.write_byte(name_at + i as u64, *byte);
         }
-        // argc, argv[0], NULL, envp[0], NULL, AT_PAGESZ, AT_EXECFN, AT_NULL.
-        let words = [
-            1,
-            name_at as i64,
-            0,
-            name_at as i64,
-            0,
-            6,
-            4096,
-            31,
-            name_at as i64,
-            0,
-            0,
-        ];
+        // argc, argv[0], NULL, envp[0], NULL, then the auxiliary vector.
+        let mut words = vec![1, name_at as i64, 0, name_at as i64, 0, 6, 4096];
+        if self.faults.far_exec_name {
+            words.extend([33, 0].repeat(64));
+        }
+        // AT_EXECFN, or AT_SYSINFO_EHDR (33) when the test wants the entry missing.
+        let kind = if self.faults.no_exec_name { 33 } else { 31 };
+        words.extend([kind, name_at as i64, 0, 0]);
         self.sp = STACK_TOP - 8192 - 8 * words.len() as u64;
         for (i, w) in words.iter().enumerate() {
             self.memory.write(self.sp + 8 * i as u64, *w);
