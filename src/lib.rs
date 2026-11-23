@@ -10,6 +10,7 @@ mod irsim;
 pub mod lexer;
 pub mod number;
 pub mod parser;
+pub mod runtime;
 pub mod source;
 pub mod target;
 #[cfg(test)]
