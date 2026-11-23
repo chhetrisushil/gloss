@@ -3,6 +3,7 @@
 //! runner and says so on standard error when there is none.
 
 mod calls;
+mod memory;
 mod ops;
 
 use std::io::Write;
@@ -122,6 +123,7 @@ fn agree(m: &Module, names: &[String], stdin: &[u8]) {
 fn value_cases_agree() {
     let mut cases = calls::cases();
     cases.extend(ops::cases());
+    cases.extend(memory::cases());
     let names: Vec<String> = cases.iter().map(|c| c.name.clone()).collect();
     agree(&value_module(calls::helpers(), &cases), &names, b"");
 }
