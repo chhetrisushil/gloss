@@ -50,6 +50,41 @@ impl Heap {
         self.block(&[W::N(n), W::N(n), W::S(block)])
     }
 
+    /// Copies the value in slot `value` (type `desc`), then sets word `offset` of the block in
+    /// slot `poke` to the number `n`, then shows the copy: the output tells a copy from an alias.
+    pub fn copy_then_poke(
+        mut self,
+        value: u32,
+        desc: u32,
+        poke: (u32, i32, i64),
+        d: Module,
+    ) -> Vec<u8> {
+        let at = AddressOf(A, Data::Desc(desc));
+        self.slots += 1;
+        let copy = self.slots;
+        self.body
+            .extend([LoadSlot(A, value), Push(A), at.clone(), Push(A)]);
+        self.body.extend([
+            Const(A, 0),
+            Push(A),
+            Call("copy_value".into()),
+            StoreSlot(copy, A),
+        ]);
+        let (block, offset, n) = poke;
+        self.body.extend([Const(B, n), LoadSlot(A, block)]);
+        self.body.extend([
+            Store {
+                base: A,
+                offset,
+                from: B,
+            },
+            LoadSlot(A, copy),
+            Push(A),
+        ]);
+        self.body.extend([at, Push(A), Call("show_value".into())]);
+        self.call("flush", &[], desc, d)
+    }
+
     /// Calls `routine` on the blocks in `slots` and the descriptor `desc`; the output.
     pub fn call(mut self, routine: &str, slots: &[u32], desc: u32, descs: Module) -> Vec<u8> {
         for s in slots {
