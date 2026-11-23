@@ -7,6 +7,7 @@
 
 mod asm;
 mod core;
+mod numbers;
 mod output;
 #[cfg(test)]
 mod tests;
@@ -26,6 +27,7 @@ const TEXTS: [&[u8]; 5] = [b"line ", b": failure ", b": ", b"\n", b"out of memor
 pub fn routines() -> Vec<Function> {
     let mut all = core::routines();
     all.extend(output::routines());
+    all.extend(numbers::routines());
     all
 }
 

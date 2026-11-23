@@ -395,3 +395,48 @@ fn a_failing_standard_error_write_exits_2() {
     let o = run_with(&program(begin, &[]), faults());
     assert_eq!((o.status, o.stderr.len()), (2, 0));
 }
+
+/// A small fixed-seed generator (xorshift64*), so the reference test needs no crate.
+fn xorshift(state: &mut u64) -> u64 {
+    *state ^= *state >> 12;
+    *state ^= *state << 25;
+    *state ^= *state >> 27;
+    state.wrapping_mul(0x2545_F491_4F6C_DD1D)
+}
+
+#[test]
+fn number_text_equals_number_show_for_5000_values() {
+    let mut values = vec![
+        i64::MIN,
+        i64::MAX,
+        0,
+        1,
+        -1,
+        9999,
+        -9999,
+        10000,
+        -10000,
+        10001,
+        -10001,
+    ];
+    let mut state = 0x9E37_79B9_7F4A_7C15;
+    while values.len() < 5000 {
+        let r = xorshift(&mut state);
+        // Vary the magnitude so short numbers and zero fractions are covered as well.
+        values.push((r as i64) >> (xorshift(&mut state) % 64));
+    }
+    let mut body = Vec::new();
+    for v in &values {
+        body.extend([Const(A, *v), Push(A), Const(A, 7), Push(A)]);
+        body.extend([Call("number_text".into()), Push(A), Call("out_text".into())]);
+        body.extend(out_text(0));
+    }
+    body.push(Call("flush".into()));
+    let o = run(&program(body, &[b"\n"]));
+    let want: String = values
+        .iter()
+        .map(|v| format!("{}\n", crate::number::Number(*v).show()))
+        .collect();
+    assert_eq!(o.status, 0);
+    assert_eq!(String::from_utf8(o.stdout).unwrap(), want);
+}
