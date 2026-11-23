@@ -1,0 +1,7 @@
+feature start
+  set a to "Food"
+  show (a is "food"), (a is not "food"), (a is "Food")
+  show 120.5 as text with 2 places, 7 as text with 0 places, 2.5 as text with 0 places
+  show (1 is 1) as text, 3.25 as text
+  show -0.0001 as text with 2 places, -0.005 as text with 2 places, 0.0001 as text with 4 places
+  show (7 as text with 1 places is "7.0"), (7 as text with 1 places is "7")

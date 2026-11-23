@@ -40,6 +40,19 @@ impl Lowerer<'_> {
                 }
                 Ok(())
             }
+            ExprKind::Convert {
+                value,
+                to: Conversion::ToTextPlaces(places),
+            } => {
+                self.expr(value)?;
+                self.emit(Inst::Push(Reg::A));
+                self.emit(Inst::Const(Reg::A, i64::from(*places)));
+                self.emit(Inst::Push(Reg::A));
+                self.emit(Inst::Const(Reg::A, i64::from(self.line)));
+                self.emit(Inst::Push(Reg::A));
+                self.call("number_places");
+                Ok(())
+            }
             ExprKind::Paren(inner) => self.expr(inner),
             ExprKind::Call { feature, inputs } => self.feature_call(feature, inputs),
             ExprKind::Name(name) => self.name(e, name),

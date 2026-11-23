@@ -602,15 +602,33 @@ fn equal_of(x: u32, y: u32) -> Vec<Inst> {
 #[test]
 fn text_equal_compares_lengths_then_bytes() {
     // The module interns equal texts, so these five are distinct.
-    let texts: [&[u8]; 5] = [b"", b"abc", b"abd", b"abcd", b"xbc"];
+    let texts: [&[u8]; 7] = [
+        b"",
+        b"abc",
+        b"abd",
+        b"abcd",
+        b"xbc",
+        b"twenty bytes of text",
+        b"twenty bytes of texT",
+    ];
     let mut body = Vec::new();
-    let pairs = [(0, 1), (1, 2), (1, 3), (3, 1), (1, 4), (1, 1), (0, 0)];
+    let pairs = [
+        (0, 1),
+        (1, 2),
+        (1, 3),
+        (3, 1),
+        (1, 4),
+        (1, 1),
+        (0, 0),
+        (5, 6),
+        (5, 5),
+    ];
     for (x, y) in pairs {
         body.extend(equal_of(x, y));
     }
     body.push(Call("flush".into()));
     let o = run(&program(body, &texts));
-    assert_eq!(String::from_utf8(o.stdout).unwrap(), "0000011");
+    assert_eq!(String::from_utf8(o.stdout).unwrap(), "000001101");
 }
 
 #[test]

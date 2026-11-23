@@ -147,8 +147,8 @@ fn put_number(s: &mut Asm, width: Option<u32>) {
 /// `number_places(n, places, line)`: a fresh text with `n` rounded half away from zero to
 /// `places` (0 to 4) decimal places, with every place written: `Number::with_places`.
 /// It works on `-|n|` so that the most negative number needs no special case: the rounded
-/// value (kept negative, as it may not fit otherwise) in units of the last place is the quotient, one more when the remainder is half
-/// of a unit or more. The sign shows only when the rounded value is not zero.
+/// value (kept negative, as it may not fit otherwise) in units of the last place is the
+/// quotient, one more when the remainder is half of a unit or more. The sign shows only when the rounded value is not zero.
 fn number_places() -> Function {
     let mut s = Asm::default();
     let (kept, down, no_sign, finish) = (s.label(), s.label(), s.label(), s.label());
