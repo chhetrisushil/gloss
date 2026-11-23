@@ -1,0 +1,12 @@
+record P
+  age as number
+
+feature same
+  needs xs as list of P
+  give xs
+
+feature start
+  set ps to list of (P with age 1)
+  for each p in (same with ps)
+    set age of p to 99
+  show ps

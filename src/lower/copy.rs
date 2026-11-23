@@ -21,12 +21,36 @@ impl Lowerer<'_> {
     /// is copied, with the records inside a list.
     pub fn store_value(&mut self, e: &Expr) -> Result<(), Diagnostic> {
         self.expr(e)?;
+        self.copy_unless_fresh(e);
+        Ok(())
+    }
+
+    /// The list a loop walks, in `a`. A list reached from a variable or loop variable (itself,
+    /// or a field or item of it) is walked where it is, so changing the loop variable changes its
+    /// row; any other list that already has an owner (a feature's result may be a caller's own
+    /// value, as may a field of it) is copied first.
+    pub fn walked_list(&mut self, e: &Expr) -> Result<(), Diagnostic> {
+        self.expr(e)?;
+        let mut root = e;
+        while let ExprKind::Paren(of) | ExprKind::FieldOf { of, .. } | ExprKind::ItemOf { of, .. } =
+            &root.kind
+        {
+            root = &**of;
+        }
+        if !matches!(root.kind, ExprKind::Name(_)) {
+            self.copy_unless_fresh(e);
+        }
+        Ok(())
+    }
+
+    /// Replaces the list or record in `a`, the value of `e`, by a copy, unless `e` built it.
+    fn copy_unless_fresh(&mut self, e: &Expr) {
         let ty = match self.types.expr_types.get(e.id.0 as usize) {
             Some(Some(ty @ (Ty::Record(_) | Ty::List(_)))) => ty.clone(),
-            _ => return Ok(()),
+            _ => return,
         };
         if Self::is_fresh(e) {
-            return Ok(());
+            return;
         }
         let desc = self.type_desc(&ty);
         self.emit(Inst::Push(Reg::A));
@@ -35,6 +59,5 @@ impl Lowerer<'_> {
         self.emit(Inst::Const(Reg::A, i64::from(self.line)));
         self.emit(Inst::Push(Reg::A));
         self.call("copy_value");
-        Ok(())
     }
 }
