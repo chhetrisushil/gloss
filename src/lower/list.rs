@@ -257,8 +257,9 @@ impl Lowerer<'_> {
 
     /// `for each x in xs`: the list and the position live in hidden slots; each turn puts the
     /// item at the position in `x` (a record's address, so changing its fields changes the
-    /// list's record). The list cannot change while the loop walks it (checked), so the
-    /// count is read afresh without risk.
+    /// list's record). The checker refuses to append to, set, clear or load the list, or replace
+    /// one of its items, while the loop walks it (M2-R34), so the count is read afresh without
+    /// risk and the variable keeps the item it was given.
     pub fn for_each(&mut self, var: &str, list: &Expr, body: &[Stmt]) -> Result<(), Diagnostic> {
         let (held, at) = (self.new_temp(), self.new_temp());
         self.expr(list)?;

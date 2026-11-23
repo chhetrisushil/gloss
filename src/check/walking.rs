@@ -14,9 +14,31 @@ struct Graph<'a> {
     calls: BTreeMap<&'a str, Vec<&'a str>>,
 }
 
-/// The list a statement appends to, sets, clears or loads.
+/// The list variable whose item `target` names, if it is one.
+fn item_list(target: &Target) -> Option<&str> {
+    match target {
+        Target::Item { of, .. } => match &**of {
+            Target::Var(name) => Some(name),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The list a statement appends to, sets, clears or loads, or one of whose items it
+/// replaces (`set item p of xs`, or a verb on `item p of xs`). Changing a field of a record
+/// item changes the record, not the list, so it is not here.
 fn restructures(kind: &StmtKind) -> Option<&str> {
     match kind {
+        StmtKind::Set { target, .. }
+        | StmtKind::Add { target, .. }
+        | StmtKind::Subtract { target, .. }
+        | StmtKind::Multiply { target, .. }
+        | StmtKind::Divide { target, .. }
+            if item_list(target).is_some() =>
+        {
+            item_list(target)
+        }
         StmtKind::Append { list: name, .. }
         | StmtKind::Clear(name)
         | StmtKind::Load(name)
@@ -175,6 +197,34 @@ mod tests {
             diags(p),
             ["line 4: append 2 to ns. ns cannot change while the loop on line 3 walks it."]
         );
+    }
+    #[test]
+    fn replacing_an_item_of_the_walked_list_is_refused() {
+        let p = "feature start\n  set ns to list of 1, 2\n  for each n in ns\n    set item 1 of ns to 5\n    add 1 to item 2 of ns\n";
+        assert_eq!(
+            diags(p),
+            [
+                "line 4: set item 1 of ns to 5. ns cannot change while the loop on line 3 walks it.",
+                "line 5: add 1 to item 2 of ns. ns cannot change while the loop on line 3 walks it."
+            ]
+        );
+    }
+    #[test]
+    fn replacing_an_item_through_a_called_feature_is_refused() {
+        let p = format!(
+            "{HEAD}feature start\n  for each e in es\n    run put\nfeature put\n  set item 1 of es to E with amount 1\n"
+        );
+        assert_eq!(
+            diags(&p),
+            [
+                "line 6: run put. es cannot change while the loop on line 5 walks it: put changes it."
+            ]
+        );
+    }
+    #[test]
+    fn changing_a_field_of_an_item_is_allowed() {
+        let p = "record E\n  amount as number\n\nfeature start\n  set es to list of (E with amount 1)\n  for each e in es\n    add 1 to amount of item 1 of es\n    add 1 to amount of e\n";
+        assert!(diags(p).is_empty());
     }
     #[test]
     fn a_callee_changing_its_own_local_list_is_fine() {
