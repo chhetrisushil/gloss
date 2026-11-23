@@ -177,4 +177,19 @@ impl Lowerer<'_> {
             offset: 0,
         });
     }
+
+    /// `append v to xs`: the runtime puts it at the end and grows the list when it is full.
+    pub fn append(&mut self, value: &Expr, list: &str) -> Result<(), Diagnostic> {
+        let item = self.new_temp();
+        self.expr(value)?;
+        self.emit(Inst::StoreSlot(item, Reg::A));
+        self.emit(Inst::LoadSlot(Reg::A, self.slots[list]));
+        self.emit(Inst::Push(Reg::A));
+        self.emit(Inst::LoadSlot(Reg::A, item));
+        self.emit(Inst::Push(Reg::A));
+        self.emit(Inst::Const(Reg::A, i64::from(self.line)));
+        self.emit(Inst::Push(Reg::A));
+        self.call("list_push");
+        Ok(())
+    }
 }
