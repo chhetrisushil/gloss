@@ -440,3 +440,16 @@ fn number_text_equals_number_show_for_5000_values() {
     assert_eq!(o.status, 0);
     assert_eq!(String::from_utf8(o.stdout).unwrap(), want);
 }
+
+#[test]
+fn err_number_writes_to_standard_error() {
+    let body = vec![
+        Const(A, -75_000),
+        Push(A),
+        Const(A, 7),
+        Push(A),
+        Call("err_number".into()),
+    ];
+    let o = run(&program(body, &[]));
+    assert_eq!((o.stdout.len(), o.stderr), (0, b"-7.5".to_vec()));
+}

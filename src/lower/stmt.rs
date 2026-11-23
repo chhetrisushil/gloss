@@ -3,7 +3,7 @@ use super::Lowerer;
 use crate::ast::stmt::{Stmt, StmtKind};
 use crate::ast::{Expr, ExprKind};
 use crate::diag::Diagnostic;
-use crate::ir::Inst;
+use crate::ir::{Inst, Reg};
 
 impl Lowerer<'_> {
     pub fn stmts(&mut self, body: &[Stmt]) -> Result<(), Diagnostic> {
@@ -38,6 +38,14 @@ impl Lowerer<'_> {
             ExprKind::Text(text) => {
                 self.push_text(text.as_bytes());
                 self.call("out_text");
+                Ok(())
+            }
+            ExprKind::Number(_) | ExprKind::Negate(_) => {
+                self.expr(item)?;
+                self.emit(Inst::Push(Reg::A));
+                self.emit(Inst::Const(Reg::A, i64::from(item.line)));
+                self.emit(Inst::Push(Reg::A));
+                self.call("out_number");
                 Ok(())
             }
             _ => Err(Diagnostic::error(

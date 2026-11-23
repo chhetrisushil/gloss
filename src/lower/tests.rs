@@ -80,3 +80,14 @@ fn slots_are_unique_names_without_inputs() {
     assert_eq!(slots.len(), 2);
     assert_eq!((slots["x"], slots["i"]), (1, 2));
 }
+
+#[test]
+fn show_of_a_number_lowers_to_out_number_with_the_line() {
+    let m = lowered("feature start\n  show -7.5\n").unwrap();
+    let f = m.functions.iter().find(|f| f.name == "f_start").unwrap();
+    assert!(
+        function_text(f)
+            .contains("line 2\n  a = -75000\n  push a\n  a = 2\n  push a\n  call out_number\n")
+    );
+    assert!(m.functions.iter().any(|f| f.name == "number_text"));
+}

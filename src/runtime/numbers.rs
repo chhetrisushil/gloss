@@ -131,6 +131,28 @@ fn number_text() -> Function {
     s.finish("number_text", 2, 7)
 }
 
+/// `out_number(n, line)`: writes the show form of `n` to standard output.
+fn out_number() -> Function {
+    let mut s = Asm::default();
+    s.push_arg(1);
+    s.push_arg(2);
+    s.call("number_text");
+    s.i(Push(A));
+    s.call("out_text");
+    s.finish("out_number", 2, 0)
+}
+
+/// `err_number(n, line)`: writes the show form of `n` to standard error.
+fn err_number() -> Function {
+    let mut s = Asm::default();
+    s.push_arg(1);
+    s.push_arg(2);
+    s.call("number_text");
+    s.i(Push(A));
+    s.call("err_text");
+    s.finish("err_number", 2, 0)
+}
+
 pub fn routines() -> Vec<Function> {
-    vec![number_text()]
+    vec![number_text(), out_number(), err_number()]
 }
