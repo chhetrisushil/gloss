@@ -14,11 +14,13 @@ const MAX_STACK: i64 = 1 << 30;
 /// How far above the real end of the stack the limit sits.
 const STACK_MARGIN: i64 = 64 << 10;
 
+/// `_start`: runs the program's `f_start` (every feature is named `f_<feature>`, so features
+/// never clash with runtime routines).
 fn start() -> Function {
     let mut s = Asm::default();
     s.call("heap_init");
     s.call("stack_init");
-    s.call("start");
+    s.call("f_start");
     s.call("flush");
     s.push_const(0);
     s.i(System(Prim::Exit));
@@ -121,6 +123,9 @@ fn stack_limit() -> Function {
     s.finish("stack_limit", 2, 0)
 }
 
+/// `stack_init`: sets the limit from the stack pointer here, in `_start`'s call, not from the
+/// top of the stack above argv, the environment and the auxiliary vector. If those take more
+/// than the 64 KiB margin, a deep recursion may fault instead of failing with code 10.
 fn stack_init() -> Function {
     let mut s = Asm::default();
     s.i(System(Prim::StackSize));

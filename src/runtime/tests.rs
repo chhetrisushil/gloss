@@ -270,7 +270,7 @@ fn a_size_that_cannot_be_allocated_is_out_of_memory() {
 fn a_program_that_shows_nothing_exits_0_with_no_output() {
     let mut m = Module::default();
     m.functions.push(Function {
-        name: "start".into(),
+        name: "f_start".into(),
         params: 0,
         slots: 0,
         body: vec![Enter(0), Return],

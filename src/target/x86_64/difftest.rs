@@ -192,9 +192,17 @@ fn the_runtime_entry_and_failure_paths_agree() {
     ]);
     body.push(Inst::Call("fail_begin".into()));
     body.extend(print(boom));
-    body.extend([Inst::Call("err_text".into()), Inst::Call("fail_end".into())]);
+    body.push(Inst::Call("err_text".into()));
+    for n in [i64::MIN, -7, 0] {
+        body.extend([
+            Inst::Const(A, n),
+            Inst::Push(A),
+            Inst::Call("err_int".into()),
+        ]);
+    }
+    body.push(Inst::Call("fail_end".into()));
     m.functions.push(Function {
-        name: "start".into(),
+        name: "f_start".into(),
         params: 0,
         slots: 0,
         body,

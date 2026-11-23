@@ -1,7 +1,7 @@
 //! The simulated address space: sparse little-endian bytes, with the read-only texts,
 //! descriptors and globals laid out at fixed addresses. Unwritten bytes read as zero.
 
-use crate::ir::{Data, Global, Module};
+use crate::ir::{Data, Global, IO_BUF_BYTES, Module};
 use std::collections::HashMap;
 
 /// Where read-only texts start: each is an 8-byte little-endian length, then the bytes,
@@ -27,7 +27,7 @@ const GLOBALS: [Global; 8] = [
 
 fn global_size(g: Global) -> u64 {
     match g {
-        Global::OutBuf | Global::InBuf => 4096,
+        Global::OutBuf | Global::InBuf => IO_BUF_BYTES as u64,
         Global::HeapNext
         | Global::HeapEnd
         | Global::StackLimit
