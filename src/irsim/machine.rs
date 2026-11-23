@@ -58,6 +58,8 @@ pub struct Machine<'m> {
     /// Test-only write faults.
     pub faults: super::Faults,
     pub stderr: Vec<u8>,
+    /// How many `Write` calls the program made.
+    pub writes: u32,
 }
 
 fn label_positions(function: &Function) -> HashMap<Label, usize> {
@@ -87,6 +89,7 @@ impl<'m> Machine<'m> {
             stdout: Vec::new(),
             faults: super::Faults::default(),
             stderr: Vec::new(),
+            writes: 0,
         }
     }
 

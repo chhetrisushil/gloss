@@ -20,6 +20,8 @@ pub struct Outcome {
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
     pub status: i32,
+    /// How many `Write` calls the program made.
+    pub writes: u32,
 }
 
 /// Faults a test can make `Write` show, as a real kernel sometimes does.
@@ -55,6 +57,7 @@ pub fn run_with(m: &Module, entry: &str, stdin: &[u8], faults: Faults) -> Outcom
         stdout: machine.stdout,
         stderr: machine.stderr,
         status,
+        writes: machine.writes,
     }
 }
 
