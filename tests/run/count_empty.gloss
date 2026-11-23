@@ -1,0 +1,4 @@
+feature start
+  for each i from 3 to 1
+    show i
+  show "done"

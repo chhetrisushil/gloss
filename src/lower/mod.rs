@@ -1,6 +1,7 @@
 //! Lowering: the checked program and its `TypeInfo` become a Gloss IR module.
 
 mod cond;
+mod count;
 mod expr;
 mod fail;
 mod stmt;
@@ -33,9 +34,17 @@ pub(crate) struct Lowerer<'a> {
     pub line: u32,
     /// The `skip` and `stop` targets of the loops being lowered, innermost last.
     pub loops: Vec<(Label, Label)>,
+    /// Hidden slots handed out so far, numbered after the named ones.
+    pub temps: u32,
 }
 
 impl Lowerer<'_> {
+    /// A hidden slot, for a value a statement keeps while it runs.
+    pub fn new_temp(&mut self) -> u32 {
+        self.temps += 1;
+        self.slots.len() as u32 + self.temps
+    }
+
     pub fn emit(&mut self, inst: Inst) {
         self.body.push(inst);
     }
@@ -69,12 +78,12 @@ fn lower_feature(
     called: &mut Vec<String>,
 ) -> Result<Function, Diagnostic> {
     let slots = assign_slots(types, &feature.name);
-    let count = slots.len() as u32;
+    let named = slots.len() as u32;
     let mut l = Lowerer {
         module,
         src,
         called: Vec::new(),
-        body: vec![Inst::Enter(count)],
+        body: vec![Inst::Enter(named)],
         types,
         slots,
         inputs: feature.needs.iter().map(|i| i.name.clone()).collect(),
@@ -82,10 +91,13 @@ fn lower_feature(
         fails: Vec::new(),
         line: 0,
         loops: Vec::new(),
+        temps: 0,
     };
     l.stmts(&feature.body)?;
     l.emit(Inst::Return);
     l.emit_fails();
+    let count = named + l.temps;
+    l.body[0] = Inst::Enter(count);
     for name in l.called {
         if !called.contains(&name) {
             called.push(name);
