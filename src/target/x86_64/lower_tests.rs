@@ -217,11 +217,69 @@ fn integer_operations_and_shifts() {
 }
 
 #[test]
-fn numeric_and_system_instructions_wait_for_8b() {
-    let err = lower_function(&func(0, 0, vec![Inst::NumWhole]), &known()).unwrap_err();
-    assert_eq!(err, "cannot lower a = num_whole a yet");
-    let err = lower_function(&func(0, 0, vec![Inst::System(Prim::Exit)]), &known());
-    assert_eq!(err.unwrap_err(), "cannot lower system exit yet");
+fn checked_numbers_jump_to_range_on_overflow() {
+    let range = Label(1);
+    assert_eq!(one(Inst::NumAdd { range }), ["add rax, rcx", "jo Lf_1"]);
+    assert_eq!(one(Inst::NumSub { range }), ["sub rax, rcx", "jo Lf_1"]);
+    assert_eq!(one(Inst::NumNeg { range }), ["neg rax", "jo Lf_1"]);
+    assert_eq!(
+        one(Inst::NumWhole),
+        ["cqo", "movabs rsi, 10000", "idiv rsi", "imul rax, rsi"]
+    );
+}
+
+#[test]
+fn system_primitives_pop_their_arguments_in_reverse_and_keep_b() {
+    let transfer = |n: &str| {
+        let movs = [
+            "pop rdx", "pop rsi", "pop rdi", n, "push rcx", "syscall", "pop rcx",
+        ];
+        movs.map(String::from).to_vec()
+    };
+    assert_eq!(one(Inst::System(Prim::Write)), transfer("movabs rax, 1"));
+    assert_eq!(one(Inst::System(Prim::Read)), transfer("movabs rax, 0"));
+    assert_eq!(
+        one(Inst::System(Prim::Exit)),
+        ["pop rdi", "movabs rax, 231", "syscall"]
+    );
+}
+
+#[test]
+fn map_turns_kernel_errors_into_zero_and_stack_size_reads_the_limit() {
+    let map = one(Inst::System(Prim::Map));
+    assert_eq!(map[0], "pop rsi");
+    assert!(map.contains(&"movabs rax, 9".to_string()));
+    assert!(map.contains(&"movabs r10, 34".to_string()));
+    assert!(map.contains(&"cmp rax, -4096".to_string()));
+    assert!(map.contains(&"xor rax, rax".to_string()));
+    assert_eq!(
+        one(Inst::System(Prim::StackSize)),
+        [
+            "push rcx",
+            "sub rsp, 16",
+            "movabs rdi, 3",
+            "mov rsi, rsp",
+            "movabs rax, 97",
+            "syscall",
+            "mov rax, [rsp+0]",
+            "add rsp, 16",
+            "pop rcx"
+        ]
+    );
+}
+
+#[test]
+fn multiplication_and_division_wait_for_the_helpers() {
+    let (zero, range) = (Label(1), Label(2));
+    let err = lower_function(&func(0, 0, vec![Inst::NumMul { range }]), &known());
+    assert_eq!(
+        err.unwrap_err(),
+        "cannot lower a = num_mul a, b; out of range L2 yet"
+    );
+    let div = Inst::NumDiv { zero, range };
+    assert!(lower_function(&func(0, 0, vec![div]), &known()).is_err());
+    let rem = Inst::NumRem { zero };
+    assert!(lower_function(&func(0, 0, vec![rem]), &known()).is_err());
 }
 
 #[test]
