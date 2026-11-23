@@ -1,0 +1,17 @@
+record Student
+  name as text
+  marks as number
+
+feature start
+  set asha to Student with name "Asha", marks 82
+  set ravi to Student with name "Ravi", marks 67
+  set meera to Student with name "Meera", marks 91
+  set students to list of asha, ravi, meera
+
+  set top to first of students
+  for each student in students
+    if marks of student is greater than marks of top
+      set top to student
+
+  show "Top student: ", name of top, " with ", marks of top
+  show "Second in list: ", name of item 2 of students

@@ -1,0 +1,11 @@
+record P
+  name as text
+  age as number
+
+feature start
+  set a to P with name "Asha", age 30
+  set b to a
+  set age of b to 31
+  set c to (a)
+  set name of c to "Cy"
+  show a, " ", b, " ", c
