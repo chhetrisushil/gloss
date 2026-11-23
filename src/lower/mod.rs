@@ -1,0 +1,110 @@
+//! Lowering: the checked program and its `TypeInfo` become a Gloss IR module.
+
+mod stmt;
+#[cfg(test)]
+mod tests;
+use std::collections::BTreeMap;
+
+use crate::ast::program::{FeatureDecl, Program};
+use crate::check::TypeInfo;
+use crate::diag::Diagnostic;
+use crate::ir::{Function, Inst, Module, Reg};
+use crate::runtime;
+use crate::source::Source;
+
+/// What lowering one feature needs: the module for its texts, the routines it calls, and
+/// the code so far.
+pub(crate) struct Lowerer<'a> {
+    pub module: &'a mut Module,
+    pub src: &'a Source,
+    pub called: Vec<String>,
+    pub body: Vec<Inst>,
+}
+
+impl Lowerer<'_> {
+    pub fn emit(&mut self, inst: Inst) {
+        self.body.push(inst);
+    }
+
+    /// Calls a runtime routine, noting it so the runtime brings it in.
+    pub fn call(&mut self, name: &str) {
+        if !self.called.iter().any(|c| c == name) {
+            self.called.push(name.to_string());
+        }
+        self.emit(Inst::Call(name.to_string()));
+    }
+
+    /// Pushes the address of the text `bytes`.
+    pub fn push_text(&mut self, bytes: &[u8]) {
+        let k = self.module.text(bytes);
+        self.emit(Inst::AddressOf(Reg::A, crate::ir::Data::Text(k)));
+        self.emit(Inst::Push(Reg::A));
+    }
+}
+
+/// The name of the IR function for a feature; the prefix keeps it clear of runtime names.
+fn function_name(feature: &str) -> String {
+    format!("f_{feature}")
+}
+
+fn lower_feature(
+    module: &mut Module,
+    src: &Source,
+    types: &TypeInfo,
+    feature: &FeatureDecl,
+    called: &mut Vec<String>,
+) -> Result<Function, Diagnostic> {
+    let slots = assign_slots(types, &feature.name);
+    let count = slots.len() as u32;
+    let mut l = Lowerer {
+        module,
+        src,
+        called: Vec::new(),
+        body: vec![Inst::Enter(count)],
+    };
+    l.stmts(&feature.body)?;
+    l.emit(Inst::Return);
+    for name in l.called {
+        if !called.contains(&name) {
+            called.push(name);
+        }
+    }
+    Ok(Function {
+        name: function_name(&feature.name),
+        params: feature.needs.len() as u32,
+        slots: count,
+        body: l.body,
+    })
+}
+
+/// Slots are numbered from 1: variables first, then loop variables.
+fn assign_slots(types: &TypeInfo, feature: &str) -> BTreeMap<String, u32> {
+    let mut slots = BTreeMap::new();
+    if let Some(info) = types.features.get(feature) {
+        let names = info
+            .vars
+            .iter()
+            .map(|(name, ..)| name)
+            .chain(info.loops.iter().map(|l| &l.name));
+        for name in names {
+            let next = slots.len() as u32 + 1;
+            slots.entry(name.clone()).or_insert(next);
+        }
+    }
+    slots
+}
+
+/// Lowers a checked program to an IR module, with the runtime it reaches.
+pub fn lower(program: &Program, types: &TypeInfo, src: &Source) -> Result<Module, Diagnostic> {
+    if program.tables().next().is_some() {
+        return Err(Diagnostic::program("tables arrive in milestone 3"));
+    }
+    let mut module = Module::default();
+    let mut called = vec!["_start".to_string()];
+    for feature in program.features() {
+        let f = lower_feature(&mut module, src, types, feature, &mut called)?;
+        module.functions.push(f);
+    }
+    runtime::add_reachable(&mut module, &called);
+    Ok(module)
+}
