@@ -1,0 +1,5 @@
+feature start
+  set z to 0
+  show "before"
+  for each i from 1 to 1 / z
+    show i

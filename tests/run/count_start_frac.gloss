@@ -1,0 +1,4 @@
+feature start
+  set low to 0.5
+  for each i from low to 3
+    show i
