@@ -1,6 +1,6 @@
 //! One instruction at a time.
 
-use super::machine::Machine;
+use super::machine::{Ended, Machine};
 use crate::ir::{Inst, IntOp, Shift};
 use crate::number::Number;
 
@@ -34,8 +34,8 @@ fn shift(kind: Shift, value: i64, n: u8) -> i64 {
 }
 
 impl Machine<'_> {
-    /// Runs one instruction; gives the result when the outermost call returns.
-    pub fn step(&mut self) -> Option<i64> {
+    /// Runs one instruction; says how the program ended when it did.
+    pub fn step(&mut self) -> Option<Ended> {
         let module = self.module;
         let frame = self.frame();
         let inst = &module.functions[frame.func].body[frame.pc];
@@ -109,7 +109,7 @@ impl Machine<'_> {
                     self.jump(*fail);
                 }
             }
-            Inst::Return => return self.leave(),
+            Inst::Return => return self.leave().map(Ended::Returned),
             Inst::Enter(n) => assert_eq!(*n as usize, self.frame().slots.len()),
             Inst::NumAdd { range } => {
                 let result = Number(self.a).checked_add(Number(self.b));
@@ -136,7 +136,7 @@ impl Machine<'_> {
                 self.settle(result, *zero, *zero);
             }
             Inst::NumWhole => self.a = Number(self.a).whole().0,
-            Inst::System(_) => todo!("Task 3b"),
+            Inst::System(prim) => return self.system(*prim),
         }
         None
     }

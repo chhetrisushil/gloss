@@ -1,5 +1,5 @@
 use super::{call, run};
-use crate::ir::{Cond, Data, Function, Global, Inst, IntOp, Label, Module, Reg, Shift};
+use crate::ir::{Cond, Data, Function, Global, Inst, IntOp, Label, Module, Prim, Reg, Shift};
 use crate::number::{NumFail, Number, SCALE};
 use Inst::*;
 use Reg::{A, B};
@@ -718,4 +718,84 @@ fn multiplying_past_the_range_takes_the_range_label() {
         run_num(NumMul { range: Label(1) }, i64::MAX, 2 * SCALE),
         RANGE_TAKEN
     );
+}
+
+fn push_const(n: i64) -> [Inst; 2] {
+    [Const(A, n), Push(A)]
+}
+
+/// Pushes the address of text 0's bytes, which follow its 8-byte length.
+fn push_text_bytes() -> [Inst; 3] {
+    [AddressOf(A, Data::Text(0)), AddImm(A, 8), Push(A)]
+}
+
+fn with_text(body: Vec<Inst>) -> Module {
+    let mut m = single(body);
+    m.text(b"abc");
+    m
+}
+
+fn write_text(fd: i64) -> Vec<Inst> {
+    let mut body = Vec::new();
+    body.extend(push_const(fd));
+    body.extend(push_text_bytes());
+    body.extend(push_const(3));
+    body.push(System(Prim::Write));
+    body
+}
+
+#[test]
+fn write_to_fd_2_lands_in_stderr_and_returns_the_length() {
+    let mut body = write_text(2);
+    body.push(Return);
+    let m = with_text(body);
+    assert_eq!(call(&m, "f", &[]), 3);
+    let outcome = run(&m, "f", b"");
+    assert_eq!(outcome.stderr, b"abc");
+    assert!(outcome.stdout.is_empty());
+}
+
+#[test]
+fn write_to_fd_1_lands_in_stdout() {
+    let mut body = write_text(1);
+    body.push(Return);
+    let outcome = run(&with_text(body), "f", b"");
+    assert_eq!(outcome.stdout, b"abc");
+    assert!(outcome.stderr.is_empty());
+}
+
+#[test]
+fn write_to_another_fd_is_ebadf_and_consumes_its_arguments() {
+    let mut body = write_text(5);
+    body.extend([StackPointer(B), Move { to: A, from: B }, Return]);
+    let m = with_text(body);
+    let plain = with_text(vec![StackPointer(A), Return]);
+    assert_eq!(call(&m, "f", &[]), call(&plain, "f", &[]));
+    let mut failing = write_text(5);
+    failing.push(Return);
+    assert_eq!(call(&with_text(failing), "f", &[]), -9);
+}
+
+#[test]
+fn exit_stops_at_once_with_its_status_from_any_depth() {
+    let mut deep = write_text(1);
+    deep.extend(push_const(2));
+    deep.extend([System(Prim::Exit), Const(A, 99), Return]);
+    let mut m = with_text(vec![Call("deep".to_string()), Const(A, 99), Return]);
+    m.functions.push(function("deep", 0, 0, deep));
+    let outcome = run(&m, "f", b"");
+    assert_eq!(outcome.status, 2);
+    assert_eq!(outcome.stdout, b"abc");
+}
+
+#[test]
+fn a_program_that_returns_has_status_0() {
+    let m = single(vec![Const(A, 5), Return]);
+    assert_eq!(run(&m, "f", b"").status, 0);
+}
+
+#[test]
+fn stack_size_is_8_mebibytes() {
+    let m = single(vec![System(Prim::StackSize), Return]);
+    assert_eq!(call(&m, "f", &[]), 8 * 1024 * 1024);
 }
