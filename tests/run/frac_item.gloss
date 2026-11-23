@@ -1,0 +1,4 @@
+feature start
+  set xs to list of 1, 2
+  set n to 2.5
+  show item n of xs
