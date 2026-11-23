@@ -18,6 +18,7 @@ mod shown;
 #[cfg(test)]
 mod tests;
 mod text;
+mod values;
 
 use crate::ir::{Data, Function, Inst, Module};
 
@@ -27,18 +28,24 @@ const COLON: u32 = 2;
 const NEWLINE: u32 = 3;
 const OUT_OF_MEMORY: u32 = 4;
 const INPUT_ENDED: u32 = 5;
+const QUOTE: u32 = 6;
+const YES: u32 = 7;
+const NO: u32 = 8;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 6] = [
+const TEXTS: [&[u8]; 9] = [
     b"line ",
     b": failure ",
     b": ",
     b"\n",
     b"out of memory",
     b"input ended while ask was waiting",
+    b"\"",
+    b"yes",
+    b"no",
 ];
 
 /// The bytes of the runtime text `i`.
@@ -60,6 +67,7 @@ pub fn routines() -> Vec<Function> {
     all.extend(places::routines());
     all.extend(shown::routines());
     all.extend(text::routines());
+    all.extend(values::routines());
     all
 }
 
