@@ -1,0 +1,6 @@
+feature minus
+  needs a as number, b as number
+  give a - b
+
+feature start
+  show (minus with 10, 3)

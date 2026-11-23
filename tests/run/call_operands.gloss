@@ -1,0 +1,7 @@
+feature f
+  needs n as number
+  give n * 10
+
+feature start
+  show (f with 1) + (f with 2)
+  show (f with 3) - (f with 1)
