@@ -65,14 +65,25 @@ fn build_reports_errors_with_status_3() {
 }
 
 #[test]
-fn build_checks_clean_program() {
-    let p = temp_file("good", "feature start\n  show \"hello\"\n");
+fn build_writes_an_executable_beside_the_source() {
+    let p = temp_file("hello", "feature start\n  show \"hello\"\n");
     let (code, out, err) = gloss(&["build", p.to_str().unwrap()]);
-    assert_eq!(code, 0, "{err}");
-    assert_eq!(
-        out,
-        "Checked good.gloss: no errors (code generation arrives in milestone 2)\n"
-    );
+    assert_eq!((code, out.as_str(), err.as_str()), (0, "Built hello\n", ""));
+    let exe = p.with_extension("");
+    let mode =
+        std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&exe).unwrap().permissions());
+    assert_eq!(mode & 0o777, 0o755);
+    assert_eq!(&std::fs::read(&exe).unwrap()[..4], b"\x7fELF");
+}
+
+#[test]
+fn a_table_program_is_not_built_yet() {
+    let text = "record Row\n  name as text\n\ntable rows of Row in \"rows.csv\"\n\nfeature start\n  show \"x\"\n";
+    let p = temp_file("tabled", text);
+    let (code, out, err) = gloss(&["build", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert_eq!(err, "tables arrive in milestone 3.\n");
+    assert!(!p.with_extension("").exists());
 }
 
 #[test]
@@ -96,16 +107,17 @@ fn usage_and_unbuilt_commands_exit_3() {
 }
 
 #[test]
-fn build_with_only_warnings_exits_0() {
-    // An unused variable is the simplest warning; see check for the exact text.
+fn warnings_print_before_a_build_the_compiler_cannot_do_yet() {
+    // No program with a warning lowers yet (set is not built), so the build stops after it.
     let p = temp_file("warn", "feature start\n  set unused to 1\n  show \"hi\"\n");
     let (code, out, err) = gloss(&["build", p.to_str().unwrap()]);
-    assert_eq!(code, 0, "{err}");
+    assert_eq!((code, out.as_str()), (3, ""));
     assert!(err.starts_with("line 2: warning: "), "{err}");
-    assert_eq!(
-        out,
-        "Checked warn.gloss: no errors (code generation arrives in milestone 2)\n"
+    assert!(
+        err.ends_with("this compiler cannot build this statement yet.\n"),
+        "{err}"
     );
+    assert!(!p.with_extension("").exists());
 }
 
 #[test]
