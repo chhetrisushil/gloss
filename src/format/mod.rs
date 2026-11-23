@@ -308,4 +308,11 @@ mod tests {
         let s = "note\n  Walks the list.\n\n    Indented more.\nfeature start\n  show 1\n";
         assert_eq!(fmt(s), s);
     }
+
+    #[test]
+    fn negated_operands_after_of_and_by_round_trip() {
+        let s = "feature start\n  set x to 1\n  set y to 2\n  show whole of -3.5\n  \
+                 show remainder of -7 by 2\n  show remainder of x by -y\n  show whole of -x\n";
+        assert_eq!(fmt(s), s);
+    }
 }
