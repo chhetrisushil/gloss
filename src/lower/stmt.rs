@@ -62,6 +62,19 @@ impl Lowerer<'_> {
                 by,
                 target: Target::Var(name),
             } => self.verb(s, name, by, VerbOp::Div),
+            StmtKind::If {
+                branches,
+                otherwise,
+            } => self.if_chain(branches, otherwise.as_deref()),
+            StmtKind::RepeatWhile { cond, body } => {
+                let (top, end) = (self.new_label(), self.new_label());
+                self.emit(Inst::Mark(top));
+                self.condition(cond, end)?;
+                self.stmts(body)?;
+                self.emit(Inst::Jump(top));
+                self.emit(Inst::Mark(end));
+                Ok(())
+            }
             _ => Err(Diagnostic::error(
                 self.src,
                 s.line,
