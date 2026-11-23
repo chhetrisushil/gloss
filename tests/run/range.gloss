@@ -1,0 +1,3 @@
+feature start
+  set price to 922337203685477
+  show price * 1000000
