@@ -1,0 +1,3 @@
+feature start
+  set xs to list of 4, 9, 2
+  show count of xs, " ", first of xs, " ", last of xs, " ", item 2 of xs

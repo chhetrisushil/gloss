@@ -1,6 +1,6 @@
 //! Failure blocks: one per failing instruction, emitted after the function's `Return`.
 use super::Lowerer;
-use crate::ir::{Inst, Label, Reg};
+use crate::ir::{Cond, Inst, Label, Reg};
 
 /// A run-time failure to report: the line, the failure number and the message pieces.
 pub(crate) struct Fail {
@@ -13,6 +13,9 @@ pub(crate) struct Fail {
     /// A slot whose text is written, cut and with invisible characters spelled, after a
     /// `"` and before the first part.
     shown: Option<u32>,
+    /// For failure 2 on a position: the slots holding the position and the list. The message
+    /// is `parts[0]`, the position, ` in `, `parts[1]`, `; it has `, the count and `item(s)`.
+    item: Option<(u32, u32)>,
 }
 
 /// `text` with each invisible character written `\u{XXXX}`, the same set and form as the
@@ -48,6 +51,7 @@ impl Lowerer<'_> {
             parts,
             value,
             shown: None,
+            item: None,
         });
         label
     }
@@ -72,6 +76,26 @@ impl Lowerer<'_> {
     pub fn not_whole(&mut self, what: &str, source: &str, slot: u32) -> Label {
         let before = format!("the {what} of a count must be whole (");
         self.fail_label_with(3, [&before, source, ")"], Some(slot))
+    }
+
+    /// Failure 3 for an item position whose source is `source` and whose value is in `slot`.
+    pub fn bad_position(&mut self, source: &str, slot: u32) -> Label {
+        let parts = ["an item position must be whole (", source, ")"];
+        self.fail_label_with(3, parts, Some(slot))
+    }
+
+    /// Failure 2 for the position in slot `pos` of the list, in slot `list`, whose source is
+    /// `source`.
+    pub fn no_item(&mut self, source: &str, pos: u32, list: u32) -> Label {
+        let label = self.fail_label(2, "there is no item ", source, "");
+        self.fails.last_mut().expect("just added").item = Some((pos, list));
+        label
+    }
+
+    /// Failure 2 for `first` or `last` (`which`) of the empty list whose source is `source`.
+    pub fn no_end_item(&mut self, which: &str, source: &str) -> Label {
+        let before = format!("there is no {which} item in ");
+        self.fail_label(2, &before, source, "; it is empty")
     }
 
     /// Failure 5 for the text in `slot` that `source` (`x as number`) could not read.
@@ -110,6 +134,10 @@ impl Lowerer<'_> {
                 self.emit(Inst::Push(Reg::A));
                 self.call("err_shown");
             }
+            if let Some((pos, list)) = f.item {
+                self.item_message(&f.parts[0], &f.parts[1], pos, list);
+                continue;
+            }
             for (i, part) in f.parts.iter().enumerate() {
                 if let (2, Some(slot)) = (i, f.value) {
                     self.push_text(b" is ");
@@ -123,5 +151,47 @@ impl Lowerer<'_> {
             }
             self.call("fail_end");
         }
+    }
+
+    /// The message of failure 2 on a position: the list's count in the message is read from
+    /// the header, with `item` for exactly 1 and `items` otherwise.
+    fn item_message(&mut self, before: &str, source: &str, pos: u32, list: u32) {
+        self.push_text(before.as_bytes());
+        self.call("err_text");
+        self.emit(Inst::LoadSlot(Reg::A, pos));
+        self.emit(Inst::Push(Reg::A));
+        self.call("err_number");
+        self.push_text(b" in ");
+        self.call("err_text");
+        self.push_text(source.as_bytes());
+        self.call("err_text");
+        self.push_text(b"; it has ");
+        self.call("err_text");
+        self.emit(Inst::LoadSlot(Reg::A, list));
+        self.emit(Inst::Load {
+            to: Reg::A,
+            base: Reg::A,
+            offset: 0,
+        });
+        self.emit(Inst::Push(Reg::A));
+        self.call("err_int");
+        self.emit(Inst::LoadSlot(Reg::A, list));
+        self.emit(Inst::Load {
+            to: Reg::A,
+            base: Reg::A,
+            offset: 0,
+        });
+        self.emit(Inst::Const(Reg::B, 1));
+        self.emit(Inst::Compare);
+        let (many, done) = (self.new_label(), self.new_label());
+        self.emit(Inst::JumpIf(Cond::Ne, many));
+        self.push_text(b" item");
+        self.call("err_text");
+        self.emit(Inst::Jump(done));
+        self.emit(Inst::Mark(many));
+        self.push_text(b" items");
+        self.call("err_text");
+        self.emit(Inst::Mark(done));
+        self.call("fail_end");
     }
 }
