@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::diag::Diagnostic;
 use crate::source::Source;
-use crate::{check_source, format_source, parse_source};
+use crate::{format_source, parse_source};
 
 const USAGE: &str = "usage: gloss <command> <file.gloss>\ncommands: build, test, format, trace, explain, flowchart\n";
 
@@ -56,7 +56,7 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
 }
 
 fn build(path: &Path, name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let mut diagnostics = check_source(text);
+    let (mut diagnostics, checked) = crate::check_program(text);
     let clashes = executable_clashes(name, text, &diagnostics);
     diagnostics.extend(clashes);
     crate::diag::sort(&mut diagnostics);
@@ -66,14 +66,13 @@ fn build(path: &Path, name: &str, text: &str, out: &mut dyn Write, err: &mut dyn
     if diagnostics.iter().any(|d| d.is_error()) {
         return 3;
     }
-    let bytes = match crate::build_executable(text) {
-        Ok(bytes) => bytes,
-        Err(failed) => {
-            for d in &failed {
-                let _ = writeln!(err, "{}", d.render());
-            }
+    let bytes = match checked.map(|c| c.executable()) {
+        Some(Ok(bytes)) => bytes,
+        Some(Err(d)) => {
+            let _ = writeln!(err, "{}", d.render());
             return 3;
         }
+        None => return 3,
     };
     let executable = path.with_extension("");
     if let Err(e) = write_atomically(&executable, &bytes, Some(0o755)) {
