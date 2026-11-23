@@ -41,13 +41,13 @@ Agents now write most code, and fewer people read it. Gloss aims to make program
 
 ## Status
 
-The **front end** (milestone 1) is built: the compiler reads a Gloss program, reports every compile error and warning the spec defines, and formats source into its one accepted form. It does not produce executables yet; that is milestone 2.
+Milestones 1 and 2 are built. The compiler reads a Gloss program, reports every compile error and warning the spec defines, formats source into its one accepted form, and `gloss build` writes a static x86-64 Linux executable. Programs that declare a table are refused (`tables arrive in milestone 3`); so are `load`, `save`, `clear`, `expect` and `input`, which belong to milestones 3 and 4.
 
 | Milestone | What it adds | State |
 |---|---|---|
 | 1 | Lexer, parser, checker, `gloss build` (checks only), `gloss format` | Done |
-| 2 | Code generation and runtime: `gloss build` writes an x86-64 Linux executable | Next |
-| 3 | Tables and files: CSV `load`/`save`, file permissions | Planned |
+| 2 | Code generation and runtime: `gloss build` writes an x86-64 Linux executable | Done |
+| 3 | Tables and files: CSV `load`/`save`, file permissions | Next |
 | 4 | `gloss test` | Planned |
 | 5–7 | `gloss trace`, `gloss explain`, `gloss flowchart` | Planned |
 
@@ -57,7 +57,7 @@ The **front end** (milestone 1) is built: the compiler reads a Gloss program, re
 
 - Rust **1.87 or later** (edition 2024), with `rustfmt` and `clippy`: `rustup component add rustfmt clippy`.
 - No other dependencies. The compiler uses only the Rust standard library.
-- From milestone 2 on, running the executables Gloss produces needs **x86-64 Linux** (kernel 5.6+). On an Apple Silicon Mac this means an x86-64 Linux VM such as [OrbStack](https://orbstack.dev): `orb create --arch amd64 ubuntu gloss-amd64`. Building the compiler itself works on any platform Rust supports.
+- Running the executables Gloss produces needs **x86-64 Linux**. On an Apple Silicon Mac this means an x86-64 Linux machine in [OrbStack](https://orbstack.dev); see [OrbStack setup](#orbstack-setup-macos). Building the compiler itself works on any platform Rust supports.
 
 ### Build
 
@@ -77,12 +77,16 @@ feature start
   show "hello"
 ```
 
-Check it:
+Build it. This checks the program and writes the executable `hello` beside the source:
 
 ```console
 $ gloss build hello.gloss
-Checked hello.gloss: no errors (code generation arrives in milestone 2)
+Built hello
 ```
+
+Run it: `./hello` on x86-64 Linux, or `orb -m gloss-amd64 ./hello` on a Mac. It prints `hello`.
+
+The [`examples/`](examples/README.md) folder holds more programs (FizzBuzz, greatest common divisor, primes, Collatz, square root, binary search, ...), each with the output it must produce.
 
 Errors name the line, quote it, explain the problem and suggest the fix:
 
@@ -102,7 +106,7 @@ Formatted messy.gloss
 
 | Command | What it does | Available |
 |---|---|---|
-| `gloss build FILE` | Checks the program. Prints errors and warnings to standard error. | Now (checks only) |
+| `gloss build FILE` | Checks the program, then writes the executable beside the source and prints `Built NAME`. Prints errors and warnings to standard error. | Now |
 | `gloss format FILE` | Rewrites the file into the one accepted form. A file that does not parse is left untouched. | Now |
 | `gloss test FILE` | Runs every test block and prints each title with pass or fail | Milestone 4 |
 | `gloss trace FILE` | Runs the program and narrates each step in plain words | Milestone 5 |
@@ -121,10 +125,27 @@ Run this before every pull request; CI runs the same three steps:
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
+- **Run tests** (`tests/run.rs`, `tests/examples.rs` and others) build real programs and run the executables. They use the command in `GLOSS_RUNNER`, split on spaces: `orb -m gloss-amd64` on macOS when `orb` is on the path, nothing (run directly) on x86-64 Linux when it is unset. With no runner they are skipped, and print `run tests skipped: no x86-64 Linux runner (set GLOSS_RUNNER)`. Every case also runs under `irsim`, the test-only IR interpreter, on any host.
 - **Unit tests** sit beside each module (`#[cfg(test)]`) and assert exact diagnostic text, because messages are part of the language design.
 - **`tests/cli.rs`** runs the real `gloss` binary.
 - **`tests/spec_examples.rs`** compiles every ` ```gloss ` example in `spec/v0.md`, so the spec and the compiler cannot drift apart.
 - **`tests/format_generated.rs`** checks that formatting never changes a program and is idempotent.
+
+- `GLOSS_OBJDUMP=1 cargo test --test objdump` also checks every encoded instruction against `objdump` inside the machine (opt-in; needs a runner).
+- On a Mac the machine runs x86-64 under Rosetta, not on a real x86-64 kernel. CI runs the same tests on a real kernel, so it is the check of the real loader.
+
+### OrbStack setup (macOS)
+
+Once per Mac:
+
+```sh
+brew install --cask orbstack
+orb start
+orb create --arch amd64 alpine gloss-amd64
+orb -m gloss-amd64 sudo apk add binutils   # only for the objdump check
+```
+
+OrbStack shares `/Users` with the machine, so `orb -m gloss-amd64 ./hello` runs a binary built on the Mac. The executables are static, so Alpine's small size is enough.
 
 ### Repository layout
 
@@ -139,6 +160,10 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 | `src/ast/` | The syntax tree, plus printers (source form and a compact debug form for tests) |
 | `src/parser/` | Recursive-descent parser following Appendix A |
 | `src/check/` | Names, types, statements, feature results, flow and mutation rules |
+| `src/ir/`, `src/lower/`, `src/runtime/` | The Gloss IR, lowering from the checked program, and the runtime written in IR |
+| `src/target/` | The x86-64 backend, encoder, static ELF writer and Linux system calls |
+| `src/irsim/` | Test-only IR interpreter |
+| `examples/` | Programs that build and run, with expected output |
 | `src/format/` | `gloss format`: canonical printing, rewrites, line wrapping |
 | `src/cli.rs`, `src/main.rs` | The `gloss` command line |
 
