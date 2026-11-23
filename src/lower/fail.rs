@@ -10,6 +10,9 @@ pub(crate) struct Fail {
     parts: [String; 3],
     /// A slot whose number is written between the source and the last part, after ` is `.
     value: Option<u32>,
+    /// A slot whose text is written, cut and with invisible characters spelled, after a
+    /// `"` and before the first part.
+    shown: Option<u32>,
 }
 
 impl Lowerer<'_> {
@@ -33,6 +36,7 @@ impl Lowerer<'_> {
             code,
             parts,
             value,
+            shown: None,
         });
         label
     }
@@ -59,6 +63,13 @@ impl Lowerer<'_> {
         self.fail_label_with(3, [&before, source, ")"], Some(slot))
     }
 
+    /// Failure 5 for the text in `slot` that `source` (`x as number`) could not read.
+    pub fn not_a_number(&mut self, source: &str, slot: u32) -> Label {
+        let label = self.fail_label(5, "\" is not a number (", source, ")");
+        self.fails.last_mut().expect("just added").shown = Some(slot);
+        label
+    }
+
     /// The end of a feature that gives a value, which the checker guarantees no path reaches
     /// (plan ruling P2). If it is reached anyway, flush standard output, write
     /// `internal error: feature <name> ended without giving a value` and a newline (no
@@ -81,6 +92,13 @@ impl Lowerer<'_> {
             self.emit(Inst::Const(Reg::A, f.code));
             self.emit(Inst::Push(Reg::A));
             self.call("fail_begin");
+            if let Some(slot) = f.shown {
+                self.push_text(b"\"");
+                self.call("err_text");
+                self.emit(Inst::LoadSlot(Reg::A, slot));
+                self.emit(Inst::Push(Reg::A));
+                self.call("err_shown");
+            }
             for (i, part) in f.parts.iter().enumerate() {
                 if let (2, Some(slot)) = (i, f.value) {
                     self.push_text(b" is ");

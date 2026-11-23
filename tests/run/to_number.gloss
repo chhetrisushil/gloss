@@ -1,0 +1,2 @@
+feature start
+  show " -7 " as number + 1, ("0.5" is number), ("1e3" is number)

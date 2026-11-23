@@ -4,7 +4,7 @@ use crate::ast::print;
 use crate::ast::{ArithOp, Conversion, Expr, ExprKind, Fact};
 use crate::check::NameKind;
 use crate::diag::Diagnostic;
-use crate::ir::{Inst, Reg};
+use crate::ir::{Cond, Data, Global, Inst, Reg};
 
 impl Lowerer<'_> {
     pub fn expr(&mut self, e: &Expr) -> Result<(), Diagnostic> {
@@ -51,6 +51,27 @@ impl Lowerer<'_> {
                 self.emit(Inst::Const(Reg::A, i64::from(self.line)));
                 self.emit(Inst::Push(Reg::A));
                 self.call("number_places");
+                Ok(())
+            }
+            ExprKind::Convert {
+                value,
+                to: Conversion::ToNumber,
+            } => {
+                self.expr(value)?;
+                let text = self.new_temp();
+                let fail = self.not_a_number(&print::expr(e), text);
+                self.emit(Inst::StoreSlot(text, Reg::A));
+                self.emit(Inst::Push(Reg::A));
+                self.call("parse_number");
+                self.emit(Inst::Const(Reg::B, 0));
+                self.emit(Inst::Compare);
+                self.emit(Inst::JumpIf(Cond::Ne, fail));
+                self.emit(Inst::AddressOf(Reg::A, Data::Global(Global::NumBuf)));
+                self.emit(Inst::Load {
+                    to: Reg::A,
+                    base: Reg::A,
+                    offset: 0,
+                });
                 Ok(())
             }
             ExprKind::Paren(inner) => self.expr(inner),
