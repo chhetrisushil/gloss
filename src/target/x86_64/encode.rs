@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-use super::emit::{code, modrm_reg, rex};
-use super::inst::{R, Sym, X, text};
+use super::emit::{code, mem_base, modrm_mem, modrm_reg, rex};
+use super::inst::{Mem, R, Sym, X, text};
 
 /// A 32-bit field at `at`, relative to `end`, the end of its instruction.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,6 +32,19 @@ pub fn encode(xs: &[X]) -> Result<Encoded, String> {
     Ok(e)
 }
 
+/// `op /r` with a register and a memory operand; `w` selects REX.W.
+fn reg_mem(e: &mut Encoded, w: bool, op: &[u8], r: R, m: &Mem, force: bool) {
+    rex(&mut e.bytes, w, r, mem_base(m), force);
+    e.bytes.extend_from_slice(op);
+    if let Some((at, target)) = modrm_mem(&mut e.bytes, code(r), m) {
+        e.fixups.push(Fixup {
+            at,
+            target,
+            end: e.bytes.len(),
+        });
+    }
+}
+
 fn one(e: &mut Encoded, x: &X) -> Result<(), String> {
     match x {
         X::MovRR(d, s) => {
@@ -44,6 +57,14 @@ fn one(e: &mut Encoded, x: &X) -> Result<(), String> {
             e.bytes.push(0xb8 | (code(*d) & 7));
             e.bytes.extend_from_slice(&n.to_le_bytes());
         }
+        X::MovRM(d, m) => reg_mem(e, true, &[0x8b], *d, m, false),
+        X::MovMR(m, s) => reg_mem(e, true, &[0x89], *s, m, false),
+        X::MovzxRM8(d, m) => reg_mem(e, false, &[0x0f, 0xb6], *d, m, false),
+        X::MovM8R(m, s) => {
+            let low = matches!(s, R::Rsp | R::Rbp | R::Rsi | R::Rdi);
+            reg_mem(e, false, &[0x88], *s, m, low);
+        }
+        X::Lea(d, m) => reg_mem(e, true, &[0x8d], *d, m, false),
         X::Push(r) => {
             rex(&mut e.bytes, false, R::Rax, Some(*r), false);
             e.bytes.push(0x50 | (code(*r) & 7));
@@ -52,12 +73,7 @@ fn one(e: &mut Encoded, x: &X) -> Result<(), String> {
             rex(&mut e.bytes, false, R::Rax, Some(*r), false);
             e.bytes.push(0x58 | (code(*r) & 7));
         }
-        X::MovRM(..)
-        | X::MovMR(..)
-        | X::MovzxRM8(..)
-        | X::MovM8R(..)
-        | X::Lea(..)
-        | X::Alu(..)
+        X::Alu(..)
         | X::AluI(..)
         | X::Imul(..)
         | X::ImulWide(_)
