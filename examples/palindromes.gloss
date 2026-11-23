@@ -1,0 +1,16 @@
+feature reversed
+  needs value as number
+  set n to value
+  set r to 0
+  repeat while n is greater than 0
+    set r to r * 10 + remainder of n by 10
+    set n to whole of (n / 10)
+  give r
+
+feature start
+  set found to 0
+  for each i from 100 to 200
+    if (reversed with i) is i
+      show i
+      add 1 to found
+  show found, " palindromes from 100 to 200"

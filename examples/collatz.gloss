@@ -1,0 +1,22 @@
+feature steps
+  needs start_value as number
+  set n to start_value
+  set turns to 0
+  repeat while n is not 1
+    if remainder of n by 2 is 0
+      divide n by 2
+    otherwise
+      set n to 3 * n + 1
+    add 1 to turns
+  give turns
+
+feature start
+  set winner to 1
+  set longest to 0
+  for each i from 1 to 30
+    set s to steps with i
+    if s is greater than longest
+      set winner to i
+      set longest to s
+  show "27 takes ", (steps with 27), " steps"
+  show winner, " takes the most steps below 31: ", longest
