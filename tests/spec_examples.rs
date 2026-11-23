@@ -1,8 +1,14 @@
 //! Guard: every ```gloss block in the spec must compile as its kind demands.
 
+mod run_support;
+
+use std::path::PathBuf;
+use std::process::Command;
+
 use gloss::parser::parse_stmts_str;
 use gloss::source::Source;
 use gloss::{check_source, format_source, parse_source};
+use run_support::{DEADLINE, TempDir, run_limited};
 
 const SPEC: &str = include_str!("../spec/v0.md");
 
@@ -241,4 +247,83 @@ fn every_quoted_message_is_what_the_compiler_says() {
         11,
         "a quoted message was added or removed"
     );
+}
+
+/// What each complete program in the spec prints, by block index: the spec's "prints "..."" sentences
+/// (blocks 4 and 6) and the smallest complete program (block 0), whose `show "hello"` is plain.
+const PRINTS: &[(usize, &str)] = &[
+    (0, "hello\n"),
+    (4, "Top student: Meera with 91\nSecond in list: Ravi\n"),
+    (6, "Even numbers: 2\n"),
+];
+
+/// Builds `source` as `<name>.gloss` in a fresh folder; returns the build result and the folder.
+fn build(name: &str, source: &str) -> (std::process::Output, TempDir, PathBuf) {
+    let dir = TempDir::new(&format!("spec-{name}"));
+    let file = dir.0.join(format!("{name}.gloss"));
+    std::fs::write(&file, source).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_gloss"))
+        .arg("build")
+        .arg(&file)
+        .output()
+        .unwrap();
+    let exe = dir.0.join(name);
+    (out, dir, exe)
+}
+
+fn has_table(block: &str) -> bool {
+    block.lines().any(|l| l.starts_with("table "))
+}
+
+#[test]
+fn every_complete_spec_program_builds_and_runs() {
+    let blocks = gloss_blocks();
+    let sentences = SPEC.matches("prints \"").count();
+    assert!(
+        PRINTS.len() >= sentences,
+        "the spec has {sentences} `prints \"` sentences but the table holds {}",
+        PRINTS.len()
+    );
+    let mut built = 0;
+    for (index, block) in blocks.iter().enumerate() {
+        if classify(block) != Class::Program {
+            continue;
+        }
+        let name = format!("block{index}");
+        let (out, dir, exe) = build(&name, block);
+        if has_table(block) {
+            // Table programs arrive in milestone 3 (D22).
+            assert_eq!(out.status.code(), Some(3), "{name}: {out:?}");
+            let said = String::from_utf8_lossy(&out.stderr);
+            assert!(
+                said.contains("tables arrive in milestone 3"),
+                "{name}: {said}"
+            );
+            continue;
+        }
+        let first = block.lines().next().unwrap_or("");
+        assert_eq!(out.status.code(), Some(0), "{name} ({first:?}): {out:?}");
+        built += 1;
+        let Some((_, want)) = PRINTS.iter().find(|(i, _)| *i == index) else {
+            panic!("{name} ({first:?}) is a complete program with no expected output");
+        };
+        // No spec program asks a question, so there is no input.
+        let Some(ran) = run_limited(&exe, b"", DEADLINE, &[], None) else {
+            continue;
+        };
+        let (status, stdout, stderr) = ran.unwrap();
+        assert_eq!(
+            status,
+            0,
+            "{name} ({first:?}): {}",
+            String::from_utf8_lossy(&stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&stdout),
+            *want,
+            "{name} ({first:?})"
+        );
+        drop(dir);
+    }
+    assert_eq!(built, PRINTS.len(), "programs built and checked");
 }
