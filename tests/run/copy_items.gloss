@@ -1,0 +1,16 @@
+record P
+  age as number
+
+feature start
+  set r to P with age 1
+  set xs to list of (P with age 0)
+  set item 1 of xs to r
+  set age of r to 2
+  append r to xs
+  set age of r to 3
+  set ys to list of r, r
+  set age of r to 4
+  for each y in ys
+    set age of y to 5
+    stop
+  show r, " ", xs, " ", ys

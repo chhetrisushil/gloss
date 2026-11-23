@@ -1,0 +1,11 @@
+feature start
+  set a to list of 1, 2, 3, 4, 5
+  set b to a
+  append 6 to b
+  append 7 to b
+  append 8 to b
+  append 9 to b
+  set c to empty list of number
+  set d to c
+  append 1 to d
+  show count of a, " ", count of b, " ", count of c, " ", count of d, " ", last of b
