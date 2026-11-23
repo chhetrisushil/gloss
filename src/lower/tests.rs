@@ -131,6 +131,14 @@ fn a_division_reports_a_zero_divisor_as_failure_1() {
 }
 
 #[test]
+fn a_negative_position_is_failure_2_and_the_last_item_is_reachable() {
+    let text = "feature start\n  set xs to list of 7, 8\n  show last of xs, item 2 of xs\n  show item (0 - 1) of xs\n";
+    let o = crate::irsim::run(&lowered(text).unwrap(), "_start", b"");
+    let err = "line 4: failure 2: there is no item -1 in xs; it has 2 items\n";
+    assert_eq!((o.stdout, o.stderr), (b"88\n".to_vec(), err.into()));
+}
+
+#[test]
 fn item_targets_are_not_built_yet() {
     let rec = "feature start\n  set xs to empty list of number\n  add 1 to item 1 of xs\n";
     let d = lowered(rec).unwrap_err();
