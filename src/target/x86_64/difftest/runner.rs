@@ -3,7 +3,7 @@
 
 use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -35,21 +35,41 @@ fn runner() -> Option<Vec<String>> {
     None
 }
 
+/// A folder under the target directory, which the Linux machine can see (the system
+/// temporary folder is not shared), removed on drop, also when a test panics.
+/// `CARGO_TARGET_TMPDIR` is only set for integration tests, so it is built here.
+pub struct TempDir(pub PathBuf);
+
+impl TempDir {
+    pub fn new() -> TempDir {
+        static RUNS: AtomicUsize = AtomicUsize::new(0);
+        let target = std::env::var_os("CARGO_TARGET_DIR").map_or_else(
+            || Path::new(env!("CARGO_MANIFEST_DIR")).join("target"),
+            PathBuf::from,
+        );
+        let name = format!(
+            "difftest-{}-{}",
+            std::process::id(),
+            RUNS.fetch_add(1, Ordering::SeqCst)
+        );
+        let dir = target.join("tmp").join(name);
+        std::fs::create_dir_all(&dir).expect("the temporary folder is created");
+        TempDir(dir)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// Builds and runs `m` with `stdin`; `None` without a runner. `Err` says why the program
 /// did not exit: a timeout, or a signal.
 pub fn run_program(m: &Module, stdin: &[u8], deadline: Duration) -> Option<Result<Ran, String>> {
     let prefix = runner()?;
-    static RUNS: AtomicUsize = AtomicUsize::new(0);
-    let name = format!(
-        "difftest-{}-{}",
-        std::process::id(),
-        RUNS.fetch_add(1, Ordering::SeqCst)
-    );
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target/tmp")
-        .join(name);
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("prog");
+    let dir = TempDir::new();
+    let path = dir.0.join("prog");
     std::fs::write(&path, x86_64_linux().executable(m).expect("builds")).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut cmd = match prefix.split_first() {
@@ -92,7 +112,6 @@ pub fn run_program(m: &Module, stdin: &[u8], deadline: Duration) -> Option<Resul
         std::thread::sleep(Duration::from_millis(5));
     };
     let _ = feeder.join();
-    std::fs::remove_dir_all(&dir).unwrap();
     let (out, err) = (out.join().expect("stdout"), err.join().expect("stderr"));
     Some(match status.map(|s| s.code()) {
         None => Err(format!("timed out after {deadline:?}")),

@@ -9,7 +9,7 @@ mod ops;
 mod runner;
 mod sys;
 
-use runner::{DEADLINE, run_program};
+use runner::{DEADLINE, TempDir, run_program};
 
 use crate::ir::Reg::{A, B};
 use crate::ir::{Data, Function, Inst, Module, Prim};
@@ -150,4 +150,13 @@ fn a_program_that_never_ends_times_out() {
     if let Some(ran) = run_program(&m, b"", std::time::Duration::from_millis(500)) {
         assert!(ran.unwrap_err().starts_with("timed out"));
     }
+}
+
+#[test]
+fn the_temporary_folder_is_removed_when_dropped() {
+    let dir = TempDir::new();
+    let path = dir.0.clone();
+    assert!(path.is_dir());
+    drop(dir);
+    assert!(!path.exists());
 }
