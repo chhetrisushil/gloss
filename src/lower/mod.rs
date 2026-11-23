@@ -153,14 +153,16 @@ fn size_stack_checks(module: &mut Module) {
     }
 }
 
-/// The type of each variable and loop variable of `feature`.
+/// The type of each variable of `feature`. A loop variable gets its type while its loop's body
+/// is lowered (`loop_body`), because two loops may reuse a name with different types.
 fn variable_types(types: &TypeInfo, feature: &str) -> BTreeMap<String, crate::check::Ty> {
     let Some(info) = types.features.get(feature) else {
         return BTreeMap::new();
     };
-    let vars = info.vars.iter().map(|(n, ty, _)| (n.clone(), ty.clone()));
-    let loops = info.loops.iter().map(|l| (l.name.clone(), l.ty.clone()));
-    vars.chain(loops).collect()
+    info.vars
+        .iter()
+        .map(|(n, ty, _)| (n.clone(), ty.clone()))
+        .collect()
 }
 
 /// Slots are numbered from 1: variables first, then loop variables. A name gets one slot, so

@@ -1,0 +1,10 @@
+record A
+  y as number
+
+feature start
+  set cars to list of (A with y 2)
+  for each p in cars
+    add 1 to y of p
+  for each p from 1 to 2
+    show p
+  show cars

@@ -335,10 +335,10 @@ impl Lowerer<'_> {
         self.slot_address(held);
         self.load_a();
         self.emit(Inst::StoreSlot(self.slots[var], Reg::A));
-        self.loops.push((next, exit));
-        let done = self.stmts(body);
-        self.loops.pop();
-        done?;
+        let item = self
+            .list_item_type(list)
+            .expect("the checker knows the list");
+        self.loop_body(var, item, (next, exit), body)?;
         self.emit(Inst::Mark(next));
         self.emit(Inst::LoadSlot(Reg::A, at));
         self.emit(Inst::AddImm(Reg::A, 1));
