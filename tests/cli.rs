@@ -359,3 +359,128 @@ fn allow_may_repeat_after_the_file() {
     assert_eq!(code, 3);
     assert!(err.starts_with("usage: gloss"), "{err}");
 }
+
+const E_HEAD: &str = "record E\n  amount as number\ntable es of E in \"e.csv\"\n";
+const LISTED: &str = "This program can:\n  read only          e.csv\n  nothing else\n";
+const REFUSED: &str = "tables arrive in milestone 3.\n";
+
+fn allow_body(lines: &str) -> String {
+    format!("note Files this program may touch; approved for t.gloss.\n{lines}")
+}
+
+fn tabled(tag: &str, body: &str) -> TempFile {
+    temp_named(tag, "t.gloss", &format!("{E_HEAD}{body}"))
+}
+
+#[test]
+fn a_table_program_without_approval_exits_4() {
+    let p = tabled("noapproval", "feature start\n  load es\n");
+    let (code, out, err) = gloss(&["build", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str()), (4, LISTED));
+    assert_eq!(
+        err,
+        "Not approved: e.csv. Build in a terminal to answer, or add --allow e.csv.\n"
+    );
+    assert!(!p.with_extension("").exists() && !p.with_extension("allow").exists());
+}
+
+#[test]
+fn allow_writes_the_approval() {
+    let p = tabled("writes", "feature start\n  load es\n  save es\n");
+    let (code, out, err) = gloss(&["build", p.to_str().unwrap(), "--allow", "e.csv"]);
+    let list = "This program can:\n  read and replace   e.csv\n  nothing else\n";
+    assert_eq!(code, 3);
+    assert_eq!(out, format!("{list}Approval saved in t.allow\n"));
+    assert_eq!(err, REFUSED);
+    let want = allow_body("  read and replace   e.csv\n");
+    assert_eq!(
+        std::fs::read_to_string(p.with_extension("allow")).unwrap(),
+        want
+    );
+    let mode = std::fs::metadata(p.with_extension("allow")).unwrap();
+    assert_eq!(
+        std::os::unix::fs::PermissionsExt::mode(&mode.permissions()) & 0o777,
+        0o644
+    );
+}
+
+#[test]
+fn a_recorded_approval_asks_nothing() {
+    let p = tabled("recorded", "feature start\n  load es\n");
+    gloss(&["build", p.to_str().unwrap(), "--allow", "e.csv"]);
+    let before = std::fs::metadata(p.with_extension("allow"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    let (code, out, err) = gloss(&["build", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str(), err.as_str()), (3, LISTED, REFUSED));
+    let after = std::fs::metadata(p.with_extension("allow"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn read_only_to_replace_needs_approval_again() {
+    let p = tabled("replace", "feature start\n  load es\n  save es\n");
+    let old = allow_body("  read only          e.csv\n");
+    std::fs::write(p.with_extension("allow"), &old).unwrap();
+    let (code, _, err) = gloss(&["build", p.to_str().unwrap()]);
+    assert_eq!(code, 4, "{err}");
+    assert_eq!(
+        std::fs::read_to_string(p.with_extension("allow")).unwrap(),
+        old
+    );
+    assert!(!p.with_extension("").exists());
+    assert!(err.starts_with("Not approved: e.csv."), "{err}");
+}
+
+#[test]
+fn a_dropped_table_shrinks_allow() {
+    let p = tabled("shrink", "feature start\n  load es\n");
+    let old = allow_body("  read only          e.csv\n  read only          f.csv\n");
+    std::fs::write(p.with_extension("allow"), old).unwrap();
+    let (code, out, _) = gloss(&["build", p.to_str().unwrap()]);
+    assert_eq!(code, 3);
+    assert!(out.ends_with("Approval saved in t.allow\n"), "{out}");
+    let want = allow_body("  read only          e.csv\n");
+    assert_eq!(
+        std::fs::read_to_string(p.with_extension("allow")).unwrap(),
+        want
+    );
+}
+
+#[test]
+fn a_broken_allow_exits_3() {
+    let p = tabled("broken", "feature start\n  load es\n");
+    std::fs::write(p.with_extension("allow"), "note x\nnonsense\n").unwrap();
+    let (code, _, err) = gloss(&["build", p.to_str().unwrap()]);
+    assert_eq!(code, 3);
+    assert_eq!(
+        err,
+        "t.allow line 2: this line is not an approval; expected read only or read and replace and a file name.\n"
+    );
+}
+
+#[test]
+fn an_allow_for_an_unknown_file_exits_3() {
+    let p = tabled("unknown", "feature start\n  load es\n");
+    let (code, out, err) = gloss(&["build", p.to_str().unwrap(), "--allow", "x.csv"]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert_eq!(err, "--allow x.csv: this program has no table in x.csv.\n");
+    assert!(!p.with_extension("allow").exists());
+}
+
+#[test]
+fn a_program_without_tables_prints_no_list() {
+    let p = temp_named("notables", "x.gloss", "feature start\n  show 1\n");
+    let (code, out, err) = gloss(&["build", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str(), err.as_str()), (0, "Built x\n", ""));
+    assert!(!p.with_extension("allow").exists());
+    let (code, _, err) = gloss(&["build", p.to_str().unwrap(), "--allow", "x.csv"]);
+    assert_eq!(
+        (code, err.as_str()),
+        (3, "--allow x.csv: this program has no table in x.csv.\n")
+    );
+}
