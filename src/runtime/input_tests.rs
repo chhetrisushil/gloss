@@ -106,3 +106,41 @@ fn a_read_error_ends_the_program_with_status_2_and_no_message() {
     let o = run_with([say.to_vec(), vec![fill()]].concat(), b"a\n", faults);
     assert_eq!((o.status, o.stdout, o.stderr), (2, b"x".to_vec(), vec![]));
 }
+
+/// Calls `grow_text(text 0, 5, room, 3)`, then writes the first `shown` bytes of the result.
+fn grown(room: i64, shown: i64) -> Outcome {
+    let call = [AddressOf(A, Data::Text(0)), Push(A), Const(A, 5), Push(A)];
+    let more = [
+        Const(A, room),
+        Push(A),
+        Const(A, 3),
+        Push(A),
+        Call("grow_text".into()),
+    ];
+    let out = [
+        AddImm(A, 8),
+        Push(A),
+        Const(A, shown),
+        Push(A),
+        Call("out_bytes".into()),
+    ];
+    let body = [&call[..], &more, &out, &[Call("flush".into())]].concat();
+    irsim::run(&program(body, &[b"hello"]), "_start", b"")
+}
+
+#[test]
+fn grow_text_keeps_the_bytes_it_was_given() {
+    let o = grown(5, 5);
+    assert_eq!((o.status, o.stdout), (0, b"hello".to_vec()));
+    let o = grown(1 << 20, 5);
+    assert_eq!((o.status, o.stdout), (0, b"hello".to_vec()));
+}
+
+#[test]
+fn a_text_that_cannot_double_is_out_of_memory() {
+    for room in [1 << 61, i64::MAX, i64::MAX - 3] {
+        let o = grown(room, 0);
+        assert_eq!(o.status, 2, "{room}");
+        assert_eq!(o.stderr, b"line 3: failure 10: out of memory\n", "{room}");
+    }
+}
