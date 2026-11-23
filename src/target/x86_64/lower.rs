@@ -17,6 +17,10 @@ use crate::number::SCALE;
 /// only defined for that range here and no check is emitted.
 pub fn lower_function(f: &Function, params: &HashMap<String, u32>) -> Result<Vec<X>, String> {
     let mut out = vec![X::Label(f.name.clone())];
+    if f.name == "_start" {
+        // The kernel enters `_start` with `rsp` at `argc`; keep it for the stack limit.
+        out.push(X::MovMR(Mem::Rip(Sym::Global(Global::EntrySp)), R::Rsp));
+    }
     for inst in &f.body {
         inst_x(f, params, inst, &mut out)?;
     }

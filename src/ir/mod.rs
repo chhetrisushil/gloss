@@ -78,6 +78,9 @@ pub enum Global {
     InBuf,
     /// Scratch for formatting a number as a text; see `NUMBER_BUF_BYTES`.
     NumBuf,
+    /// The stack pointer at program entry, saved by the target's entry code before `_start`
+    /// runs: it points at `argc`, then argv, envp and the auxiliary vector (Linux layout).
+    EntrySp,
 }
 
 /// The size in bytes of `Global::OutBuf` and of `Global::InBuf`.
@@ -99,6 +102,7 @@ impl Global {
             Global::InPos => "in_pos",
             Global::InBuf => "in_buf",
             Global::NumBuf => "num_buf",
+            Global::EntrySp => "entry_sp",
         }
     }
 }
