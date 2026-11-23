@@ -28,6 +28,21 @@ pub fn item_target(target: &Target) -> Option<(&Expr, &str)> {
 const MIN_ROOM: usize = 4;
 
 impl Lowerer<'_> {
+    /// The position, list name and field offset of `field of item p of xs`, a target.
+    pub fn item_field<'t>(&self, target: &'t Target) -> Option<(&'t Expr, &'t str, i32)> {
+        let Target::Field { field, of } = target else {
+            return None;
+        };
+        let (position, list) = item_target(of)?;
+        let Some(Ty::List(item)) = self.vars.get(list) else {
+            return None;
+        };
+        let Ty::Record(record) = &**item else {
+            return None;
+        };
+        Some((position, list, self.field_offset(record, field)))
+    }
+
     /// The item type of `e`, when it is a list.
     pub fn list_item_type(&self, e: &Expr) -> Option<Ty> {
         match self.types.expr_types.get(e.id.0 as usize) {
@@ -223,10 +238,20 @@ impl Lowerer<'_> {
 
     /// With a new value in `a`: finds item `position` of list `list`, remembers its address
     /// in the slot returned, and leaves its value in `a` and the new value in `b`.
-    pub fn load_item(&mut self, position: &Expr, list: &str) -> Result<u32, Diagnostic> {
+    /// With a `field`, the address is that field's of the item's record.
+    pub fn load_item(
+        &mut self,
+        position: &Expr,
+        list: &str,
+        field: Option<i32>,
+    ) -> Result<u32, Diagnostic> {
         let (value, at) = (self.new_temp(), self.new_temp());
         self.emit(Inst::StoreSlot(value, Reg::A));
         self.item_address(self.slots[list], list, position)?;
+        if let Some(offset) = field {
+            self.load_a();
+            self.emit(Inst::AddImm(Reg::A, offset));
+        }
         self.emit(Inst::StoreSlot(at, Reg::A));
         self.load_a();
         self.emit(Inst::LoadSlot(Reg::B, value));
@@ -252,6 +277,7 @@ impl Lowerer<'_> {
         &mut self,
         position: &Expr,
         list: &str,
+        field: Option<i32>,
         value: &Expr,
     ) -> Result<(), Diagnostic> {
         let held = self.new_temp();
@@ -263,6 +289,19 @@ impl Lowerer<'_> {
             from: Reg::A,
         });
         self.emit(Inst::LoadSlot(Reg::A, held));
+        if let Some(offset) = field {
+            self.emit(Inst::Load {
+                to: Reg::B,
+                base: Reg::B,
+                offset: 0,
+            });
+            self.emit(Inst::Store {
+                base: Reg::B,
+                offset,
+                from: Reg::A,
+            });
+            return Ok(());
+        }
         self.emit(Inst::Store {
             base: Reg::B,
             offset: 0,

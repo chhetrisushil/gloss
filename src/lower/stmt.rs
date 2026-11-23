@@ -77,7 +77,13 @@ impl Lowerer<'_> {
                 };
                 self.line = s.line;
                 self.emit(Inst::Line(s.line));
-                self.set_item(position, list, value)
+                self.set_item(position, list, None, value)
+            }
+            StmtKind::Set { target, value } if self.item_field(target).is_some() => {
+                let (position, list, offset) = self.item_field(target).expect("just checked");
+                self.line = s.line;
+                self.emit(Inst::Line(s.line));
+                self.set_item(position, list, Some(offset), value)
             }
             StmtKind::Ask { question, into } => {
                 self.line = s.line;
@@ -144,7 +150,11 @@ impl Lowerer<'_> {
         operand: &Expr,
         op: VerbOp,
     ) -> Result<(), Diagnostic> {
-        let item = item_target(target);
+        let item = match (item_target(target), self.item_field(target)) {
+            (Some((position, list)), _) => Some((position, list, None)),
+            (None, Some((position, list, offset))) => Some((position, list, Some(offset))),
+            (None, None) => None,
+        };
         let place = self.place(target);
         if place.is_none() && item.is_none() {
             return Err(self.cannot_build(s));
@@ -153,7 +163,7 @@ impl Lowerer<'_> {
         self.emit(Inst::Line(s.line));
         self.expr(operand)?;
         let at = match (&place, item) {
-            (_, Some((position, list))) => Some(self.load_item(position, list)?),
+            (_, Some((position, list, field))) => Some(self.load_item(position, list, field)?),
             (Some(place), None) => {
                 self.emit(Inst::Move {
                     to: Reg::B,
