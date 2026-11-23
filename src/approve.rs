@@ -115,3 +115,172 @@ fn shell_word(name: &str) -> String {
     }
     format!("'{}'", name.replace('\'', "'\\''"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::permissions::Access;
+    use std::path::PathBuf;
+
+    struct Fake {
+        terminal: bool,
+        answer: Option<String>,
+        asked: Vec<String>,
+    }
+
+    impl Fake {
+        fn new(terminal: bool, answer: Option<&str>) -> Fake {
+            Fake {
+                terminal,
+                answer: answer.map(str::to_string),
+                asked: Vec::new(),
+            }
+        }
+    }
+
+    impl Prompt for Fake {
+        fn is_terminal(&self) -> bool {
+            self.terminal
+        }
+        fn ask(&mut self, question: &str) -> Option<String> {
+            self.asked.push(question.to_string());
+            self.answer.clone()
+        }
+    }
+
+    fn entry(file: &str) -> Entry {
+        Entry {
+            file: file.to_string(),
+            access: Access::ReadOnly,
+        }
+    }
+
+    /// A fresh folder for this test; `t.gloss` is the source that need not exist.
+    fn folder() -> PathBuf {
+        let name = std::thread::current()
+            .name()
+            .unwrap_or("t")
+            .replace("::", "-");
+        let dir = std::env::temp_dir().join(format!("gloss-approve-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    struct Ran {
+        result: Result<(), i32>,
+        out: String,
+        err: String,
+    }
+
+    fn approve_in(dir: &Path, files: &[&str], flags: &[&str], prompt: &mut Fake) -> Ran {
+        let flags: Vec<String> = flags.iter().map(|s| s.to_string()).collect();
+        let entries: Vec<Entry> = files.iter().map(|f| entry(f)).collect();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let source = dir.join("t.gloss");
+        let result = approve(
+            &source, "t.gloss", &entries, &flags, prompt, &mut out, &mut err,
+        );
+        Ran {
+            result,
+            out: String::from_utf8(out).unwrap(),
+            err: String::from_utf8(err).unwrap(),
+        }
+    }
+
+    /// Runs `approve` for `a.csv` read only with `allow` as `t.allow`; returns the run and the
+    /// `.allow` text afterwards.
+    fn go(allow: Option<&str>, flags: &[&str], prompt: &mut Fake) -> (Ran, Option<String>) {
+        let dir = folder();
+        if let Some(text) = allow {
+            std::fs::write(dir.join("t.allow"), text).unwrap();
+        }
+        let ran = approve_in(&dir, &["a.csv"], flags, prompt);
+        let after = std::fs::read_to_string(dir.join("t.allow")).ok();
+        let _ = std::fs::remove_dir_all(&dir);
+        (ran, after)
+    }
+
+    const APPROVED: &str =
+        "note Files this program may touch; approved for t.gloss.\n  read only          a.csv\n";
+
+    fn approves_with(answer: &str) {
+        let mut p = Fake::new(true, Some(answer));
+        let (ran, after) = go(None, &[], &mut p);
+        assert_eq!(ran.result, Ok(()), "{answer:?}");
+        assert_eq!(p.asked, ["Allow? "]);
+        assert_eq!(ran.out, "Approval saved in t.allow\n");
+        assert_eq!(after.as_deref(), Some(APPROVED));
+    }
+
+    #[test]
+    fn yes_approves() {
+        approves_with("yes");
+        approves_with("  yes \n");
+    }
+
+    #[test]
+    fn y_in_capitals_approves() {
+        approves_with("Y");
+        approves_with("YES");
+    }
+
+    #[test]
+    fn no_refuses_with_status_4() {
+        for answer in ["no", "", "yess", "yes please"] {
+            let mut p = Fake::new(true, Some(answer));
+            let (ran, after) = go(None, &[], &mut p);
+            assert_eq!((ran.result, ran.out.as_str()), (Err(4), ""));
+            assert_eq!(ran.err, "Not approved.\n");
+            assert_eq!(after, None);
+        }
+    }
+
+    #[test]
+    fn end_of_input_refuses() {
+        let mut p = Fake::new(true, None);
+        let (ran, after) = go(None, &[], &mut p);
+        assert_eq!(
+            (ran.result, ran.err.as_str(), after),
+            (Err(4), "Not approved.\n", None)
+        );
+    }
+
+    #[test]
+    fn the_question_is_not_asked_when_covered() {
+        let mut p = Fake::new(true, Some("no"));
+        let (ran, after) = go(None, &["a.csv"], &mut p);
+        assert_eq!((ran.result, after.as_deref()), (Ok(()), Some(APPROVED)));
+        assert!(p.asked.is_empty());
+        let (ran, _) = go(Some(APPROVED), &[], &mut p);
+        assert_eq!((ran.result, ran.out.as_str()), (Ok(()), ""));
+        assert!(p.asked.is_empty());
+    }
+
+    #[test]
+    fn a_flag_covering_some_files_leaves_the_question_for_the_rest() {
+        let dir = folder();
+        let mut p = Fake::new(true, Some("y"));
+        let ran = approve_in(&dir, &["a.csv", "b.csv"], &["a.csv"], &mut p);
+        assert_eq!(ran.result, Ok(()));
+        assert_eq!(p.asked, ["Allow? "]);
+        let text = std::fs::read_to_string(dir.join("t.allow")).unwrap();
+        assert!(text.contains("a.csv") && text.contains("b.csv"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn not_a_terminal_refuses_without_asking_and_leaves_allow_alone() {
+        let mut p = Fake::new(false, Some("yes"));
+        let (ran, after) = go(None, &[], &mut p);
+        assert_eq!((ran.result, ran.out.as_str(), after), (Err(4), "", None));
+        assert_eq!(
+            ran.err,
+            "Not approved: a.csv. Build in a terminal to answer, or add --allow a.csv.\n"
+        );
+        let old = "note old\n  read only          z.csv\n";
+        let (ran, after) = go(Some(old), &[], &mut p);
+        assert_eq!((ran.result, after.as_deref()), (Err(4), Some(old)));
+        assert!(p.asked.is_empty());
+    }
+}
