@@ -1,0 +1,4 @@
+feature start
+  set xs to list of 1
+  add 1 to item 1 of xs
+  add 1 to item 2 of xs

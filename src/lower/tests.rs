@@ -139,8 +139,8 @@ fn a_negative_position_is_failure_2_and_the_last_item_is_reachable() {
 }
 
 #[test]
-fn item_targets_are_not_built_yet() {
-    let rec = "feature start\n  set xs to empty list of number\n  add 1 to item 1 of xs\n";
+fn a_record_copied_into_an_item_is_not_built_yet() {
+    let rec = "record B\n  n as number\n\nfeature start\n  set xs to list of (B with n 1)\n  set item 1 of xs to item 1 of xs\n";
     let d = lowered(rec).unwrap_err();
     assert_eq!(d.problem, "this compiler cannot build this statement yet");
 }
