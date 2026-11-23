@@ -2,6 +2,7 @@
 //! semantics exactly, so runtime routines written in IR can be checked against the Rust
 //! `Number` reference and whole programs can run on any host.
 
+mod cases;
 mod exec;
 mod machine;
 mod memory;

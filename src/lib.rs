@@ -49,6 +49,21 @@ pub fn check_source(text: &str) -> Vec<Diagnostic> {
     }
 }
 
+/// Checks, lowers and encodes a program as an x86-64 Linux executable. A program with an
+/// error, or one that cannot be built yet, gives its diagnostics instead.
+pub fn build_executable(text: &str) -> Result<Vec<u8>, Vec<Diagnostic>> {
+    let (program, src) = front_end(&Source::new(text)).map_err(|d| vec![d])?;
+    let checked = check::check(&program, &src);
+    let types = match checked.types {
+        Some(types) if !checked.diagnostics.iter().any(Diagnostic::is_error) => types,
+        _ => return Err(checked.diagnostics),
+    };
+    let module = lower::lower(&program, &types, &src).map_err(|d| vec![d])?;
+    target::x86_64_linux()
+        .executable(&module)
+        .map_err(|e| vec![Diagnostic::program(e)])
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
