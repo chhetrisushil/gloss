@@ -3,6 +3,7 @@
 mod stmt;
 #[cfg(test)]
 mod tests;
+
 use std::collections::BTreeMap;
 
 use crate::ast::program::{FeatureDecl, Program};
@@ -77,7 +78,9 @@ fn lower_feature(
     })
 }
 
-/// Slots are numbered from 1: variables first, then loop variables.
+/// Slots are numbered from 1: variables first, then loop variables. A name gets one slot, so
+/// two loops that use the same name share it; the count is the number of unique variable and
+/// loop names, inputs excluded (they are read with `LoadArg`).
 fn assign_slots(types: &TypeInfo, feature: &str) -> BTreeMap<String, u32> {
     let mut slots = BTreeMap::new();
     if let Some(info) = types.features.get(feature) {

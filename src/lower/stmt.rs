@@ -28,7 +28,7 @@ impl Lowerer<'_> {
             _ => Err(Diagnostic::error(
                 self.src,
                 s.line,
-                "this statement is not lowered yet",
+                "this compiler cannot build this statement yet",
             )),
         }
     }
@@ -43,7 +43,7 @@ impl Lowerer<'_> {
             _ => Err(Diagnostic::error(
                 self.src,
                 item.line,
-                "this expression is not lowered yet",
+                "this compiler cannot build this expression yet",
             )),
         }
     }
