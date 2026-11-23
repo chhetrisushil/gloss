@@ -168,9 +168,21 @@ fn a_truth_shows_as_yes_or_no_texts() {
 }
 
 #[test]
-fn comparing_texts_is_not_built_yet() {
-    let d = lowered("feature start\n  show (\"a\" is \"b\")\n").unwrap_err();
-    assert_eq!(d.problem, "this compiler cannot build this expression yet");
+fn comparing_texts_calls_text_equal_and_is_not_flips_it() {
+    let m = lowered("feature start\n  show (\"a\" is not \"b\")\n").unwrap();
+    let t = start_text(&m);
+    assert!(
+        t.contains("  call text_equal\n  b = a\n  a = 1\n  a = a - b\n"),
+        "{t}"
+    );
+    assert!(m.functions.iter().any(|f| f.name == "text_equal"));
+}
+
+#[test]
+fn text_order_is_not_built_since_the_checker_refuses_it() {
+    let src = Source::new("feature start\n  show (\"a\" is greater than \"b\")\n");
+    let program = crate::parse_source(&src).expect("parses");
+    assert!(check(&program, &src).types.is_none());
 }
 
 #[test]

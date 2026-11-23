@@ -21,6 +21,10 @@ impl Lowerer<'_> {
                 self.emit(Inst::Const(Reg::A, -n.0));
                 Ok(())
             }
+            ExprKind::Text(text) => {
+                self.text_address(text.as_bytes());
+                Ok(())
+            }
             ExprKind::Paren(inner) => self.expr(inner),
             ExprKind::Call { feature, inputs } => self.feature_call(feature, inputs),
             ExprKind::Name(name) => self.name(e, name),

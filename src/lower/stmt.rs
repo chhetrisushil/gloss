@@ -39,7 +39,7 @@ impl Lowerer<'_> {
             StmtKind::Set {
                 target: Target::Var(name),
                 value,
-            } if self.is_number(value) || self.is_truth(value) => {
+            } if self.is_number(value) || self.is_truth(value) || self.is_text(value) => {
                 self.line = s.line;
                 self.emit(Inst::Line(s.line));
                 self.expr(value)?;
@@ -138,10 +138,23 @@ impl Lowerer<'_> {
         )
     }
 
+    pub fn is_text(&self, e: &Expr) -> bool {
+        matches!(
+            self.types.expr_types.get(e.id.0 as usize),
+            Some(Some(Ty::Text))
+        )
+    }
+
     fn show_item(&mut self, item: &Expr) -> Result<(), Diagnostic> {
         match &item.kind {
             ExprKind::Text(text) => {
                 self.push_text(text.as_bytes());
+                self.call("out_text");
+                Ok(())
+            }
+            _ if self.is_text(item) => {
+                self.expr(item)?;
+                self.emit(Inst::Push(Reg::A));
                 self.call("out_text");
                 Ok(())
             }

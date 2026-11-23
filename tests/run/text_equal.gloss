@@ -1,0 +1,13 @@
+feature computed
+  give "Food"
+
+feature start
+  set a to "Food"
+  show (a is "food"), (a is not "food"), (a is "Food")
+  show (a is "Foo"), (a is "Food!"), (a is "Fooe"), (a is "")
+  set e to ""
+  show (e is ""), (e is a), (e is not "")
+  set b to a
+  show (b is a), (computed is a), (computed is not "Food")
+  show a, e, b
+  show computed

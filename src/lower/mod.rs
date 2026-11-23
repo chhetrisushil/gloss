@@ -57,10 +57,15 @@ impl Lowerer<'_> {
         self.emit(Inst::Call(name.to_string()));
     }
 
-    /// Pushes the address of the text `bytes`.
-    pub fn push_text(&mut self, bytes: &[u8]) {
+    /// Puts the address of the text `bytes` in `a`.
+    pub fn text_address(&mut self, bytes: &[u8]) {
         let k = self.module.text(bytes);
         self.emit(Inst::AddressOf(Reg::A, crate::ir::Data::Text(k)));
+    }
+
+    /// Pushes the address of the text `bytes`.
+    pub fn push_text(&mut self, bytes: &[u8]) {
+        self.text_address(bytes);
         self.emit(Inst::Push(Reg::A));
     }
 }
