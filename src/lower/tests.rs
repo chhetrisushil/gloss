@@ -129,3 +129,10 @@ fn a_division_reports_a_zero_divisor_as_failure_1() {
     assert!(m.texts.contains(&b"dividing by zero (".to_vec()));
     assert!(m.texts.contains(&b" is 0)".to_vec()));
 }
+
+#[test]
+fn field_and_item_targets_are_not_built_yet() {
+    let rec = "record E\n  amount as number\nfeature start\n  set e to E with amount 1\n  add 1 to amount of e\n";
+    let d = lowered(rec).unwrap_err();
+    assert_eq!(d.problem, "this compiler cannot build this statement yet");
+}

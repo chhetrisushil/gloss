@@ -1,0 +1,7 @@
+feature start
+  set t to 10
+  add 5 to t
+  subtract 2.5 from t
+  multiply t by 3
+  divide t by 2
+  show t
