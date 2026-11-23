@@ -1,5 +1,5 @@
 use super::encode::{Fixup, encode};
-use super::inst::{Mem, R, Sym, X};
+use super::inst::{AluOp, Cc, Mem, R, Sym, X};
 
 fn bytes(x: X) -> Vec<u8> {
     encode(&[x]).unwrap().bytes
@@ -111,5 +111,85 @@ fn push_and_pop() {
 
 #[test]
 fn unfinished_instructions_are_errors() {
-    assert_eq!(encode(&[X::Ret]).unwrap_err(), "cannot encode ret yet");
+    assert_eq!(
+        encode(&[X::Jmp("l".into())]).unwrap_err(),
+        "cannot encode jmp l yet"
+    );
+}
+
+#[test]
+fn register_arithmetic() {
+    let alu = |op| bytes(X::Alu(op, R::Rax, R::Rcx));
+    assert_eq!(alu(AluOp::Add), [0x48, 0x01, 0xc8]);
+    assert_eq!(alu(AluOp::Sub), [0x48, 0x29, 0xc8]);
+    assert_eq!(alu(AluOp::Cmp), [0x48, 0x39, 0xc8]);
+    assert_eq!(alu(AluOp::And), [0x48, 0x21, 0xc8]);
+    assert_eq!(alu(AluOp::Or), [0x48, 0x09, 0xc8]);
+    assert_eq!(
+        bytes(X::Alu(AluOp::Xor, R::Rdx, R::Rdx)),
+        [0x48, 0x31, 0xd2]
+    );
+    assert_eq!(bytes(X::Alu(AluOp::Add, R::R9, R::Rax)), [0x49, 0x01, 0xc1]);
+    assert_eq!(bytes(X::Imul(R::Rax, R::Rcx)), [0x48, 0x0f, 0xaf, 0xc1]);
+    assert_eq!(bytes(X::Imul(R::R8, R::R9)), [0x4d, 0x0f, 0xaf, 0xc1]);
+    assert_eq!(bytes(X::Test(R::Rax, R::Rax)), [0x48, 0x85, 0xc0]);
+}
+
+#[test]
+fn immediate_arithmetic_is_always_imm32() {
+    let sub = bytes(X::AluI(AluOp::Sub, R::Rsp, 24));
+    assert_eq!(sub, [0x48, 0x81, 0xec, 24, 0, 0, 0]);
+    let add = bytes(X::AluI(AluOp::Add, R::Rax, -8));
+    assert_eq!(add, [0x48, 0x81, 0xc0, 0xf8, 0xff, 0xff, 0xff]);
+    let cmp = bytes(X::AluI(AluOp::Cmp, R::R10, 1));
+    assert_eq!(cmp, [0x49, 0x81, 0xfa, 1, 0, 0, 0]);
+    let digits = [
+        (AluOp::Add, 0xc0),
+        (AluOp::Or, 0xc8),
+        (AluOp::And, 0xe0),
+        (AluOp::Sub, 0xe8),
+        (AluOp::Xor, 0xf0),
+        (AluOp::Cmp, 0xf8),
+    ];
+    for (op, modrm) in digits {
+        assert_eq!(bytes(X::AluI(op, R::Rax, 0))[2], modrm);
+    }
+}
+
+#[test]
+fn unary_and_shifts() {
+    assert_eq!(bytes(X::ImulWide(R::Rcx)), [0x48, 0xf7, 0xe9]);
+    assert_eq!(bytes(X::Mul(R::Rcx)), [0x48, 0xf7, 0xe1]);
+    assert_eq!(bytes(X::Idiv(R::Rcx)), [0x48, 0xf7, 0xf9]);
+    assert_eq!(bytes(X::Div(R::Rcx)), [0x48, 0xf7, 0xf1]);
+    assert_eq!(bytes(X::Neg(R::Rax)), [0x48, 0xf7, 0xd8]);
+    assert_eq!(bytes(X::Neg(R::R11)), [0x49, 0xf7, 0xdb]);
+    assert_eq!(bytes(X::Cqo), [0x48, 0x99]);
+    assert_eq!(bytes(X::Shl(R::Rax, 3)), [0x48, 0xc1, 0xe0, 3]);
+    assert_eq!(bytes(X::Sar(R::Rax, 3)), [0x48, 0xc1, 0xf8, 3]);
+    assert_eq!(bytes(X::Shr(R::Rax, 3)), [0x48, 0xc1, 0xe8, 3]);
+    assert_eq!(bytes(X::Shl(R::R12, 63)), [0x49, 0xc1, 0xe4, 63]);
+}
+
+#[test]
+fn setcc_syscall_ret() {
+    assert_eq!(bytes(X::Setcc(Cc::L, R::Rax)), [0x0f, 0x9c, 0xc0]);
+    assert_eq!(bytes(X::Setcc(Cc::E, R::Rsi)), [0x40, 0x0f, 0x94, 0xc6]);
+    assert_eq!(bytes(X::Setcc(Cc::G, R::R9)), [0x41, 0x0f, 0x9f, 0xc1]);
+    let nibbles = [
+        (Cc::O, 0x90),
+        (Cc::B, 0x92),
+        (Cc::Ae, 0x93),
+        (Cc::E, 0x94),
+        (Cc::Ne, 0x95),
+        (Cc::Le, 0x9e),
+        (Cc::L, 0x9c),
+        (Cc::Ge, 0x9d),
+        (Cc::G, 0x9f),
+    ];
+    for (cc, op) in nibbles {
+        assert_eq!(bytes(X::Setcc(cc, R::Rax))[1], op);
+    }
+    assert_eq!(bytes(X::Syscall), [0x0f, 0x05]);
+    assert_eq!(bytes(X::Ret), [0xc3]);
 }
