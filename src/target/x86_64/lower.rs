@@ -7,9 +7,11 @@
 use std::collections::HashMap;
 
 use super::inst::{AluOp, Cc, Mem, R, Sym, X};
-use crate::ir::{Cond, Data, Function, Global, Inst, Label, Reg, inst_text};
+use crate::ir::{Cond, Data, Function, Global, Inst, IntOp, Label, Reg, Shift, inst_text};
 
 /// Lowers one function; `params` maps every callable function to its parameter count.
+/// `Int(Div)` and `Int(Rem)` require a divisor greater than 0 (ruling M2-R7): `idiv` is
+/// only defined for that range here and no check is emitted.
 pub fn lower_function(f: &Function, params: &HashMap<String, u32>) -> Result<Vec<X>, String> {
     let mut out = vec![X::Label(f.name.clone())];
     for inst in &f.body {
@@ -89,6 +91,16 @@ fn inst_x(
         Inst::StoreByte { base, offset, from } => {
             out.push(X::MovM8R(Mem::Base(reg(*base), *offset), reg(*from)));
         }
+        Inst::Int(op) => int_op(*op, out),
+        Inst::AddImm(r, n) => out.push(X::AluI(AluOp::Add, reg(*r), *n)),
+        Inst::Shift(s, n) => {
+            debug_assert!(*n < 64, "shift count {n} out of range");
+            out.push(match s {
+                Shift::Left => X::Shl(R::Rax, *n),
+                Shift::Right => X::Sar(R::Rax, *n),
+                Shift::RightLogical => X::Shr(R::Rax, *n),
+            });
+        }
         Inst::Compare => out.push(X::Alu(AluOp::Cmp, R::Rax, R::Rcx)),
         Inst::JumpIf(c, l) => out.push(X::Jcc(cc(*c), label(f, *l))),
         Inst::SetIf(c) => {
@@ -112,10 +124,7 @@ fn inst_x(
             out.push(X::Alu(AluOp::Cmp, R::Rdx, R::Rsi));
             out.push(X::Jcc(Cc::B, label(f, *fail)));
         }
-        Inst::Int(_)
-        | Inst::AddImm(..)
-        | Inst::Shift(..)
-        | Inst::NumAdd { .. }
+        Inst::NumAdd { .. }
         | Inst::NumSub { .. }
         | Inst::NumNeg { .. }
         | Inst::NumMul { .. }
@@ -127,6 +136,18 @@ fn inst_x(
         }
     }
     Ok(())
+}
+
+fn int_op(op: IntOp, out: &mut Vec<X>) {
+    match op {
+        IntOp::Add => out.push(X::Alu(AluOp::Add, R::Rax, R::Rcx)),
+        IntOp::Sub => out.push(X::Alu(AluOp::Sub, R::Rax, R::Rcx)),
+        IntOp::And => out.push(X::Alu(AluOp::And, R::Rax, R::Rcx)),
+        IntOp::Or => out.push(X::Alu(AluOp::Or, R::Rax, R::Rcx)),
+        IntOp::Mul => out.push(X::Imul(R::Rax, R::Rcx)),
+        IntOp::Div => out.extend([X::Cqo, X::Idiv(R::Rcx)]),
+        IntOp::Rem => out.extend([X::Cqo, X::Idiv(R::Rcx), X::MovRR(R::Rax, R::Rdx)]),
+    }
 }
 
 /// Saves `b` in the slot below the last, then zeroes slots 1..=n.
