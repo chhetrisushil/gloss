@@ -1,0 +1,15 @@
+feature gcd
+  needs a as number, b as number
+  if b is 0
+    give a
+  give gcd with b, remainder of a by b
+
+feature lcm
+  needs a as number, b as number
+  give a / (gcd with a, b) * b
+
+feature start
+  show "gcd of 48 and 36 is ", (gcd with 48, 36)
+  show "gcd of 17 and 5 is ", (gcd with 17, 5)
+  show "lcm of 4 and 6 is ", (lcm with 4, 6)
+  show "lcm of 21 and 6 is ", (lcm with 21, 6)

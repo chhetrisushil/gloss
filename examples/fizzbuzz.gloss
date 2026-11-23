@@ -1,0 +1,10 @@
+feature start
+  for each i from 1 to 15
+    if remainder of i by 15 is 0
+      show "FizzBuzz"
+    otherwise if remainder of i by 3 is 0
+      show "Fizz"
+    otherwise if remainder of i by 5 is 0
+      show "Buzz"
+    otherwise
+      show i
