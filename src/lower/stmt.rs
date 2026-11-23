@@ -1,7 +1,8 @@
 //! Lowering statements.
 use super::Lowerer;
-use crate::ast::stmt::{Stmt, StmtKind};
+use crate::ast::stmt::{Stmt, StmtKind, Target};
 use crate::ast::{Expr, ExprKind};
+use crate::check::Ty;
 use crate::diag::Diagnostic;
 use crate::ir::{Inst, Reg};
 
@@ -17,12 +18,23 @@ impl Lowerer<'_> {
         match &s.kind {
             StmtKind::Note(_) => Ok(()),
             StmtKind::Show(items) => {
+                self.line = s.line;
                 self.emit(Inst::Line(s.line));
                 for item in items {
                     self.show_item(item)?;
                 }
                 self.push_text(b"\n");
                 self.call("out_text");
+                Ok(())
+            }
+            StmtKind::Set {
+                target: Target::Var(name),
+                value,
+            } if self.is_number(value) => {
+                self.line = s.line;
+                self.emit(Inst::Line(s.line));
+                self.expr(value)?;
+                self.emit(Inst::StoreSlot(self.slots[name], Reg::A));
                 Ok(())
             }
             _ => Err(Diagnostic::error(
@@ -33,6 +45,13 @@ impl Lowerer<'_> {
         }
     }
 
+    pub fn is_number(&self, e: &Expr) -> bool {
+        matches!(
+            self.types.expr_types.get(e.id.0 as usize),
+            Some(Some(Ty::Number))
+        )
+    }
+
     fn show_item(&mut self, item: &Expr) -> Result<(), Diagnostic> {
         match &item.kind {
             ExprKind::Text(text) => {
@@ -40,7 +59,7 @@ impl Lowerer<'_> {
                 self.call("out_text");
                 Ok(())
             }
-            ExprKind::Number(_) | ExprKind::Negate(_) => {
+            _ if self.is_number(item) => {
                 self.expr(item)?;
                 self.emit(Inst::Push(Reg::A));
                 self.call("out_number");
