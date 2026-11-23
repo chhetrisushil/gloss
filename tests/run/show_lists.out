@@ -1,0 +1,12 @@
+list of 4, 9, 2
+list of 1.5
+list of "a", "say ""hi""", ""
+list of yes, no
+list of (P with name "Asha", age 9), (P with name "Ravi", age 7)
+empty list of P
+n=3 list of 4, 9, 2 then list of yes, no
+empty list of number
+empty list of text
+empty list of truth
+P with name "Ravi", age 7
+list of 1, 2, 3, 4, 5, 6, 7, 8, 9

@@ -1,0 +1,26 @@
+record P
+  name as text
+  age as number
+
+feature start
+  set xs to list of 4, 9, 2
+  set one to list of 1.5
+  set ws to list of "a", "say ""hi""", ""
+  set ts to list of yes, no
+  set ps to list of (P with name "Asha", age 9), (P with name "Ravi", age 7)
+  set nobody to empty list of P
+  show xs
+  show one
+  show ws
+  show ts
+  show ps
+  show nobody
+  show "n=", count of xs, " ", xs, " then ", ts
+  show empty list of number
+  show empty list of text
+  show empty list of truth
+  show item 2 of ps
+  set big to empty list of number
+  for each i from 1 to 9
+    append i to big
+  show big

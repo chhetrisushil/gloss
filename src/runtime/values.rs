@@ -1,7 +1,9 @@
 //! Showing a value by its type descriptor (see `ir::Desc`), on standard output.
 
 use super::asm::Asm;
-use super::{CLOSE, COMMA_SPACE, LIST_OF, LIST_TRAP, NO, OPEN, QUOTE, SPACE, WITH, YES};
+use super::{
+    CLOSE, COMMA_SPACE, EMPTY_LIST, LIST_OF, NO, NUMBER, OPEN, QUOTE, SPACE, TEXT, TRUTH, WITH, YES,
+};
 use crate::ir::Cond::{Eq, Ge, Le, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Function, Inst::*, IntOp, Shift};
@@ -199,7 +201,8 @@ fn kind_of(s: &mut Asm, slot: u32) {
 /// `show_list(list, desc)`: `list of a, b`, with a record item in parentheses. Slots: 1 the index, 2 the count, 3 the item descriptor.
 fn show_list() -> Function {
     let mut s = Asm::default();
-    let (again, done, first, record, named, shown) = (
+    let (again, done, first, record, named, shown, scalar) = (
+        s.label(),
         s.label(),
         s.label(),
         s.label(),
@@ -223,11 +226,32 @@ fn show_list() -> Function {
     s.i(StoreSlot(2, A));
     s.i(Const(B, 0));
     s.jump_if(Ne, named);
-    // The empty form arrives in the next commit; until then it is the trap.
-    s.call("flush");
-    s.push_text(LIST_TRAP);
-    s.call("err_text");
-    s.call("fail_end");
+    out_const(&mut s, EMPTY_LIST);
+    kind_of(&mut s, 3);
+    s.i(Const(B, 3));
+    s.jump_if(Ne, scalar);
+    s.i(LoadSlot(A, 3));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 8,
+    });
+    s.i(Push(A));
+    s.call("out_text");
+    s.i(Return);
+    // The item type's name: `number`, `text` or `truth` by the descriptor's kind.
+    s.i(Mark(scalar));
+    for (kind, text) in [(0, NUMBER), (1, TEXT)] {
+        let next = s.label();
+        s.i(Const(B, kind));
+        s.jump_if(Ne, next);
+        out_const(&mut s, text);
+        s.i(Return);
+        s.i(Mark(next));
+        kind_of(&mut s, 3);
+    }
+    out_const(&mut s, TRUTH);
+    s.i(Return);
     s.i(Mark(named));
     out_const(&mut s, LIST_OF);
     s.i(Const(A, 0));
@@ -454,7 +478,8 @@ mod tests {
     }
 
     #[test]
-    fn a_list_shows_its_items() {
+    fn a_list_shows_its_items_and_an_empty_one_names_its_type() {
         assert_eq!(shown_list(&[40000, 90000]), "list of 4, 9");
+        assert_eq!(shown_list(&[]), "empty list of number");
     }
 }

@@ -39,7 +39,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// The descriptor of the record `name`, interned with its fields' descriptors.
-    fn record_desc(&mut self, name: &str) -> u32 {
+    pub fn record_desc(&mut self, name: &str) -> u32 {
         let mut fields = Vec::new();
         for f in self.record_decl(name).fields() {
             let desc = match f.ty {

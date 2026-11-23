@@ -244,6 +244,11 @@ impl Lowerer<'_> {
                 self.show_record(self.record_type(item).expect("just checked"));
                 Ok(())
             }
+            _ if self.list_item_type(item).is_some() => {
+                self.expr(item)?;
+                self.show_list(&self.list_item_type(item).expect("just checked"));
+                Ok(())
+            }
             _ => Err(Diagnostic::error(
                 self.src,
                 item.line,
