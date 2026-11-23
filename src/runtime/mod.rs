@@ -24,11 +24,19 @@ const COLON: u32 = 2;
 const NEWLINE: u32 = 3;
 const OUT_OF_MEMORY: u32 = 4;
 
+const CUT: u32 = 5;
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
-const UNSHOWABLE: u32 = 5;
+const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 5] = [b"line ", b": failure ", b": ", b"\n", b"out of memory"];
+const TEXTS: [&[u8]; 6] = [
+    b"line ",
+    b": failure ",
+    b": ",
+    b"\n",
+    b"out of memory",
+    "\u{2026}".as_bytes(),
+];
 
 /// The bytes of the runtime text `i`.
 fn text_bytes(i: u32) -> Vec<u8> {
@@ -46,6 +54,7 @@ pub fn routines() -> Vec<Function> {
     all.extend(numbers::routines());
     all.extend(parse::routines());
     all.extend(places::routines());
+    all.extend(shown::routines());
     all.extend(text::routines());
     all
 }
