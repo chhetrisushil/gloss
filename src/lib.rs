@@ -11,6 +11,7 @@ pub mod lexer;
 pub mod lower;
 pub mod number;
 pub mod parser;
+pub mod permissions;
 pub mod runtime;
 pub mod source;
 pub mod target;
@@ -57,6 +58,11 @@ pub struct Checked {
 }
 
 impl Checked {
+    /// The table files this program can touch, as a person approves them at build time.
+    pub fn permissions(&self) -> Vec<permissions::Entry> {
+        permissions::list(&self.program)
+    }
+
     /// Lowers and encodes the program as an x86-64 Linux executable.
     pub fn executable(&self) -> Result<Vec<u8>, Diagnostic> {
         let module = lower::lower(&self.program, &self.types, &self.src)?;

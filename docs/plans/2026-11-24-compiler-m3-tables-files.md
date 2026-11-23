@@ -22,7 +22,7 @@
 - [D19] Every runtime routine is written in IR. The only new target-specific code is the four primitives of Task 5.
 - [D21] `irsim` is `cfg(test)` only; the real executable is the authority; both agree on every `tests/run` case, including the files left behind.
 - [D23] Approval (Tasks 1–4) lands before any table program can build. No PR may let `gloss build` write an executable for a program with a table unless its access was approved.
-- [D24] File names in the permission list, `.allow` and `--permissions` use the display form: printable ASCII as is; otherwise `"<name>" (<escaped>)`, escaped = every non-ASCII character as `\u{XXXX}` (upper-case hex, at least 4 digits).
+- [D24] File names in the permission list, `.allow` and `--permissions` use the display form: printable ASCII as is; otherwise `"<name>" (<escaped>)`, escaped = every character outside printable ASCII as `\u{X…}` (upper-case hex, no padding: `\u{E9}`), as in D24's example.
 - [D25] No answer is ever read from standard input unless it is a terminal.
 - [D26] Failures 6–8 use exactly the messages in design §4.7. Cell and column text from a file goes through `err_shown` (≤ 40 characters, invisible characters as `\u{XXXX}`, `"` doubled).
 - [D27] The list is printed by `gloss build` only for programs that declare a table.
@@ -122,7 +122,7 @@ An entry line is two spaces, the access words padded to 19 columns (`read and re
 - [ ] Implement `display_name` and `render`; wire `Checked::permissions`.
 - [ ] Gate; commit "List the files a program can touch".
 
-**Fail-proof:** a `list` that ignores test blocks only by accident (e.g. never walks anything) would make every table read only — `a_saved_table_is_read_and_replace` catches it. An escape using lower-case hex or no padding fails `display_names`.
+**Fail-proof:** a `list` that ignores test blocks only by accident (e.g. never walks anything) would make every table read only — `a_saved_table_is_read_and_replace` catches it. An escape using lower-case hex or zero padding fails `display_names`.
 **Review:** risky (it decides what a person approves) — first review `opus`.
 **Estimate:** ~120 lines, 2 files.
 
