@@ -4,7 +4,7 @@ use super::encode::encode;
 use super::inst::{X, text};
 use super::lower::lower_function;
 use crate::ir::Reg::{A, B};
-use crate::ir::{Data, Function, Global, Inst, Prim};
+use crate::ir::{Cond, Data, Function, Global, Inst, Label, Prim};
 
 fn func(params: u32, slots: u32, body: Vec<Inst>) -> Function {
     Function {
@@ -131,6 +131,71 @@ fn memory() {
         from: A,
     };
     assert_eq!(one(sb), ["mov byte [rcx+0], al"]);
+}
+
+#[test]
+fn calls_drop_their_arguments() {
+    assert_eq!(
+        one(Inst::Call("two".to_string())),
+        ["call two", "add rsp, 16"]
+    );
+    assert_eq!(one(Inst::Call("none".to_string())), ["call none"]);
+    let err = lower_function(&func(0, 0, vec![Inst::Call("x".into())]), &known());
+    assert!(err.is_err());
+}
+
+#[test]
+fn comparisons_jump_and_set() {
+    let body = vec![Inst::Compare, Inst::JumpIf(Cond::Le, Label(3))];
+    assert_eq!(lines(&func(0, 0, body)), ["cmp rax, rcx", "jle Lf_3"]);
+    let body = vec![Inst::Mark(Label(3)), Inst::Compare, Inst::SetIf(Cond::Ne)];
+    assert_eq!(
+        lines(&func(0, 0, body)),
+        ["Lf_3:", "cmp rax, rcx", "setne al", "and rax, 255"]
+    );
+    let body = vec![Inst::Jump(Label(1)), Inst::Line(7), Inst::Mark(Label(1))];
+    assert_eq!(lines(&func(0, 0, body)), ["jmp Lf_1", "; line 7", "Lf_1:"]);
+}
+
+#[test]
+fn every_condition_has_a_signed_code() {
+    let all = [
+        (Cond::Eq, "je"),
+        (Cond::Ne, "jne"),
+        (Cond::Lt, "jl"),
+        (Cond::Le, "jle"),
+        (Cond::Gt, "jg"),
+        (Cond::Ge, "jge"),
+    ];
+    for (c, j) in all {
+        let body = vec![
+            Inst::Compare,
+            Inst::JumpIf(c, Label(0)),
+            Inst::Mark(Label(0)),
+        ];
+        assert_eq!(lines(&func(0, 0, body))[1], format!("{j} Lf_0"));
+    }
+}
+
+#[test]
+fn a_stack_check_compares_against_the_limit() {
+    let body = vec![
+        Inst::StackCheck {
+            bytes: 64,
+            fail: Label(9),
+        },
+        Inst::Mark(Label(9)),
+    ];
+    assert_eq!(
+        lines(&func(0, 0, body)),
+        [
+            "lea rdx, [rsp-64]",
+            "mov rsi, [rip+stack_limit]",
+            "cmp rdx, rsi",
+            "jb Lf_9",
+            "Lf_9:"
+        ]
+    );
 }
 
 #[test]
