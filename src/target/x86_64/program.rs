@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use super::arith;
 use super::encode::encode;
 use super::inst::{Sym, X};
 use super::lower::lower_function;
@@ -62,6 +63,7 @@ pub fn executable(m: &Module) -> Result<Vec<u8>, String> {
     for f in &m.functions {
         xs.extend(lower_function(f, &params)?);
     }
+    xs.extend(arith::helpers());
     let code = encode(&xs)?;
     let entry = *code
         .labels
