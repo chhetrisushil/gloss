@@ -469,6 +469,34 @@ fn err_number_in_a_failure_message_needs_no_memory() {
 }
 
 #[test]
+fn err_number_leaves_the_heap_untouched() {
+    // Any allocation, however small, maps a piece and sets heap_end.
+    let body = vec![
+        Const(A, 12_345),
+        Push(A),
+        Call("err_number".into()),
+        AddressOf(A, Data::Global(Global::HeapNext)),
+        Load {
+            to: A,
+            base: A,
+            offset: 0,
+        },
+        StoreSlot(1, A),
+        AddressOf(A, Data::Global(Global::HeapEnd)),
+        Load {
+            to: A,
+            base: A,
+            offset: 0,
+        },
+        StoreSlot(2, A),
+        LoadSlot(B, 1),
+        Int(IntOp::Add),
+        Return,
+    ];
+    assert_eq!(irsim::call(&returning(2, body), "main", &[]), 0);
+}
+
+#[test]
 fn out_number_never_moves_the_heap() {
     // Slot 1 counts down from 100000; slot 2 keeps the first heap_next.
     let mut body = vec![Const(A, 100_000), StoreSlot(1, A)];

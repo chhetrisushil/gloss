@@ -10,7 +10,7 @@ const FIRST_POWER: i64 = 1_000_000_000_000_000_000;
 /// The power of ten of the units digit: the number is in ten-thousandths.
 const UNITS: i64 = 10_000;
 
-// Slots of `number_text`.
+// Slots of `number_format`.
 const BUF: u32 = 1;
 const LEN: u32 = 2;
 const REST: u32 = 3;
@@ -36,12 +36,13 @@ fn put(s: &mut Asm) {
     s.i(StoreSlot(LEN, A));
 }
 
-/// `number_format(n)`: writes the show form of `n` into `Global::NumBuf` (a text: the length,
-/// then the bytes; at most 21 bytes: `-`, 15 whole digits, `.` and 4 fraction digits) and
-/// returns its address. The text is valid only until the next call. It does not allocate,
-/// so a failure message can show a number. The show form of `n`: `-` for a negative number, the whole part,
-/// then `.` and the fraction without its trailing zeros when it is not zero. One pass over
-/// the digits of `n` from the highest power of ten, as `err_int` does, on `-|n|` so that
+/// `number_format(n)`: writes the show form of `n` into `Global::NumBuf` (a text: the
+/// length, then the bytes; at most 21 bytes: `-`, 15 whole digits, `.` and 4 fraction
+/// digits) and returns its address. The text is valid only until the next call. It does
+/// not allocate, so a failure message can show a number.
+///
+/// The show form is `-` for a negative number, the whole part, then `.` and the fraction
+/// without its trailing zeros when it is not zero. One pass over the digits of `n` from the highest power of ten, as `err_int` does, on `-|n|` so that
 /// `i64::MIN` needs no special case. Leading zeros are skipped up to the units digit; the
 /// pass ends when nothing is left at or after the units digit.
 fn number_format() -> Function {
