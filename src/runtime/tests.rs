@@ -324,7 +324,7 @@ fn the_stack_limit_is_the_size_below_sp_plus_the_margin() {
 }
 
 fn run_with(m: &Module, faults: Faults) -> Outcome {
-    irsim::run_with(m, "_start", b"", faults)
+    irsim::run_with(m, "_start", b"", &[], faults)
 }
 
 #[test]
