@@ -1,0 +1,12 @@
+feature start
+  set xs to empty list of number
+  set total to 0
+  for each i from 1 to 100
+    append i to xs
+  set big to empty list of text
+  for each i from 1 to 9
+    append i as text to big
+  for each i from 1 to 100
+    add item i of xs to total
+  show total, count of xs
+  show first of big, last of big, count of big

@@ -62,6 +62,11 @@ impl Lowerer<'_> {
                 self.store_place(&place);
                 Ok(())
             }
+            StmtKind::Append { value, list } if self.stores_unshared(value) => {
+                self.line = s.line;
+                self.emit(Inst::Line(s.line));
+                self.append(value, list)
+            }
             StmtKind::Ask { question, into } => {
                 self.line = s.line;
                 self.emit(Inst::Line(s.line));
