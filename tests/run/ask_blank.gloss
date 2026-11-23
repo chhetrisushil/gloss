@@ -1,0 +1,6 @@
+feature start
+  ask "?" into a
+  ask "?" into b
+  ask "?" into c
+  ask "?" into d
+  show "[", a, "][", b, "][", c, "][", d, "]"

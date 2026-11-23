@@ -182,3 +182,55 @@ fn end_of_input_with_nothing_read_is_failure_9() {
     let message = b"line 7: failure 9: input ended while ask was waiting\n";
     assert_eq!((o.status, o.stderr), (2, message.to_vec()));
 }
+
+/// What `run_asks` shows for these answers; the run must end well.
+fn asked(n: usize, stdin: &[u8], answers: &[&[u8]]) {
+    let o = run_asks(n, stdin);
+    let mut shown = Vec::new();
+    for a in answers {
+        shown.extend(b"?\n");
+        shown.extend(*a);
+        shown.push(b'|');
+    }
+    assert_eq!((o.status, o.stdout == shown, o.stderr), (0, true, vec![]));
+}
+
+#[test]
+fn an_empty_line_is_an_empty_text() {
+    asked(1, b"\n", &[b""]);
+    asked(2, b"\r\n\n", &[b"", b""]);
+}
+
+#[test]
+fn only_a_line_ending_is_removed_so_a_lone_final_cr_stays() {
+    asked(1, b"ab\r", &[b"ab\r"]);
+    asked(1, b"ab\r\r\n", &[b"ab\r"]);
+    asked(1, b"\rab", &[b"\rab"]);
+}
+
+#[test]
+fn any_byte_value_is_kept() {
+    let bytes: Vec<u8> = (0u8..=255).filter(|&b| b != b'\n').collect();
+    asked(1, &[&bytes[..], b"\n"].concat(), &[&bytes]);
+}
+
+#[test]
+fn a_line_longer_than_the_input_buffer_crosses_refills() {
+    for len in [63, 64, 65, 4095, 4096, 4097, 8193, 10000] {
+        let line: Vec<u8> = (0..len).map(|i| b'a' + (i % 26) as u8).collect();
+        asked(2, &[&line[..], b"\nnext\n"].concat(), &[&line, b"next"]);
+    }
+}
+
+#[test]
+fn a_cr_at_the_end_of_one_refill_goes_with_the_lf_that_starts_the_next() {
+    let x = [b'x'; 4095];
+    asked(2, &[&x[..], b"\r\nnext\n"].concat(), &[&x, b"next"]);
+}
+
+#[test]
+fn a_hundred_thousand_bytes_on_one_line_grow_the_text_by_doubling() {
+    // The run cases have bigger lines; irsim keeps memory byte by byte, so it is slow here.
+    let line = vec![b'q'; 100_000];
+    asked(1, &[&line[..], b"\n"].concat(), &[&line]);
+}
