@@ -2,7 +2,7 @@
 //! the address of `capacity` 8-byte slots (see `ir::Desc`).
 use super::Lowerer;
 use crate::ast::print;
-use crate::ast::stmt::Target;
+use crate::ast::stmt::{Stmt, Target};
 use crate::ast::{Expr, ExprKind, Fact};
 use crate::diag::Diagnostic;
 use crate::ir::{Cond, Inst, IntOp, Reg, Shift};
@@ -252,6 +252,43 @@ impl Lowerer<'_> {
             offset: 0,
             from: Reg::A,
         });
+        Ok(())
+    }
+
+    /// `for each x in xs`: the list and the position live in hidden slots; each turn puts the
+    /// item at the position in `x` (a record's address, so changing its fields changes the
+    /// list's record). The list cannot change while the loop walks it (checked), so the
+    /// count is read afresh without risk.
+    pub fn for_each(&mut self, var: &str, list: &Expr, body: &[Stmt]) -> Result<(), Diagnostic> {
+        let (held, at) = (self.new_temp(), self.new_temp());
+        self.expr(list)?;
+        self.emit(Inst::StoreSlot(held, Reg::A));
+        self.emit(Inst::Const(Reg::A, 0));
+        self.emit(Inst::StoreSlot(at, Reg::A));
+        let (top, next, exit) = (self.new_label(), self.new_label(), self.new_label());
+        self.emit(Inst::Mark(top));
+        self.emit(Inst::LoadSlot(Reg::A, at));
+        self.emit(Inst::LoadSlot(Reg::B, held));
+        self.emit(Inst::Load {
+            to: Reg::B,
+            base: Reg::B,
+            offset: COUNT,
+        });
+        self.emit(Inst::Compare);
+        self.emit(Inst::JumpIf(Cond::Ge, exit));
+        self.slot_address(held);
+        self.load_a();
+        self.emit(Inst::StoreSlot(self.slots[var], Reg::A));
+        self.loops.push((next, exit));
+        let done = self.stmts(body);
+        self.loops.pop();
+        done?;
+        self.emit(Inst::Mark(next));
+        self.emit(Inst::LoadSlot(Reg::A, at));
+        self.emit(Inst::AddImm(Reg::A, 1));
+        self.emit(Inst::StoreSlot(at, Reg::A));
+        self.emit(Inst::Jump(top));
+        self.emit(Inst::Mark(exit));
         Ok(())
     }
 }

@@ -1,0 +1,8 @@
+record Expense
+  amount as number
+
+feature start
+  set es to list of (Expense with amount 5), (Expense with amount 7)
+  for each e in es
+    set amount of e to 0
+  show amount of item 1 of es, amount of item 2 of es
