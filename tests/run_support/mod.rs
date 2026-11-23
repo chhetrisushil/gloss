@@ -80,6 +80,18 @@ pub fn run_limited(
     vars: &[(&str, String)],
     kib: Option<u64>,
 ) -> Option<Ran> {
+    run_full(path, stdin, deadline, vars, kib, &[])
+}
+
+/// Like `run_limited`, with program arguments after the program's name.
+pub fn run_full(
+    path: &Path,
+    stdin: &[u8],
+    deadline: Duration,
+    vars: &[(&str, String)],
+    kib: Option<u64>,
+    args: &[&str],
+) -> Option<Ran> {
     let Some(prefix) = runner() else {
         skip();
         return None;
@@ -101,23 +113,40 @@ pub fn run_limited(
     // The command line after the runner prefix. The paths and the limit are positional
     // arguments of a fixed script, never interpolated into it.
     let limit = kib.map(|k| k.to_string());
-    let redirect = if files.is_some() {
-        r#" >"$1" 2>"$2""#
-    } else {
-        ""
+    // With arguments, the script moves its own positionals out of the way first.
+    let redirect = match (files.is_some(), args.is_empty()) {
+        (false, _) => "",
+        (true, true) => r#" >"$1" 2>"$2""#,
+        (true, false) => r#" >"$o" 2>"$e""#,
     };
     let mut tail: Vec<&std::ffi::OsStr> = vec![path.as_os_str()];
     if let Some((o, e)) = &files {
         tail.extend([o.as_os_str(), e.as_os_str()]);
     }
-    let script = match &limit {
-        Some(l) => {
-            let n = if files.is_some() { 3 } else { 1 };
-            tail.push(l.as_ref());
-            Some(format!(r#"ulimit -v "${n}"; exec "$0"{redirect}"#))
-        }
-        None => files.is_some().then(|| format!(r#"exec "$0"{redirect}"#)),
-    };
+    let own = usize::from(limit.is_some()) + 2 * usize::from(files.is_some());
+    let mut script = None;
+    if let Some(l) = &limit {
+        tail.push(l.as_ref());
+        let n = if files.is_some() { 3 } else { 1 };
+        script = Some(format!(r#"ulimit -v "${n}"; "#));
+    }
+    tail.extend(args.iter().map(std::ffi::OsStr::new));
+    // A limit alone still needs the `exec` that runs the program.
+    if script.is_some() || files.is_some() || !args.is_empty() {
+        let save = if files.is_some() && !args.is_empty() {
+            r#"o="$1"; e="$2"; "#
+        } else {
+            ""
+        };
+        let shift = if args.is_empty() {
+            String::new()
+        } else {
+            format!("shift {own}; ")
+        };
+        let all = if args.is_empty() { "" } else { r#" "$@""# };
+        let run = format!(r#"exec "$0"{all}{redirect}"#);
+        script = Some(format!("{}{save}{shift}{run}", script.unwrap_or_default()));
+    }
     if let Some(script) = &script {
         tail.splice(0..0, ["sh".as_ref(), "-c".as_ref(), script.as_ref()]);
     }
