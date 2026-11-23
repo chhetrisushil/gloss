@@ -98,7 +98,7 @@ pub enum X {
 pub fn text(x: &X) -> String {
     match x {
         X::MovRR(d, s) => format!("mov {}, {}", reg(*d), reg(*s)),
-        X::MovRI(d, n) => format!("mov {}, {n}", reg(*d)),
+        X::MovRI(d, n) => format!("movabs {}, {n}", reg(*d)),
         X::MovRM(d, m) => format!("mov {}, {}", reg(*d), mem(m)),
         X::MovMR(m, s) => format!("mov {}, {}", mem(m), reg(*s)),
         X::MovzxRM8(d, m) => format!("movzx {}, byte {}", reg32(*d), mem(m)),
@@ -142,21 +142,8 @@ fn sym(s: &Sym) -> String {
     match s {
         Sym::Text(n) => format!("text_{n}"),
         Sym::Desc(n) => format!("desc_{n}"),
-        Sym::Global(g) => global(*g).to_string(),
+        Sym::Global(g) => g.name().to_string(),
         Sym::Label(l) => l.clone(),
-    }
-}
-
-fn global(g: Global) -> &'static str {
-    match g {
-        Global::HeapNext => "heap_next",
-        Global::HeapEnd => "heap_end",
-        Global::StackLimit => "stack_limit",
-        Global::OutLen => "out_len",
-        Global::OutBuf => "out_buf",
-        Global::InLen => "in_len",
-        Global::InPos => "in_pos",
-        Global::InBuf => "in_buf",
     }
 }
 

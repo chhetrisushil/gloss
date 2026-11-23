@@ -78,6 +78,22 @@ pub enum Global {
     InBuf,
 }
 
+impl Global {
+    /// The snake-case name both the IR text and the machine code text print.
+    pub fn name(self) -> &'static str {
+        match self {
+            Global::HeapNext => "heap_next",
+            Global::HeapEnd => "heap_end",
+            Global::StackLimit => "stack_limit",
+            Global::OutLen => "out_len",
+            Global::OutBuf => "out_buf",
+            Global::InLen => "in_len",
+            Global::InPos => "in_pos",
+            Global::InBuf => "in_buf",
+        }
+    }
+}
+
 /// Something whose address `AddressOf` can take.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Data {
