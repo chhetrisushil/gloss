@@ -31,12 +31,15 @@ const INPUT_ENDED: u32 = 5;
 const QUOTE: u32 = 6;
 const YES: u32 = 7;
 const NO: u32 = 8;
+const WITH: u32 = 9;
+const COMMA_SPACE: u32 = 10;
+const SPACE: u32 = 11;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 9] = [
+const TEXTS: [&[u8]; 12] = [
     b"line ",
     b": failure ",
     b": ",
@@ -46,6 +49,9 @@ const TEXTS: [&[u8]; 9] = [
     b"\"",
     b"yes",
     b"no",
+    b" with ",
+    b", ",
+    b" ",
 ];
 
 /// The bytes of the runtime text `i`.
