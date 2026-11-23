@@ -12,7 +12,11 @@ impl Machine<'_> {
     pub fn system(&mut self, prim: Prim) -> Option<Ended> {
         match prim {
             Prim::Write => self.write(),
-            Prim::Read | Prim::Map => todo!("Task 3b: Read and Map"),
+            Prim::Read => self.read(),
+            Prim::Map => {
+                let len = self.pop();
+                self.a = self.memory.map(len) as i64;
+            }
             Prim::Exit => return Some(Ended::Exited(self.pop() as i32)),
             Prim::StackSize => self.a = STACK_SIZE,
         }
@@ -43,5 +47,21 @@ impl Machine<'_> {
         };
         out.extend(bytes);
         self.a = len as i64;
+    }
+
+    fn read(&mut self) {
+        let (fd, addr, len) = self.pop_transfer();
+        if fd != 0 {
+            self.a = EBADF;
+            return;
+        }
+        self.check(addr, len, true);
+        let left = &self.stdin[self.stdin_pos..];
+        let count = left.len().min(len as usize);
+        for (i, &byte) in left[..count].to_vec().iter().enumerate() {
+            self.memory.write_byte(addr + i as u64, byte);
+        }
+        self.stdin_pos += count;
+        self.a = count as i64;
     }
 }

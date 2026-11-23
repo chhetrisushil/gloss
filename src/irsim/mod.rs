@@ -23,7 +23,7 @@ pub struct Outcome {
 /// Runs the function `entry` as a program, feeding it `stdin`.
 pub fn run(m: &Module, entry: &str, stdin: &[u8]) -> Outcome {
     let mut machine = Machine::new(m);
-    let _ = stdin; // Task 3b's `Prim::Read` consumes it.
+    machine.stdin = stdin.to_vec();
     let status = match machine.execute(entry, &[]) {
         Ended::Returned(_) => 0,
         Ended::Exited(status) => status,

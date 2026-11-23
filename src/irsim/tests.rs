@@ -724,6 +724,10 @@ fn push_const(n: i64) -> [Inst; 2] {
     [Const(A, n), Push(A)]
 }
 
+fn push_global(g: Global) -> [Inst; 2] {
+    [AddressOf(A, Data::Global(g)), Push(A)]
+}
+
 /// Pushes the address of text 0's bytes, which follow its 8-byte length.
 fn push_text_bytes() -> [Inst; 3] {
     [AddressOf(A, Data::Text(0)), AddImm(A, 8), Push(A)]
@@ -774,6 +778,118 @@ fn write_to_another_fd_is_ebadf_and_consumes_its_arguments() {
     let mut failing = write_text(5);
     failing.push(Return);
     assert_eq!(call(&with_text(failing), "f", &[]), -9);
+}
+
+fn read_into_in_buf(len: i64) -> Vec<Inst> {
+    let mut body = Vec::new();
+    body.extend(push_const(0));
+    body.extend(push_global(Global::InBuf));
+    body.extend(push_const(len));
+    body.push(System(Prim::Read));
+    body
+}
+
+#[test]
+fn read_copies_stdin_and_the_bytes_can_be_written_back() {
+    let mut body = read_into_in_buf(8);
+    body.push(Move { to: B, from: A });
+    body.extend(push_const(1));
+    body.extend(push_global(Global::InBuf));
+    body.extend([Push(B), System(Prim::Write), Return]);
+    let outcome = run(&single(body), "f", b"hi");
+    assert_eq!(outcome.stdout, b"hi");
+}
+
+#[test]
+fn read_takes_at_most_len_bytes_then_the_rest_then_nothing() {
+    let mut body = read_into_in_buf(3);
+    body.extend([Push(A), System(Prim::Exit)]);
+    assert_eq!(run(&single(body), "f", b"hello").status, 3);
+    let mut twice = read_into_in_buf(3);
+    twice.extend(read_into_in_buf(3));
+    twice.extend([Push(A), System(Prim::Exit)]);
+    assert_eq!(run(&single(twice), "f", b"hello").status, 2);
+}
+
+#[test]
+fn read_returns_0_at_end_of_input() {
+    let mut body = read_into_in_buf(8);
+    body.extend([Return]);
+    assert_eq!(call(&single(body), "f", &[]), 0);
+}
+
+fn map_16() -> Vec<Inst> {
+    let mut body = push_const(16).to_vec();
+    body.push(System(Prim::Map));
+    body
+}
+
+#[test]
+fn map_starts_at_the_base_and_the_next_block_follows() {
+    let mut first = map_16();
+    first.push(Return);
+    assert_eq!(call(&single(first), "f", &[]), 0x4000_0000_0000);
+    let mut second = map_16();
+    second.extend(map_16());
+    second.push(Return);
+    assert_eq!(call(&single(second), "f", &[]), 0x4000_0000_0010);
+}
+
+#[test]
+fn mapped_memory_is_zeroed_and_writable() {
+    let mut zeroed = map_16();
+    zeroed.extend([
+        Move { to: B, from: A },
+        Load {
+            to: A,
+            base: B,
+            offset: 8,
+        },
+        Return,
+    ]);
+    assert_eq!(call(&single(zeroed), "f", &[]), 0);
+    let mut written = map_16();
+    written.extend([
+        Move { to: B, from: A },
+        Const(A, 7),
+        Store {
+            base: B,
+            offset: 8,
+            from: A,
+        },
+        Const(A, 0),
+        Load {
+            to: A,
+            base: B,
+            offset: 8,
+        },
+        Return,
+    ]);
+    assert_eq!(call(&single(written), "f", &[]), 7);
+}
+
+#[test]
+fn map_over_a_tebibyte_gives_0() {
+    let mut body = push_const((1 << 40) + 1).to_vec();
+    body.extend([System(Prim::Map), Return]);
+    assert_eq!(call(&single(body), "f", &[]), 0);
+}
+
+#[test]
+#[should_panic(expected = "outside mapped memory")]
+fn reading_past_a_mapped_block_panics() {
+    let mut body = push_const(16).to_vec();
+    body.extend([
+        System(Prim::Map),
+        Move { to: B, from: A },
+        Load {
+            to: A,
+            base: B,
+            offset: 16,
+        },
+        Return,
+    ]);
+    call(&single(body), "f", &[]);
 }
 
 #[test]
