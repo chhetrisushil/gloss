@@ -283,7 +283,7 @@ fn escape(s: &mut Asm) {
 /// rejects is written as `\u{XXXX}` instead. Does not allocate.
 fn err_shown() -> Function {
     let mut s = Asm::default();
-    let [again, cut, hidden, step, done, copy] = [(); 6].map(|_| s.label());
+    let [again, cut, hidden, step, done, copy, plain] = [(); 7].map(|_| s.label());
     s.i(LoadArg(A, 1));
     s.i(Load {
         to: A,
@@ -304,6 +304,12 @@ fn err_shown() -> Function {
     s.jump_if(Ge, cut);
     decode(&mut s, hidden);
     lookup(&mut s, hidden);
+    // A quote is doubled, as in a text written in the source.
+    s.i(LoadSlot(A, CP));
+    s.i(Const(B, i64::from(b'"')));
+    s.jump_if(Ne, plain);
+    put_const(&mut s, b'"');
+    s.i(Mark(plain));
     s.i(Const(A, 0));
     s.i(StoreSlot(K, A));
     s.i(Mark(copy));
@@ -381,6 +387,7 @@ mod tests {
             .take(40)
             .map(|c| match unshowable(c) {
                 true => format!("\\u{{{:04X}}}", c as u32),
+                false if c == '"' => "\"\"".to_string(),
                 false => c.to_string(),
             })
             .collect();
@@ -403,6 +410,7 @@ mod tests {
             '\u{A0}',
             ' ',
             '\u{E0001}',
+            '"',
         ];
         let mut texts: Vec<String> = [0, 1, 39, 40, 41, 42]
             .iter()
@@ -416,7 +424,7 @@ mod tests {
             let length = 36 + xorshift(&mut state) % 8;
             texts.push(
                 (0..length)
-                    .map(|_| pool[(xorshift(&mut state) % 10) as usize])
+                    .map(|_| pool[(xorshift(&mut state) % 11) as usize])
                     .collect(),
             );
         }
@@ -459,6 +467,7 @@ mod tests {
                 .and_then(|s| std::str::from_utf8(s).ok());
             let c = decoded.and_then(|s| s.chars().next()).unwrap_or('\u{FFFD}');
             out.push_str(&match decoded.is_some() && !unshowable(c) {
+                true if c == '"' => "\"\"".to_string(),
                 true => c.to_string(),
                 false => format!("\\u{{{:04X}}}", c as u32),
             });
