@@ -273,12 +273,12 @@ fn mul_div_and_rem_call_their_helpers_and_dispatch_on_the_status() {
     let (zero, range) = (Label(1), Label(2));
     assert_eq!(
         one(Inst::NumMul { range }),
-        ["call multiply_number", "test rdx, rdx", "jne Lf_2"]
+        ["call x86_64.multiply_number", "test rdx, rdx", "jne Lf_2"]
     );
     assert_eq!(
         one(Inst::NumDiv { zero, range }),
         [
-            "call divide_number",
+            "call x86_64.divide_number",
             "cmp rdx, 2",
             "je Lf_1",
             "test rdx, rdx",
@@ -287,7 +287,7 @@ fn mul_div_and_rem_call_their_helpers_and_dispatch_on_the_status() {
     );
     assert_eq!(
         one(Inst::NumRem { zero }),
-        ["call remainder_number", "test rdx, rdx", "jne Lf_1"]
+        ["call x86_64.remainder_number", "test rdx, rdx", "jne Lf_1"]
     );
 }
 
