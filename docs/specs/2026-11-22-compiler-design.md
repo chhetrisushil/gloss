@@ -1,7 +1,7 @@
 # Gloss v0 compiler - design spec
 
 - **Date:** 2026-11-22
-- **Status:** built (milestones 1 and 2, section 6); milestones 3–7 not started
+- **Status:** built (milestones 1 and 2, section 6); milestone 3 designed (§4.7); milestones 4–7 not started
 - **Context:** Implements the language defined in `spec/v0.md` (the *language spec*). This document decides *how* the compiler is built. Where the two disagree about the language, the language spec wins. Where they disagree about the implementation, this document wins.
 - **Plans:** `docs/plans/2026-11-22-compiler-m1-front-end.md` (milestone 1). Milestone 2: `docs/plans/2026-11-23-compiler-m2-codegen.md`. Later milestones get their own plans.
 
@@ -44,6 +44,13 @@ Non-goals (and why):
 | D20 | Which targets does v0 ship? | x86-64 Linux only, static ELF, direct system calls. The `Target` interface leaves room for arm64 and for macOS and Windows, which import their OS primitives from `libSystem` and `kernel32` as declared borrowed code. | The language spec's v0 target is unchanged |
 | D21 | How is the runtime tested without Linux? | `irsim`, a test-only IR interpreter. It is never shipped and is not a second execution engine; the real executables stay the authority, and both must agree on every `tests/run` case. | Fast checks on any host, and a reference comparison against the Rust `number` module |
 | D22 | What does M2's `gloss build` do with a program that declares a table? | It refuses: `tables arrive in milestone 3`, exit status 3, no executable written | No throwaway in-memory tables. Owner, 2026-11-23. |
+| D23 | In what order is milestone 3 built? | One milestone, one plan: build-time approval first (permission list, `.allow`, `--allow`, the question, status 4, `--permissions`), then files at run time. Tables stay refused (D22) until the last file task. | `main` never builds an executable that touches files without approval. Owner, 2026-11-24. |
+| D24 | How does the permission list show a file name? | A name of printable ASCII prints as it is. Any other name prints quoted, followed by the same name with every non-ASCII character as `\u{XXXX}` in parentheses: `"résumé.csv" (r\u{E9}sum\u{E9}.csv)`. The same form is used at build, in `.allow` and by `--permissions`. | Lookalike letters and non-normalised forms cannot pass as another name, and names in other languages stay readable. Owner, 2026-11-24. |
+| D25 | What does a build that needs approval do when standard input is not a terminal? | It prints the list, then `Not approved: <files>. Build in a terminal to answer, or add --allow <file>.`, writes no executable and exits 4. It never reads an answer from a pipe. | An agent or script must approve with `--allow`, which shows in its command; piping `yes` in would weaken what an answer means. Owner, 2026-11-24. |
+| D26 | Wording of run-time failures 6–8 | As in §4.7, one message per cause, naming the file and, for bad data, the file line where the row starts | Owner, 2026-11-24 |
+| D27 | Which builds print the permission list? | Only programs that declare a table. The language spec says every build; a program with no tables would print only `nothing else`, so it prints `Built x` as in M2. `--permissions` works on every executable. | Avoids noise on every build. Deviation from spec §8, accepted by the owner, 2026-11-24. |
+| D28 | What does `.allow` hold? | Exactly the current program's list after every successful build, written atomically and only when it changes. A file the program no longer uses, or no longer saves, loses its approval. | The safer direction: adding access back needs a new approval, and every change shows in a diff. Owner, 2026-11-24. |
+| D29 | How are files tested? | Run cases carry a `<name>.files/` folder copied in before the run and a `<name>.after/` folder that must match the folder afterwards exactly; symbolic links come from `<name>.links`. `irsim` gets an in-memory file system seeded from the same folder, so file cases are differential too (D21). | One case format for real runs and `irsim`; links are not committed to git. |
 
 ## 3. Rejected alternatives
 
@@ -149,6 +156,56 @@ Table paths are the only security boundary in M1. The checker rejects absolute p
 - Without the Linux machine, the run tests are skipped with a printed warning; CI runs them natively.
 
 **Reviews.** The encoder, the ELF writer and the OS primitives get their first adversarial review on the top tier.
+
+### 4.7 Milestone 3: tables and files
+
+**Approval at build time (built first, D23).**
+- **The list.** Built from the checker's table declarations: a table that some `save` reaches is `read and replace`, any other is `read only`. Names are shown as D24 says. One function makes the list for the build, for `.allow` and for `--permissions`. It is printed only for programs that declare a table (D27).
+- **What is approved.** `<source>.allow` plus every `--allow <file>` on the command line. A file needs a fresh approval if neither covers it, or if it moves from read only to read and replace.
+- **Asking.** In a terminal, the build prints the list and `Allow? `; `yes` or `y`, in any case, approves; anything else or end of input refuses. Outside a terminal it refuses as D25 says. A refusal prints `Not approved: …`, writes no executable and exits 4. The question reads through a small trait and takes "is a terminal" as an input, so tests can drive both paths without a pseudo-terminal.
+- **`.allow`.** A `note` line, then one line per file in the list's own form:
+
+  ```
+  note Files this program may touch; approved for expenses.gloss.
+  read and replace   expenses.csv
+  read only          rates.csv
+  ```
+
+  After a successful build it holds exactly the current list (D28), written atomically and only when it changed. A line that does not parse stops the build with status 3 and names the `.allow` line.
+- **`--permissions`.** The executable carries its list as read-only data. Started with exactly one argument, `--permissions`, it prints the list and exits 0; other arguments are ignored. `_start` learns to read `argc` and `argv`. An executable with no tables prints `This program can:` and `  nothing else`.
+
+**Files at run time.**
+- **Tables in memory.** Each table is a list held in its own global slot, with a flag that is set by `load` and `clear`. Every list operation from M2 works on it unchanged, and a table passed to a `list of T` input is that list. `clear` gives the table a new empty list. `load` builds the new list in full and swaps it in only after the whole file parsed. `save` with the flag unset is failure 8.
+- **OS primitives (D19).** `openat2`, `read` and `write` on a file descriptor, `fsync`, `renameat`, `close`, and the start-up arguments. Everything above them is runtime written in IR.
+- **Load.** Open with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`. A missing file prints `expenses.csv not found; starting with an empty table` to the error output and loads an empty table. `ELOOP` or `EXDEV` is failure 6 (symbolic link); any other error is failure 6 (cannot be read). Read the whole file into one growing block, check it is UTF-8, then parse RFC 4180: the header is matched to fields by name, quoted cells may hold doubled quotes, commas and line breaks, `\n` and `\r\n` both end a line, and one final empty line is ignored. Number cells use the runtime's `parse_number`; truth cells must be `yes` or `no`.
+- **Save.** Open the table's folder with `O_PATH | O_DIRECTORY` and the same resolve flags; a missing folder is failure 7 (folder does not exist). A target that is a symbolic link is failure 7. Write `<name>.gloss-new` in that folder (`O_CREAT | O_TRUNC`, mode 0644): the header in field order, then each row, numbers as `show` prints them, truths as `yes` and `no`, quotes only where needed, `\n` line endings. Then `fsync` the file, `renameat` it over the target and `fsync` the folder. Any write error is failure 7 (cannot be written). Output already shown is flushed before a failure, as in M2.
+- **Checks already in place.** The M1 checker already treats `load` and `clear` as changing a list for the walking rule, refuses a saved table that nothing loads or clears, and warns when a `load` would replace rows appended earlier. M3 lifts the D22 refusal.
+
+**Failures 6–8 (D26).** `N` is the source line of the `load` or `save`; file lines count from 1, the header being line 1, and a row's line is the line where it starts.
+
+| # | Cause | Message |
+|---|---|---|
+| 6 | A cell that is not a number | `line N: failure 6: expenses.csv line 7: amount "12,50" is not a number` |
+| 6 | An empty number cell | `line N: failure 6: expenses.csv line 7: amount is empty` |
+| 6 | A truth cell that is not `yes` or `no` | `line N: failure 6: expenses.csv line 7: paid "maybe" is not yes or no` |
+| 6 | A row with the wrong number of cells | `line N: failure 6: expenses.csv line 7: has 4 cells; the header has 3` |
+| 6 | An unknown column | `line N: failure 6: expenses.csv line 1: column amout is not a field of Expense` |
+| 6 | A missing column | `line N: failure 6: expenses.csv line 1: column amount is missing` |
+| 6 | A repeated column | `line N: failure 6: expenses.csv line 1: column amount appears twice` |
+| 6 | A quoted cell left open | `line N: failure 6: expenses.csv line 9: a quoted cell is not closed` |
+| 6 | Bytes that are not UTF-8 | `line N: failure 6: expenses.csv is not UTF-8 text (line 4)` |
+| 6 | A symbolic link on the path | `line N: failure 6: expenses.csv is reached through a symbolic link` |
+| 6 | Any other read error | `line N: failure 6: expenses.csv cannot be read` |
+| 7 | The folder does not exist | `line N: failure 7: expenses.csv cannot be written (its folder data does not exist)` |
+| 7 | Any other write error | `line N: failure 7: expenses.csv cannot be written` |
+| 7 | A symbolic link on the path | `line N: failure 7: expenses.csv is reached through a symbolic link` |
+| 8 | Saved before a load or clear | `line N: failure 8: expenses is saved here but was not loaded or cleared first` |
+
+Cell text in a message follows failure 5's rules: at most 40 characters, invisible characters as `\u{XXXX}`, a `"` doubled. File and column names follow D24.
+
+**Testing (D29).** Every message above has a run case with an exact `.err` and status 2. The unreadable-file and unwritable-folder cases skip visibly when run as root. Durability cannot be tested by pulling the power; a unit test on the generated IR checks the order `fsync`, `renameat`, `fsync` of the folder. `tests/cli.rs` covers: a first build answered yes and no, no terminal and no `--allow` (status 4, no executable), `--allow` writing `.allow`, a build covered by `.allow` (asks nothing, still prints the list), read only becoming read and replace, a dropped file shrinking `.allow`, and a broken `.allow` (status 3). Examples gain an expense tracker (`load`, `append`, `save`) and a read-only report.
+
+**Reviews.** The security boundary gets its first review on the top tier: the approval logic and `.allow` parsing, the open and save paths, symbolic-link handling, safe writing, the new primitives in the encoder, and the CSV reader, which parses untrusted input.
 
 ## 5. Open questions for the owner
 
@@ -270,7 +327,7 @@ The milestone ledger (every ruling R2–R49 and the review record) is kept at `~
 - M2-R35: the out-of-memory case runs with a 1 GiB `.ulimit` (the plan said 64 MiB), since Rosetta needs about 800 MB of address space to start.
 - M2-R36: SIGPIPE is not ignored, so writing to a closed pipe ends the program by signal (status 141 under a shell), as is usual on Unix; a failed write that returns an error exits with status 2.
 
-**Tests:** 517 pass and 1 is ignored (the stress test): 414 unit tests and 103 integration tests, including the CLI, 89 run cases (real and `irsim`), the examples, the spec guard, the 2000-result number reference, the objdump check (opt-in, so it skips by default), and the differential tests of backend against `irsim`. Encoder sweeps against `objdump` found 0 mismatches over more than 40,000 instructions; the number routines agreed on 220,000 generated pairs.
+**Tests:** 518 pass and 1 is ignored (the stress test): 415 unit tests and 103 integration tests, including the CLI, 97 run cases (real and `irsim`), the examples, the spec guard, the 2000-result number reference, the objdump check (opt-in, so it skips by default), and the differential tests of backend against `irsim`. Encoder sweeps against `objdump` found 0 mismatches over more than 40,000 instructions; the number routines agreed on 220,000 generated pairs.
 
 **Known limits and deferred items:**
 - **M3 and M4:** tables (refused, D22), `load`, `save`, `clear`, `expect` and `input`. Run-time failures 6–8 are worded in M3. The permission list must show file names unambiguously (carried from M1).
