@@ -1,0 +1,8 @@
+record P
+  age as number
+
+feature start
+  set ps to list of (P with age 1), (P with age 2)
+  set n to 1.5
+  show "before"
+  add 1 to age of item n of ps
