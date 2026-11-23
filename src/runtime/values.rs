@@ -1,7 +1,7 @@
 //! Showing a value by its type descriptor (see `ir::Desc`), on standard output.
 
 use super::asm::Asm;
-use super::{COMMA_SPACE, LIST_TRAP, NO, QUOTE, SPACE, WITH, YES};
+use super::{CLOSE, COMMA_SPACE, LIST_OF, LIST_TRAP, NO, OPEN, QUOTE, SPACE, WITH, YES};
 use crate::ir::Cond::{Eq, Ge, Le, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Function, Inst::*, IntOp, Shift};
@@ -186,6 +186,95 @@ fn show_fields() -> Function {
     s.finish("show_fields", 2, 2)
 }
 
+/// Loads the kind word of the descriptor in slot `slot` into `a`.
+fn kind_of(s: &mut Asm, slot: u32) {
+    s.i(LoadSlot(A, slot));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+}
+
+/// `show_list(list, desc)`: `list of a, b`, with a record item in parentheses. Slots: 1 the index, 2 the count, 3 the item descriptor.
+fn show_list() -> Function {
+    let mut s = Asm::default();
+    let (again, done, first, record, named, shown) = (
+        s.label(),
+        s.label(),
+        s.label(),
+        s.label(),
+        s.label(),
+        s.label(),
+    );
+    s.i(LoadArg(A, 2));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 8,
+    });
+    s.i(StoreSlot(3, A));
+    s.i(LoadArg(A, 1));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(StoreSlot(2, A));
+    s.i(Const(B, 0));
+    s.jump_if(Ne, named);
+    // The empty form arrives in the next commit; until then it is the trap.
+    s.call("flush");
+    s.push_text(LIST_TRAP);
+    s.call("err_text");
+    s.call("fail_end");
+    s.i(Mark(named));
+    out_const(&mut s, LIST_OF);
+    s.i(Const(A, 0));
+    s.i(StoreSlot(1, A));
+    s.i(Mark(again));
+    s.i(LoadSlot(A, 1));
+    s.i(LoadSlot(B, 2));
+    s.jump_if(Ge, done);
+    s.i(Const(B, 0));
+    s.jump_if(Eq, first);
+    out_const(&mut s, COMMA_SPACE);
+    s.i(Mark(first));
+    // The item is at `items + 8 * i`.
+    s.i(LoadSlot(A, 1));
+    s.i(Shift(Shift::Left, 3));
+    s.i(LoadArg(B, 1));
+    s.i(Load {
+        to: B,
+        base: B,
+        offset: 16,
+    });
+    s.i(Int(IntOp::Add));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(Push(A));
+    s.push_slot(3);
+    kind_of(&mut s, 3);
+    s.i(Const(B, 3));
+    s.jump_if(Eq, record);
+    s.call("show_in_record");
+    s.i(Jump(shown));
+    s.i(Mark(record));
+    out_const(&mut s, OPEN);
+    s.call("show_fields");
+    out_const(&mut s, CLOSE);
+    s.i(Mark(shown));
+    s.i(LoadSlot(A, 1));
+    s.i(AddImm(A, 1));
+    s.i(StoreSlot(1, A));
+    s.i(Jump(again));
+    s.i(Mark(done));
+    s.finish("show_list", 2, 3)
+}
+
 /// `show_value(value, desc)`: a record, a list, or a scalar.
 fn show_value() -> Function {
     let mut s = Asm::default();
@@ -209,17 +298,21 @@ fn show_value() -> Function {
     s.push_arg(2);
     s.call("show_fields");
     s.i(Return);
-    // The lists task replaces this trap with the list form.
     s.i(Mark(list));
-    s.call("flush");
-    s.push_text(LIST_TRAP);
-    s.call("err_text");
-    s.call("fail_end");
+    s.push_arg(1);
+    s.push_arg(2);
+    s.call("show_list");
     s.finish("show_value", 2, 0)
 }
 
 pub(super) fn routines() -> Vec<Function> {
-    vec![out_quoted(), show_in_record(), show_fields(), show_value()]
+    vec![
+        out_quoted(),
+        show_in_record(),
+        show_fields(),
+        show_list(),
+        show_value(),
+    ]
 }
 
 #[cfg(test)]
@@ -319,27 +412,49 @@ mod tests {
         assert_eq!(out, format!("E with t \"{want}\""));
     }
 
+    /// Shows a list of numbers with `words` as its items, built in the heap: a header
+    /// `[count, capacity, items]` with the items right after it.
+    fn shown_list(words: &[i64]) -> String {
+        let mut descs = Module::default();
+        let item = descs.desc(Desc::Number);
+        let list = descs.desc(Desc::List(item));
+        let size = 24 + 8 * words.len() as i64;
+        let mut body = vec![Const(A, size), Push(A), Const(A, 0), Push(A)];
+        body.extend([Call("alloc".into()), StoreSlot(1, A)]);
+        let stores = [(0, words.len() as i64), (8, words.len() as i64)];
+        for (offset, word) in stores
+            .into_iter()
+            .chain((24..).step_by(8).zip(words.iter().copied()))
+        {
+            body.extend([Const(B, word), LoadSlot(A, 1)]);
+            body.push(Store {
+                base: A,
+                offset,
+                from: B,
+            });
+        }
+        body.extend([LoadSlot(B, 1), AddImm(B, 24), LoadSlot(A, 1)]);
+        body.push(Store {
+            base: A,
+            offset: 16,
+            from: B,
+        });
+        body.extend([
+            LoadSlot(A, 1),
+            Push(A),
+            AddressOf(A, Data::Desc(list)),
+            Push(A),
+        ]);
+        body.extend([Call("show_value".into()), Call("flush".into())]);
+        let mut m = program(body, &[]);
+        m.functions[0].slots = 1;
+        m.functions[0].body[0] = Enter(1);
+        m.descs = descs.descs;
+        String::from_utf8(run(&m).stdout).unwrap()
+    }
+
     #[test]
-    fn a_list_descriptor_reaches_the_trap_after_flushing_output() {
-        let body = vec![
-            AddressOf(A, Data::Text(0)),
-            Push(A),
-            Call("out_text".into()),
-            Const(A, 0),
-            Push(A),
-            AddressOf(A, Data::Desc(1)),
-            Push(A),
-            Call("show_value".into()),
-        ];
-        let mut m = program(body, &[b"before"]);
-        let item = m.desc(Desc::Number);
-        m.desc(Desc::List(item));
-        let o = run(&m);
-        assert_eq!(o.stdout, b"before");
-        assert_eq!(
-            o.stderr,
-            b"internal error: show_value has no list form yet\n"
-        );
-        assert_eq!(o.status, 2);
+    fn a_list_shows_its_items() {
+        assert_eq!(shown_list(&[40000, 90000]), "list of 4, 9");
     }
 }
