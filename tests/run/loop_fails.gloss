@@ -1,0 +1,5 @@
+feature start
+  set z to 0
+  show "before"
+  repeat while 10 / z is 1
+    show "never"
