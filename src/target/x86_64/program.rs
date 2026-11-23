@@ -6,8 +6,8 @@ use super::arith;
 use super::encode::encode;
 use super::inst::{Sym, X};
 use super::lower::lower_function;
-use crate::ir::{Global, IO_BUF_BYTES, Module, NUMBER_BUF_BYTES};
-use crate::target::elf::{Image, write};
+use crate::ir::{self, Global, IO_BUF_BYTES, Module, NUMBER_BUF_BYTES};
+use crate::target::elf::{Image, RODATA_BASE, write};
 
 /// The globals in declaration order, as `irsim` lays them out.
 const GLOBALS: [Global; 10] = [
@@ -37,24 +37,15 @@ fn global_size(g: Global) -> usize {
     }
 }
 
-/// Texts as `irsim` lays them out (an 8-byte little-endian length, the bytes, padding to
-/// 8 bytes), then the descriptors.
+/// The read-only data, laid out by `ir::rodata` as `irsim` does.
 fn rodata(m: &Module) -> (Vec<u8>, HashMap<Sym, usize>) {
-    let mut bytes = Vec::new();
+    let laid = ir::rodata(m, RODATA_BASE);
+    let texts = laid.texts.iter().enumerate();
+    let descs = laid.descs.iter().enumerate();
     let mut symbols = HashMap::new();
-    for (i, text) in m.texts.iter().enumerate() {
-        symbols.insert(Sym::Text(i as u32), bytes.len());
-        bytes.extend_from_slice(&(text.len() as u64).to_le_bytes());
-        bytes.extend_from_slice(text);
-        bytes.resize(bytes.len().next_multiple_of(8), 0);
-    }
-    // Task 9 defines the descriptor layout; until then each is an 8-byte placeholder, as in
-    // `irsim`, so `AddressOf(Desc(_))` still gives distinct addresses.
-    for i in 0..m.descs.len() {
-        symbols.insert(Sym::Desc(i as u32), bytes.len());
-        bytes.extend_from_slice(&[0; 8]);
-    }
-    (bytes, symbols)
+    symbols.extend(texts.map(|(i, o)| (Sym::Text(i as u32), *o)));
+    symbols.extend(descs.map(|(i, o)| (Sym::Desc(i as u32), *o)));
+    (laid.bytes, symbols)
 }
 
 pub fn executable(m: &Module) -> Result<Vec<u8>, String> {

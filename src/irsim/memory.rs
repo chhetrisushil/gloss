@@ -1,7 +1,7 @@
 //! The simulated address space: sparse little-endian bytes, with the read-only texts,
 //! descriptors and globals laid out at fixed addresses. Unwritten bytes read as zero.
 
-use crate::ir::{Data, Global, IO_BUF_BYTES, Module, NUMBER_BUF_BYTES};
+use crate::ir::{Data, Global, IO_BUF_BYTES, Module, NUMBER_BUF_BYTES, rodata};
 use std::collections::HashMap;
 
 /// Where read-only texts start: each is an 8-byte little-endian length, then the bytes,
@@ -66,22 +66,13 @@ impl Memory {
             rodata_end: TEXT_BASE,
             mapped: Vec::new(),
         };
-        let mut next = TEXT_BASE;
-        for text in &module.texts {
-            memory.text_addrs.push(next);
-            memory.write(next, text.len() as i64);
-            for (i, byte) in text.iter().enumerate() {
-                memory.write_byte(next + 8 + i as u64, *byte);
-            }
-            next += (8 + text.len() as u64).next_multiple_of(8);
+        let laid = rodata(module, TEXT_BASE);
+        for (i, byte) in laid.bytes.iter().enumerate() {
+            memory.write_byte(TEXT_BASE + i as u64, *byte);
         }
-        // Task 9 defines the descriptor layout; until then each descriptor is an 8-byte
-        // placeholder, so `AddressOf(Desc(_))` still gives distinct addresses.
-        for _ in &module.descs {
-            memory.desc_addrs.push(next);
-            next += 8;
-        }
-        memory.rodata_end = next;
+        memory.text_addrs = laid.texts.iter().map(|o| TEXT_BASE + *o as u64).collect();
+        memory.desc_addrs = laid.descs.iter().map(|o| TEXT_BASE + *o as u64).collect();
+        memory.rodata_end = TEXT_BASE + laid.bytes.len() as u64;
         memory
     }
 
