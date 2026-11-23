@@ -8,6 +8,7 @@ pub mod ir;
 #[cfg(test)]
 mod irsim;
 pub mod lexer;
+pub mod lower;
 pub mod number;
 pub mod parser;
 pub mod runtime;
