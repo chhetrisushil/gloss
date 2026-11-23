@@ -6,6 +6,7 @@ mod calls;
 mod memory;
 mod num;
 mod ops;
+mod sys;
 
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -180,4 +181,9 @@ fn agree_program(name: &str, m: &Module, stdin: &[u8]) {
 #[test]
 fn number_programs_agree() {
     num::programs(&mut |name, m| agree_program(name, m, b""));
+}
+
+#[test]
+fn system_programs_agree() {
+    sys::programs(&mut |name, m, stdin| agree_program(name, m, stdin));
 }
