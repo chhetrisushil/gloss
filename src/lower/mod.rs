@@ -4,6 +4,7 @@ mod cond;
 mod count;
 mod expr;
 mod fail;
+mod list;
 mod record;
 mod stmt;
 #[cfg(test)]

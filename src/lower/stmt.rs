@@ -42,7 +42,8 @@ impl Lowerer<'_> {
             } if self.is_number(value)
                 || self.is_truth(value)
                 || self.is_text(value)
-                || Self::builds_record(value) =>
+                || Self::builds_record(value)
+                || self.builds_list(value) =>
             {
                 self.line = s.line;
                 self.emit(Inst::Line(s.line));

@@ -93,6 +93,12 @@ impl Lowerer<'_> {
                 self.emit(Inst::NumWhole);
                 Ok(())
             }
+            ExprKind::Fact {
+                fact: Fact::Count,
+                of,
+            } => self.list_count(of),
+            ExprKind::EmptyList(_) => self.build_list(&[]),
+            ExprKind::BuildList(items) => self.build_list(items),
             ExprKind::Binary { op, left, right } => {
                 self.operands(left, right)?;
                 let inst = match op {
