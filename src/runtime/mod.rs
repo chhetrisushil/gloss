@@ -25,17 +25,21 @@ const NEWLINE: u32 = 3;
 const OUT_OF_MEMORY: u32 = 4;
 
 const CUT: u32 = 5;
+const ESCAPE: u32 = 6;
+const BRACE: u32 = 7;
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 6] = [
+const TEXTS: [&[u8]; 8] = [
     b"line ",
     b": failure ",
     b": ",
     b"\n",
     b"out of memory",
     "\u{2026}".as_bytes(),
+    b"\\u{",
+    b"}",
 ];
 
 /// The bytes of the runtime text `i`.
