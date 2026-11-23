@@ -1,9 +1,12 @@
 //! Lowering `for each i from s to e`.
 //!
-//! Both ends are worked out once, start first, into hidden slots. The counter is compared with the end before it is incremented, so a count ending at the top of
+//! Both ends are worked out once, start first, into hidden slots; each must be whole
+//! (failure 3, so a fractional start is reported before the end is even worked out). The
+//! counter is compared with the end before it is incremented, so a count ending at the top of
 //! the range never adds past it.
 use super::Lowerer;
 use crate::ast::Expr;
+use crate::ast::print;
 use crate::ast::stmt::Stmt;
 use crate::diag::Diagnostic;
 use crate::ir::{Cond, Inst, IntOp, Reg};
@@ -20,8 +23,8 @@ impl Lowerer<'_> {
     ) -> Result<(), Diagnostic> {
         self.line = line;
         self.emit(Inst::Line(line));
-        let start = self.once(from)?;
-        let end = self.once(to)?;
+        let start = self.whole_end("start", from)?;
+        let end = self.whole_end("end", to)?;
         let counter = self.slots[var];
         let (top, next, exit) = (self.new_label(), self.new_label(), self.new_label());
         self.emit(Inst::LoadSlot(Reg::A, start));
@@ -42,11 +45,19 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    /// Works out `e` into a new hidden slot.
-    fn once(&mut self, e: &Expr) -> Result<u32, Diagnostic> {
+    /// Works out `e` into a new hidden slot and fails (3) when it is not whole.
+    fn whole_end(&mut self, what: &str, e: &Expr) -> Result<u32, Diagnostic> {
         let slot = self.new_temp();
         self.expr(e)?;
         self.emit(Inst::StoreSlot(slot, Reg::A));
+        self.emit(Inst::Move {
+            to: Reg::B,
+            from: Reg::A,
+        });
+        self.emit(Inst::NumWhole);
+        self.emit(Inst::Compare);
+        let fail = self.not_whole(what, &print::expr(e), slot);
+        self.emit(Inst::JumpIf(Cond::Ne, fail));
         Ok(slot)
     }
 
