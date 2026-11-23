@@ -35,16 +35,19 @@ const NO: u32 = 8;
 const WITH: u32 = 9;
 const COMMA_SPACE: u32 = 10;
 const SPACE: u32 = 11;
-const LIST_TRAP: u32 = 12;
-const LIST_OF: u32 = 13;
-const OPEN: u32 = 14;
-const CLOSE: u32 = 15;
+const LIST_OF: u32 = 12;
+const EMPTY_LIST: u32 = 13;
+const NUMBER: u32 = 14;
+const TEXT: u32 = 15;
+const TRUTH: u32 = 16;
+const OPEN: u32 = 17;
+const CLOSE: u32 = 18;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 16] = [
+const TEXTS: [&[u8]; 19] = [
     b"line ",
     b": failure ",
     b": ",
@@ -57,8 +60,11 @@ const TEXTS: [&[u8]; 16] = [
     b" with ",
     b", ",
     b" ",
-    b"internal error: show_value has no list form yet",
     b"list of ",
+    b"empty list of ",
+    b"number",
+    b"text",
+    b"truth",
     b"(",
     b")",
 ];

@@ -4,8 +4,9 @@ use super::Lowerer;
 use crate::ast::print;
 use crate::ast::stmt::{Stmt, Target};
 use crate::ast::{Expr, ExprKind, Fact};
+use crate::check::Ty;
 use crate::diag::Diagnostic;
-use crate::ir::{Cond, Inst, IntOp, Reg, Shift};
+use crate::ir::{Cond, Data, Desc, Inst, IntOp, Reg, Shift};
 use crate::number::SCALE;
 
 /// The offset of the count, the capacity and the items address in a header.
@@ -27,6 +28,37 @@ pub fn item_target(target: &Target) -> Option<(&Expr, &str)> {
 const MIN_ROOM: usize = 4;
 
 impl Lowerer<'_> {
+    /// The item type of `e`, when it is a list.
+    pub fn list_item_type(&self, e: &Expr) -> Option<Ty> {
+        match self.types.expr_types.get(e.id.0 as usize) {
+            Some(Some(Ty::List(item))) => Some((**item).clone()),
+            _ => None,
+        }
+    }
+
+    /// The descriptor of values of type `ty`: scalars, records and lists of them.
+    pub fn type_desc(&mut self, ty: &Ty) -> u32 {
+        match ty {
+            Ty::Record(name) => self.record_desc(name),
+            Ty::List(item) => {
+                let item = self.type_desc(item);
+                self.module.desc(Desc::List(item))
+            }
+            Ty::Text => self.module.desc(Desc::Text),
+            Ty::Truth => self.module.desc(Desc::Truth),
+            _ => self.module.desc(Desc::Number),
+        }
+    }
+
+    /// Shows the list in `a`, whose items have type `item`.
+    pub fn show_list(&mut self, item: &Ty) {
+        let desc = self.type_desc(&Ty::List(Box::new(item.clone())));
+        self.emit(Inst::Push(Reg::A));
+        self.emit(Inst::AddressOf(Reg::A, Data::Desc(desc)));
+        self.emit(Inst::Push(Reg::A));
+        self.call("show_value");
+    }
+
     /// Whether `e` builds a list that `set` can store without a copy: `empty list of T`, or
     /// `list of …` whose record items are built in place (copying arrives in Task 22).
     pub fn builds_list(&self, e: &Expr) -> bool {
