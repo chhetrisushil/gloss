@@ -327,3 +327,154 @@ fn every_complete_spec_program_builds_and_runs() {
     }
     assert_eq!(built, PRINTS.len(), "programs built and checked");
 }
+
+/// One minimal program per run-time failure: the number, the message after `line N: failure K: `
+/// and the program. `at` is the text of the line that fails; the spec's `line 5` becomes its
+/// real line. Every program shows "before" first, which must reach standard output.
+struct Failure {
+    number: u8,
+    message: &'static str,
+    at: &'static str,
+    program: &'static str,
+    input: &'static [u8],
+    kib: Option<u64>,
+}
+
+const FAILURES: &[Failure] = &[
+    f(
+        1,
+        "dividing by zero (people is 0)",
+        "divide total",
+        "feature start\n  set total to 120\n  set people to 0\n  show \"before\"\n  divide total by people\n",
+    ),
+    f(
+        2,
+        "there is no item 7 in prices; it has 3 items",
+        "item 7",
+        "feature start\n  set prices to list of 1, 2, 3\n  show \"before\"\n  show item 7 of prices\n",
+    ),
+    f(
+        2,
+        "there is no first item in prices; it is empty",
+        "first of",
+        "feature start\n  set prices to empty list of number\n  show \"before\"\n  show first of prices\n",
+    ),
+    f(
+        3,
+        "an item position must be whole (n is 2.5)",
+        "item n",
+        "feature start\n  set xs to list of 1, 2\n  set n to 2.5\n  show \"before\"\n  show item n of xs\n",
+    ),
+    f(
+        3,
+        "the end of a count must be whole (top is 2.5)",
+        "for each",
+        "feature start\n  set top to 2.5\n  show \"before\"\n  for each i from 1 to top\n    show i\n",
+    ),
+    f(
+        3,
+        "the start of a count must be whole (low is 0.5)",
+        "for each",
+        "feature start\n  set low to 0.5\n  show \"before\"\n  for each i from low to 3\n    show i\n",
+    ),
+    f(
+        4,
+        "a number went out of range (price * 1000000)",
+        "price *",
+        "feature start\n  set price to 922337203685477\n  show \"before\"\n  show price * 1000000\n",
+    ),
+    f(
+        5,
+        "\"12a\" is not a number (answer as number)",
+        "answer as",
+        "feature start\n  set answer to \"12a\"\n  show \"before\"\n  show answer as number\n",
+    ),
+    Failure {
+        input: b"",
+        ..f(
+            9,
+            "input ended while ask was waiting",
+            "ask",
+            "feature start\n  show \"before\"\n  ask \"Q\" into s\n  show s\n",
+        )
+    },
+    // Out of memory needs a 1 GiB virtual-memory limit under Rosetta (ruling M2-R35).
+    Failure {
+        kib: Some(1_048_576),
+        ..f(
+            10,
+            "out of memory",
+            "append",
+            "feature start\n  set xs to empty list of number\n  show \"before\"\n  repeat while yes\n    append 1 to xs\n",
+        )
+    },
+    f(
+        10,
+        "calls nested too deep (countdown)",
+        "give (countdown",
+        "feature countdown\n  needs n as number\n  if n is -1\n    give 0\n  give (countdown with n + 1) + 1\n\nfeature start\n  show \"before\"\n  show (countdown with 1)\n",
+    ),
+];
+
+const fn f(number: u8, message: &'static str, at: &'static str, program: &'static str) -> Failure {
+    Failure {
+        number,
+        message,
+        at,
+        program,
+        input: b"",
+        kib: None,
+    }
+}
+
+#[test]
+fn every_run_time_failure_says_what_the_spec_says() {
+    let numbers: Vec<u8> = FAILURES.iter().map(|f| f.number).collect();
+    for n in [1, 2, 3, 4, 5, 9, 10] {
+        assert!(numbers.contains(&n), "no program for failure {n}");
+    }
+    for (i, fail) in FAILURES.iter().enumerate() {
+        let tail = format!("failure {}: {}", fail.number, fail.message);
+        // The table writes the first form in full and later forms as `…: <message>`.
+        assert!(
+            SPEC.contains(&format!("`line 5: {tail}`"))
+                || SPEC.contains(&format!("`…: {}`", fail.message))
+                || SPEC.contains(&format!("or `…: {}`", fail.message)),
+            "the spec no longer words failure {} as {:?}",
+            fail.number,
+            fail.message
+        );
+        let line = fail
+            .program
+            .lines()
+            .position(|l| l.contains(fail.at))
+            .unwrap()
+            + 1;
+        let want = format!("line {line}: {tail}\n");
+        let name = format!("failure{i}");
+        let (out, _dir, exe) = build(&name, fail.program);
+        assert_eq!(out.status.code(), Some(0), "{name}: {out:?}");
+        let Some(ran) = run_limited(&exe, fail.input, DEADLINE, &[], fail.kib) else {
+            continue;
+        };
+        let (status, stdout, stderr) = ran.unwrap();
+        assert_eq!(String::from_utf8_lossy(&stderr), want, "{name}");
+        assert_eq!(status, 2, "{name}");
+        let shown = String::from_utf8_lossy(&stdout);
+        assert!(
+            shown.starts_with("before\n"),
+            "{name}: standard output {shown:?}"
+        );
+    }
+    // Failures 6 to 8 are about table files, which arrive in milestone 3.
+    for n in 6..=8 {
+        let row = SPEC
+            .lines()
+            .find(|l| l.starts_with(&format!("| {n} |")))
+            .unwrap();
+        assert!(
+            row.ends_with("| Worded in milestone 3 |"),
+            "failure {n}: {row}"
+        );
+    }
+}
