@@ -1,12 +1,24 @@
 //! The runtime, written in IR: output and failure messages, memory and the stack limit.
 //! Programs call these routines by name.
+//!
+//! The runtime's fixed texts are `TEXTS`; a routine names one as `Data::Text(i)` with `i` an
+//! index into it, and `add_reachable` moves the ones it needs into the module. So
+//! `routines()` is only meaningful as input to `add_reachable`.
 
 mod asm;
 mod output;
 #[cfg(test)]
 mod tests;
 
-use crate::ir::{Function, Inst, Module};
+use crate::ir::{Data, Function, Inst, Module};
+
+const LINE: u32 = 0;
+const FAILURE: u32 = 1;
+const COLON: u32 = 2;
+const NEWLINE: u32 = 3;
+
+/// The texts the routines refer to.
+const TEXTS: [&[u8]; 4] = [b"line ", b": failure ", b": ", b"\n"];
 
 /// Every runtime routine.
 pub fn routines() -> Vec<Function> {
@@ -25,11 +37,14 @@ pub fn add_reachable(m: &mut Module, called: &[String]) {
         let Some(found) = all.iter().find(|f| f.name == name) else {
             continue;
         };
-        for inst in &found.body {
-            if let Inst::Call(callee) = inst {
-                pending.push(callee.clone());
+        let mut function = found.clone();
+        for inst in &mut function.body {
+            match inst {
+                Inst::Call(callee) => pending.push(callee.clone()),
+                Inst::AddressOf(_, Data::Text(i)) => *i = m.text(TEXTS[*i as usize]),
+                _ => {}
             }
         }
-        m.functions.push(found.clone());
+        m.functions.push(function);
     }
 }

@@ -61,6 +61,12 @@ impl Asm {
         self.i(Push(A));
     }
 
+    /// Pushes the address of the runtime text `n` (see `runtime::TEXTS`).
+    pub fn push_text(&mut self, n: u32) {
+        self.i(AddressOf(A, Data::Text(n)));
+        self.i(Push(A));
+    }
+
     /// Pushes the address of the bytes of the text argument `n`, then its length.
     pub fn push_text_arg(&mut self, n: u32) {
         self.i(LoadArg(A, n));
