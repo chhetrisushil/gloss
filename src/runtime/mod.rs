@@ -7,6 +7,9 @@
 
 mod asm;
 mod core;
+mod input;
+#[cfg(test)]
+mod input_tests;
 mod numbers;
 mod output;
 mod parse;
@@ -43,6 +46,7 @@ fn text_bytes(i: u32) -> Vec<u8> {
 pub fn routines() -> Vec<Function> {
     let mut all = core::routines();
     all.extend(output::routines());
+    all.extend(input::routines());
     all.extend(numbers::routines());
     all.extend(parse::routines());
     all.extend(places::routines());

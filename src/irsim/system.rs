@@ -5,7 +5,7 @@ use crate::ir::Prim;
 
 /// What `Write` and `Read` give for a file descriptor the program does not have.
 const EBADF: i64 = -9;
-/// What a `Write` that a test makes fail gives.
+/// What a `Write` that a test makes fail, and what such a `Read` gives gives.
 const EIO: i64 = -5;
 
 impl Machine<'_> {
@@ -64,6 +64,10 @@ impl Machine<'_> {
         let (fd, addr, len) = self.pop_transfer();
         if fd != 0 {
             self.a = EBADF;
+            return;
+        }
+        if self.faults.failing_read {
+            self.a = EIO;
             return;
         }
         let left = &self.stdin[self.stdin_pos..];
