@@ -1,6 +1,7 @@
 //! Lowering: the checked program and its `TypeInfo` become a Gloss IR module.
 
 mod cond;
+mod copy;
 mod count;
 mod expr;
 mod fail;

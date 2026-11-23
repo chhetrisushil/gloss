@@ -3,7 +3,7 @@
 use super::Lowerer;
 use crate::ast::program::RecordDecl;
 use crate::ast::stmt::Target;
-use crate::ast::{Expr, ExprKind, PlainType};
+use crate::ast::{Expr, PlainType};
 use crate::check::Ty;
 use crate::diag::Diagnostic;
 use crate::ir::{Data, Desc, Inst, Reg};
@@ -106,15 +106,6 @@ impl<'a> Lowerer<'a> {
         self.emit(Inst::AddressOf(Reg::A, Data::Desc(desc)));
         self.emit(Inst::Push(Reg::A));
         self.call("show_value");
-    }
-
-    /// Whether `e` builds a record itself, which `set` stores without a copy.
-    pub fn builds_record(e: &Expr) -> bool {
-        match &e.kind {
-            ExprKind::BuildRecord { .. } => true,
-            ExprKind::Paren(inner) => Self::builds_record(inner),
-            _ => false,
-        }
     }
 
     /// The place `target` names: a variable, or a field of a record variable.

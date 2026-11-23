@@ -3,7 +3,7 @@
 use super::Lowerer;
 use crate::ast::print;
 use crate::ast::stmt::{Stmt, Target};
-use crate::ast::{Expr, ExprKind, Fact};
+use crate::ast::{Expr, Fact};
 use crate::check::Ty;
 use crate::diag::Diagnostic;
 use crate::ir::{Cond, Data, Desc, Inst, IntOp, Reg, Shift};
@@ -59,22 +59,6 @@ impl Lowerer<'_> {
         self.call("show_value");
     }
 
-    /// Whether `e` builds a list that `set` can store without a copy: `empty list of T`, or
-    /// `list of …` whose record items are built in place (copying arrives in Task 22).
-    pub fn builds_list(&self, e: &Expr) -> bool {
-        match &e.kind {
-            ExprKind::EmptyList(_) => true,
-            ExprKind::BuildList(items) => items.iter().all(|i| self.stores_unshared(i)),
-            ExprKind::Paren(inner) => self.builds_list(inner),
-            _ => false,
-        }
-    }
-
-    /// Whether `e` can be stored in a list as it is: it is not a record, or it is a new one.
-    pub fn stores_unshared(&self, e: &Expr) -> bool {
-        self.record_type(e).is_none() || Self::builds_record(e)
-    }
-
     /// `list of a, b, …` and `empty list of T`: the header, then each item in the order written.
     pub fn build_list(&mut self, items: &[Expr]) -> Result<(), Diagnostic> {
         let head = self.new_temp();
@@ -85,7 +69,7 @@ impl Lowerer<'_> {
         self.call("list_new");
         self.emit(Inst::StoreSlot(head, Reg::A));
         for (i, item) in items.iter().enumerate() {
-            self.expr(item)?;
+            self.store_value(item)?;
             self.emit(Inst::Move {
                 to: Reg::B,
                 from: Reg::A,
@@ -225,7 +209,7 @@ impl Lowerer<'_> {
     /// `append v to xs`: the runtime puts it at the end and grows the list when it is full.
     pub fn append(&mut self, value: &Expr, list: &str) -> Result<(), Diagnostic> {
         let item = self.new_temp();
-        self.expr(value)?;
+        self.store_value(value)?;
         self.emit(Inst::StoreSlot(item, Reg::A));
         self.emit(Inst::LoadSlot(Reg::A, self.slots[list]));
         self.emit(Inst::Push(Reg::A));
@@ -271,7 +255,7 @@ impl Lowerer<'_> {
         value: &Expr,
     ) -> Result<(), Diagnostic> {
         let held = self.new_temp();
-        self.expr(value)?;
+        self.store_value(value)?;
         self.emit(Inst::StoreSlot(held, Reg::A));
         self.item_address(self.slots[list], list, position)?;
         self.emit(Inst::Move {

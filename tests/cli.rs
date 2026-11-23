@@ -120,15 +120,12 @@ fn warnings_print_before_a_build_the_compiler_cannot_do_yet() {
     // A warning prints even when the build then stops on something not built yet.
     let p = temp_file(
         "warn2",
-        "feature start\n  set xs to list of 1\n  set ys to xs\n",
+        "record Row\n  name as text\n\ntable rows of Row in \"rows.csv\"\n\nfeature start\n  set xs to 1\n",
     );
     let (code, out, err) = gloss(&["build", p.to_str().unwrap()]);
     assert_eq!((code, out.as_str()), (3, ""));
-    assert!(err.starts_with("line 3: warning: "), "{err}");
-    assert!(
-        err.ends_with("this compiler cannot build this statement yet.\n"),
-        "{err}"
-    );
+    assert!(err.starts_with("line 7: warning: "), "{err}");
+    assert!(err.ends_with("tables arrive in milestone 3.\n"), "{err}");
     assert!(!p.with_extension("").exists());
 }
 

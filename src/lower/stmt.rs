@@ -43,12 +43,12 @@ impl Lowerer<'_> {
             } if self.is_number(value)
                 || self.is_truth(value)
                 || self.is_text(value)
-                || Self::builds_record(value)
-                || self.builds_list(value) =>
+                || self.record_type(value).is_some()
+                || self.list_item_type(value).is_some() =>
             {
                 self.line = s.line;
                 self.emit(Inst::Line(s.line));
-                self.expr(value)?;
+                self.store_value(value)?;
                 self.emit(Inst::StoreSlot(self.slots[name], Reg::A));
                 Ok(())
             }
@@ -63,7 +63,7 @@ impl Lowerer<'_> {
                 self.store_place(&place);
                 Ok(())
             }
-            StmtKind::Append { value, list } if self.stores_unshared(value) => {
+            StmtKind::Append { value, list } => {
                 self.line = s.line;
                 self.emit(Inst::Line(s.line));
                 self.append(value, list)
@@ -71,7 +71,7 @@ impl Lowerer<'_> {
             StmtKind::Set {
                 target: Target::Item { position, of },
                 value,
-            } if self.stores_unshared(value) && matches!(**of, Target::Var(_)) => {
+            } if matches!(**of, Target::Var(_)) => {
                 let Target::Var(list) = &**of else {
                     unreachable!()
                 };
