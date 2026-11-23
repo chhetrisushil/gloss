@@ -1,9 +1,10 @@
-feature add3
-  needs a as number, b as number, c as number
-  give a + b + c
+note 24 inputs per call: if the caller left them on the stack, 50000 calls would leak 9.6 MB
+feature bump
+  needs a as number, b as number, c as number, d as number, e as number, f as number, g as number, h as number, i as number, j as number, k as number, l as number, m as number, n as number, o as number, p as number, q as number, r as number, s as number, t as number, u as number, v as number, w as number, x as number
+  give a + 1
 
 feature start
   set total to 0
-  for each i from 1 to 400000
-    set total to add3 with total, 1, 0
+  for each i from 1 to 50000
+    set total to bump with total, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
   show total

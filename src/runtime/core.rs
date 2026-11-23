@@ -3,7 +3,7 @@
 use super::asm::Asm;
 use crate::ir::Cond::{Eq, Ge, Gt, Le, Lt, Ne};
 use crate::ir::Reg::{A, B};
-use crate::ir::{Function, Global, Inst::*, IntOp, Prim};
+use crate::ir::{Function, Global, Inst::*, IntOp, Label, Prim};
 
 /// The least the allocator maps at a time.
 const PIECE: i64 = 64 << 20;
@@ -128,8 +128,13 @@ fn stack_limit() -> Function {
 /// strings above them; `AT_EXECFN` (31) points at the executable's name, the highest string, so
 /// its end rounded up to a page is the stack top, however big the environment is. Without
 /// `AT_EXECFN` the stack pointer here is used instead, which may leave too small a margin.
-/// Slots: 1 the cursor through the entry stack, 2 the stack top.
+/// Every walk is bounded (65536 envp entries, 64 auxv pairs, 4096 name bytes); a bound that
+/// is hit takes the same fallback. Slots: 1 the cursor through the entry stack, 2 the stack
+/// top, 3 what is left of the current walk's bound.
 fn stack_init() -> Function {
+    const MAX_ENV: i64 = 65536;
+    const MAX_AUX: i64 = 64;
+    const MAX_NAME: i64 = 4096;
     const AT_EXECFN: i64 = 31;
     let mut s = Asm::default();
     let (env, env_end, aux, found, scan, ended, none, have) = (
@@ -155,8 +160,11 @@ fn stack_init() -> Function {
     s.i(LoadSlot(B, 1));
     s.i(Int(IntOp::Add));
     s.i(StoreSlot(1, A));
-    // Skip the envp pointers and their NULL.
+    // Skip the envp pointers and their NULL, at most `MAX_ENV` of them.
+    s.i(Const(A, MAX_ENV));
+    s.i(StoreSlot(3, A));
     s.i(Mark(env));
+    bounded(&mut s, none);
     s.i(LoadSlot(A, 1));
     s.i(Load {
         to: A,
@@ -174,7 +182,10 @@ fn stack_init() -> Function {
     s.i(AddImm(A, 8));
     s.i(StoreSlot(1, A));
     // Walk the (type, value) pairs to `AT_EXECFN` or the `AT_NULL` that ends them.
+    s.i(Const(A, MAX_AUX));
+    s.i(StoreSlot(3, A));
     s.i(Mark(aux));
+    bounded(&mut s, none);
     s.i(LoadSlot(A, 1));
     s.i(Load {
         to: A,
@@ -198,7 +209,10 @@ fn stack_init() -> Function {
         offset: 8,
     });
     s.i(StoreSlot(2, A));
+    s.i(Const(A, MAX_NAME));
+    s.i(StoreSlot(3, A));
     s.i(Mark(scan));
+    bounded(&mut s, none);
     s.i(LoadSlot(A, 2));
     s.i(LoadByte {
         to: A,
@@ -227,7 +241,16 @@ fn stack_init() -> Function {
     s.push_slot(2);
     s.call("stack_limit");
     s.gstore(Global::StackLimit, A, B);
-    s.finish("stack_init", 0, 2)
+    s.finish("stack_init", 0, 3)
+}
+
+/// One step of a bounded walk: jumps to `out` when slot 3 has run out, else counts it down.
+fn bounded(s: &mut Asm, out: Label) {
+    s.i(LoadSlot(A, 3));
+    s.i(Const(B, 0));
+    s.jump_if(Eq, out);
+    s.i(AddImm(A, -1));
+    s.i(StoreSlot(3, A));
 }
 
 pub fn routines() -> Vec<Function> {

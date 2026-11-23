@@ -487,7 +487,7 @@ pub fn add_reachable(m: &mut ir::Module, called: &[String]);   // adds the routi
 **Routines (names binding):**
 - `_start`: `heap_init`, `stack_init`, `call start`, `flush`, `exit 0`.
 - `alloc(bytes, line) -> address`: 8-byte aligned bump from `heap_next`; when `heap_end` is passed, `map` a new piece of `max(64 MiB, bytes)`; a `map` result of 0 calls `fail_memory(line)`. Every caller passes the source line it is lowering, so the failure message can name it without a global.
-- `stack_init`: `limit = stack pointer - min(size, 1 GiB) + 64 KiB`, with `size = 8 MiB` when `stack_size` is -1.
+- `stack_init`: `limit = top of the initial stack - min(size, 1 GiB) + 64 KiB` (the top found through `AT_EXECFN`, ruling M2-R26), with `size = 8 MiB` when `stack_size` is -1.
 - `out_bytes(addr, len)`, `out_text(text)`: append to `out_buf`, flushing when full (a write longer than the buffer goes straight out after a flush).
 - `flush`: writes `out_buf[0..out_len]` to fd 1, looping on short writes; a negative result ends the program with `exit 2`.
 - `err_text(text)`: writes straight to fd 2 (no buffer).
