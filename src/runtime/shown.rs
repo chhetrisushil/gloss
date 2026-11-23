@@ -449,6 +449,20 @@ mod tests {
         assert_eq!(String::from_utf8(o.stderr).unwrap(), want);
     }
 
+    #[test]
+    fn err_shown_writes_in_a_few_calls_not_one_per_character() {
+        // 41 characters: 40 of them and `…` are 43 bytes, two 24-byte flushes at most.
+        let text = "a".repeat(41);
+        let body = vec![
+            AddressOf(A, Data::Text(0)),
+            Push(A),
+            Call("err_shown".into()),
+        ];
+        let o = run(&program(body, &[text.as_bytes()]));
+        assert_eq!(o.stderr, format!("{}\u{2026}", "a".repeat(40)).into_bytes());
+        assert!(o.writes <= 2, "{} writes", o.writes);
+    }
+
     /// What `err_shown` should write for raw bytes: an invalid byte is one character,
     /// `\u{FFFD}`, and decoding resumes at the next byte.
     fn shown_bytes(b: &[u8]) -> String {

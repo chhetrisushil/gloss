@@ -39,6 +39,7 @@ impl Machine<'_> {
     /// program quietly, which only a real run shows.
     fn write(&mut self) {
         let (fd, addr, len) = self.pop_transfer();
+        self.writes += 1;
         if fd != 1 && fd != 2 {
             self.a = EBADF;
             return;
