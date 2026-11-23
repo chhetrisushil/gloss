@@ -123,3 +123,19 @@ impl Lowerer<'_> {
         Ok(())
     }
 }
+
+impl Lowerer<'_> {
+    /// `skip` goes back to the condition, `stop` to the end.
+    pub fn repeat_while(&mut self, cond: &Expr, body: &[Stmt]) -> Result<(), Diagnostic> {
+        let (top, end) = (self.new_label(), self.new_label());
+        self.emit(Inst::Mark(top));
+        self.condition(cond, end)?;
+        self.loops.push((top, end));
+        let done = self.stmts(body);
+        self.loops.pop();
+        done?;
+        self.emit(Inst::Jump(top));
+        self.emit(Inst::Mark(end));
+        Ok(())
+    }
+}

@@ -66,13 +66,15 @@ impl Lowerer<'_> {
                 branches,
                 otherwise,
             } => self.if_chain(branches, otherwise.as_deref()),
-            StmtKind::RepeatWhile { cond, body } => {
-                let (top, end) = (self.new_label(), self.new_label());
-                self.emit(Inst::Mark(top));
-                self.condition(cond, end)?;
-                self.stmts(body)?;
-                self.emit(Inst::Jump(top));
-                self.emit(Inst::Mark(end));
+            StmtKind::RepeatWhile { cond, body } => self.repeat_while(cond, body),
+            StmtKind::Skip | StmtKind::Stop => {
+                let (skip, stop) = *self.loops.last().expect("skip and stop sit inside a loop");
+                let target = if matches!(s.kind, StmtKind::Skip) {
+                    skip
+                } else {
+                    stop
+                };
+                self.emit(Inst::Jump(target));
                 Ok(())
             }
             _ => Err(Diagnostic::error(
