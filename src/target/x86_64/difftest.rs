@@ -160,3 +160,53 @@ fn the_temporary_folder_is_removed_when_dropped() {
     drop(dir);
     assert!(!path.exists());
 }
+
+/// The runtime's own `_start` runs a `start` that buffers output, allocates, then fails with
+/// a message: both machines must agree on every byte and the status.
+#[test]
+fn the_runtime_entry_and_failure_paths_agree() {
+    use crate::runtime::add_reachable;
+    let mut m = Module::default();
+    let text = m.text(&[b'x'; 5000]);
+    let (hello, boom) = (m.text(b"hello"), m.text(b"boom"));
+    let print = |t| [Inst::AddressOf(A, Data::Text(t)), Inst::Push(A)];
+    let mut body = vec![Inst::Enter(0)];
+    for t in [hello, text, hello] {
+        body.extend(print(t));
+        body.push(Inst::Call("out_text".into()));
+    }
+    for n in [24, 1 << 20] {
+        body.extend([
+            Inst::Const(A, n),
+            Inst::Push(A),
+            Inst::Const(A, 3),
+            Inst::Push(A),
+        ]);
+        body.push(Inst::Call("alloc".into()));
+    }
+    body.extend([
+        Inst::Const(A, 9),
+        Inst::Push(A),
+        Inst::Const(A, 4),
+        Inst::Push(A),
+    ]);
+    body.push(Inst::Call("fail_begin".into()));
+    body.extend(print(boom));
+    body.extend([Inst::Call("err_text".into()), Inst::Call("fail_end".into())]);
+    m.functions.push(Function {
+        name: "start".into(),
+        params: 0,
+        slots: 0,
+        body,
+    });
+    let called = [
+        "_start",
+        "out_text",
+        "alloc",
+        "fail_begin",
+        "err_text",
+        "fail_end",
+    ];
+    add_reachable(&mut m, &called.map(String::from));
+    agree_program("runtime", &m, b"");
+}

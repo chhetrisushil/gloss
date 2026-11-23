@@ -1,6 +1,6 @@
 use super::add_reachable;
 use crate::ir::{
-    Data, Function, Inst,
+    Data, Function, Global, Inst,
     Inst::*,
     IntOp, Module, Prim,
     Reg::{A, B},
@@ -240,4 +240,60 @@ fn a_failed_map_is_an_out_of_memory_failure() {
     let o = run(&program(alloc(2 << 40, 1), &[]));
     assert_eq!(o.status, 2);
     assert_eq!(o.stderr, b"line 7: failure 10: out of memory\n");
+}
+#[test]
+fn a_program_that_shows_nothing_exits_0_with_no_output() {
+    let mut m = Module::default();
+    m.functions.push(Function {
+        name: "start".into(),
+        params: 0,
+        slots: 0,
+        body: vec![Enter(0), Return],
+    });
+    add_reachable(&mut m, &["_start".into()]);
+    let o = run(&m);
+    assert_eq!((o.status, o.stdout.len(), o.stderr.len()), (0, 0, 0));
+}
+
+fn limit(size: i64, sp: i64) -> i64 {
+    let body = vec![
+        Const(A, size),
+        Push(A),
+        Const(A, sp),
+        Push(A),
+        Call("stack_limit".into()),
+        StoreSlot(1, A),
+    ];
+    irsim::call(&returning(1, body), "main", &[])
+}
+
+#[test]
+fn the_stack_limit_is_the_size_below_sp_plus_the_margin() {
+    let (sp, kib64) = (0x7fff_0000_0000, 64 << 10);
+    assert_eq!(limit(-1, sp), sp - (8 << 20) + kib64);
+    assert_eq!(limit(1 << 20, sp), sp - (1 << 20) + kib64);
+    assert_eq!(limit(1 << 40, sp), sp - (1 << 30) + kib64);
+}
+
+#[test]
+fn stack_init_sets_the_limit_below_its_own_stack_pointer() {
+    // irsim's StackSize is 8 MiB, so the limit is within a frame of 8 MiB - 64 KiB below.
+    let body = vec![
+        StackPointer(A),
+        StoreSlot(1, A),
+        Call("stack_init".into()),
+        AddressOf(A, Data::Global(Global::StackLimit)),
+        Load {
+            to: A,
+            base: A,
+            offset: 0,
+        },
+        Move { to: B, from: A },
+        LoadSlot(A, 1),
+        Int(IntOp::Sub),
+        StoreSlot(1, A),
+    ];
+    let below = irsim::call(&returning(1, body), "main", &[]);
+    let want = (8 << 20) - (64 << 10);
+    assert!((want..want + 256).contains(&below), "{below}");
 }
