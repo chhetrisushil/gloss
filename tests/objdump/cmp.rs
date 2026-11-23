@@ -169,7 +169,7 @@ fn piece(x: &X) -> Encoded {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gloss::target::x86_64::inst::R;
+    use gloss::target::x86_64::inst::{Mem, R};
 
     const MOV: &str = "   0:\t48 89 c8             \tmov    rax,rcx\n";
 
@@ -186,5 +186,23 @@ mod tests {
         let wrong = MOV.replace("48 89 c8", "48 89 c1");
         assert_eq!(compare(&[X::MovRR(R::Rax, R::Rcx)], &wrong).1.len(), 1);
         assert!(!compare(&[X::Ret, X::Ret], "   0:\tc3\tret\n").1.is_empty());
+    }
+
+    #[test]
+    fn numbers_and_size_words_are_normalised() {
+        let t = "mov    QWORD PTR [rsp-0x10],rax";
+        assert_eq!(norm_objdump(t), "mov [rsp-16],rax");
+        assert_eq!(
+            norm_objdump("movabs rax,0xfffffffffffffff8"),
+            "movabs rax,-8"
+        );
+        let e = encode(&[X::Ret]).unwrap();
+        let x = X::MovMR(Mem::Base(R::Rsp, -16), R::Rax);
+        assert_eq!(norm_ours(&x, &e), "mov [rsp-16],rax");
+        assert_eq!(norm_objdump("jmp    0x37 <L3>"), "jmp 55");
+        assert_eq!(
+            norm_objdump("lea rax,[rip+0x0]        # 0x7"),
+            "lea rax,[rip+0]"
+        );
     }
 }
