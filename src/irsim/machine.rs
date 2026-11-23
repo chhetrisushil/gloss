@@ -8,7 +8,7 @@ use std::collections::HashMap;
 const STACK_TOP: u64 = 0x7fff_0000_0000;
 
 /// The soft stack limit `Prim::StackSize` reports.
-pub const STACK_SIZE: i64 = 8 * 1024 * 1024;
+pub const STACK_SIZE: i64 = 1024 * 1024;
 
 /// How the program stopped.
 pub enum Ended {

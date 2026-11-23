@@ -1,9 +1,9 @@
-feature one
-  needs n as number
-  give n + 1
+feature add3
+  needs a as number, b as number, c as number
+  give a + b + c
 
 feature start
   set total to 0
-  for each i from 1 to 100000
-    set total to one with total
+  for each i from 1 to 400000
+    set total to add3 with total, 1, 0
   show total

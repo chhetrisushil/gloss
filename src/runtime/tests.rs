@@ -325,7 +325,7 @@ fn the_stack_limit_is_the_size_below_sp_plus_the_margin() {
 
 #[test]
 fn stack_init_sets_the_limit_below_its_own_stack_pointer() {
-    // irsim's StackSize is 8 MiB, so the limit is within a frame of 8 MiB - 64 KiB below.
+    // irsim's StackSize is 1 MiB, so the limit is within a frame of 1 MiB - 64 KiB below.
     let body = vec![
         StackPointer(A),
         StoreSlot(1, A),
@@ -342,7 +342,7 @@ fn stack_init_sets_the_limit_below_its_own_stack_pointer() {
         StoreSlot(1, A),
     ];
     let below = irsim::call(&returning(1, body), "main", &[]);
-    let want = (8 << 20) - (64 << 10);
+    let want = (1 << 20) - (64 << 10);
     assert!((want..want + 256).contains(&below), "{below}");
 }
 

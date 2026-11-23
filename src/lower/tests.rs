@@ -230,3 +230,32 @@ fn a_feature_that_falls_off_its_end_stops_with_an_internal_error() {
     );
     assert_eq!(o.status, 2);
 }
+
+#[test]
+fn a_call_checks_the_stack_for_the_callee_frame() {
+    let text =
+        "feature deep\n  needs n as number\n  give n\n\nfeature start\n  show (deep with 1)\n";
+    let t = start_text(&lowered(text).unwrap());
+    // 0 slots: 8 * (0 + 3) + 64.
+    assert!(t.contains("stack check 88"), "{t}");
+}
+
+#[test]
+fn the_check_counts_the_callees_named_and_hidden_slots() {
+    // `total` plus the count loop's hidden slots: read the callee's real slot count.
+    let text = "feature sum\n  set total to 0\n  for each i from 1 to 3\n    add i to total\n  give total\n\nfeature start\n  show sum\n";
+    let m = lowered(text).unwrap();
+    let slots = m
+        .functions
+        .iter()
+        .find(|f| f.name == "f_sum")
+        .unwrap()
+        .slots;
+    assert!(
+        slots > 2,
+        "a named slot, a loop variable and temps: {slots}"
+    );
+    let want = format!("stack check {}", 8 * (slots + 3) + 64);
+    let t = start_text(&m);
+    assert!(t.contains(&want), "{want} in {t}");
+}
