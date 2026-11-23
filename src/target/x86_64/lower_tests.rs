@@ -54,7 +54,7 @@ fn the_output_starts_with_the_function_label() {
 #[test]
 fn enter_builds_the_frame_and_zeroes_the_slots() {
     assert_eq!(
-        one(Inst::Enter(2)),
+        lines(&func(2, 2, vec![Inst::Enter(2)])),
         [
             "push rbp",
             "mov rbp, rsp",
@@ -239,21 +239,79 @@ fn only_the_mapped_registers_appear() {
         R::Rsp,
         R::Rbp,
     ];
-    let body = vec![
-        Inst::Enter(2),
-        Inst::LoadArg(A, 1),
-        Inst::StoreSlot(1, A),
-        Inst::Int(IntOp::Rem),
+    // `cqo` and `idiv` implicitly use rdx, which is an allowed scratch register.
+    let mut body = vec![Inst::Line(1), Inst::Enter(2)];
+    for r in [A, B] {
+        body.extend([
+            Inst::Const(r, 7),
+            Inst::LoadSlot(r, 1),
+            Inst::StoreSlot(2, r),
+            Inst::LoadArg(r, 1),
+            Inst::Push(r),
+            Inst::Pop(r),
+            Inst::AddImm(r, -3),
+            Inst::StackPointer(r),
+            Inst::AddressOf(r, Data::Text(0)),
+            Inst::AddressOf(r, Data::Desc(0)),
+            Inst::AddressOf(r, Data::Global(Global::OutBuf)),
+        ]);
+        for base in [A, B] {
+            body.extend([
+                Inst::Load {
+                    to: r,
+                    base,
+                    offset: 8,
+                },
+                Inst::Store {
+                    base,
+                    offset: 8,
+                    from: r,
+                },
+                Inst::LoadByte {
+                    to: r,
+                    base,
+                    offset: 1,
+                },
+                Inst::StoreByte {
+                    base,
+                    offset: 1,
+                    from: r,
+                },
+            ]);
+        }
+        body.push(Inst::Move {
+            to: r,
+            from: if r == A { B } else { A },
+        });
+    }
+    for op in [
+        IntOp::Add,
+        IntOp::Sub,
+        IntOp::Mul,
+        IntOp::Div,
+        IntOp::Rem,
+        IntOp::And,
+        IntOp::Or,
+    ] {
+        body.push(Inst::Int(op));
+    }
+    for s in [Shift::Left, Shift::Right, Shift::RightLogical] {
+        body.push(Inst::Shift(s, 5));
+    }
+    body.extend([
         Inst::Compare,
         Inst::SetIf(Cond::Lt),
+        Inst::Compare,
+        Inst::JumpIf(Cond::Ge, Label(1)),
         Inst::StackCheck {
             bytes: 16,
             fail: Label(1),
         },
         Inst::Call("two".to_string()),
+        Inst::Jump(Label(1)),
         Inst::Mark(Label(1)),
         Inst::Return,
-    ];
+    ]);
     let xs = lower_function(&func(2, 2, body), &known()).unwrap();
     for x in &xs {
         for r in registers(x) {
@@ -296,4 +354,43 @@ fn registers(x: &X) -> Vec<R> {
         | X::Label(_)
         | X::Comment(_) => vec![],
     }
+}
+
+#[test]
+fn malformed_frames_and_sizes_are_refused() {
+    let err = |f: Function| lower_function(&f, &known()).unwrap_err();
+    assert!(err(func(0, 2, vec![Inst::Enter(3)])).contains("enter 3"));
+    for k in [0, 3] {
+        assert!(err(func(0, 2, vec![Inst::LoadSlot(A, k)])).contains("slot"));
+        assert!(err(func(0, 2, vec![Inst::StoreSlot(k, A)])).contains("slot"));
+        assert!(err(func(2, 0, vec![Inst::LoadArg(A, k)])).contains("argument"));
+    }
+    let far = Inst::StackCheck {
+        bytes: 1 << 31,
+        fail: Label(0),
+    };
+    assert!(err(func(0, 0, vec![far])).contains("out of range"));
+    let big = func(0, 1 << 28, vec![Inst::Enter(1 << 28)]);
+    assert!(err(big).contains("out of range"));
+    let call = Function {
+        name: "f".into(),
+        params: 0,
+        slots: 0,
+        body: vec![Inst::Call("huge".into())],
+    };
+    let huge = HashMap::from([("huge".to_string(), 1u32 << 29)]);
+    assert!(
+        lower_function(&call, &huge)
+            .unwrap_err()
+            .contains("out of range")
+    );
+}
+
+#[test]
+fn entering_with_no_slots_zeroes_nothing() {
+    let f = func(0, 0, vec![Inst::Enter(0)]);
+    assert_eq!(
+        lines(&f),
+        ["push rbp", "mov rbp, rsp", "sub rsp, 8", "mov [rbp-8], rcx"]
+    );
 }

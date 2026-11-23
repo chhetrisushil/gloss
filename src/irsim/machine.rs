@@ -166,8 +166,9 @@ impl<'m> Machine<'m> {
             .map(|i| self.memory.read(self.sp + 8 * (params - i)))
             .collect();
         let return_sp = self.sp + 8 * params;
-        // A return address and a saved frame pointer, as on hardware.
-        self.sp -= 8 * (f.slots as u64 + 2);
+        // A return address, a saved frame pointer and a saved `b`, then the slots: the x86
+        // frame of ruling M2-R12, so `StackPointer` agrees with hardware.
+        self.sp -= 8 * (f.slots as u64 + 3);
         self.frames.push(Frame {
             func,
             pc: 0,

@@ -287,9 +287,10 @@ fn a_call_lowers_the_stack_pointer_by_the_arguments_and_the_frame() {
     );
     let m = two_functions(callee, caller);
     let drop = call(&m, "caller", &[]);
-    assert!(
-        -drop >= 8 * (1 + 1 + 2),
-        "the stack pointer fell by only {}",
+    assert_eq!(
+        -drop,
+        8 * (1 + 1 + 3),
+        "the stack pointer fell by {}",
         -drop
     );
 }
@@ -428,8 +429,8 @@ fn a_call_restores_the_stack_pointer_and_leaves_what_was_pushed() {
 #[test]
 fn stack_check_allows_a_frame_that_ends_exactly_at_the_limit() {
     let fail = Label(0);
-    // Inside `f` the stack pointer is the top minus its frame's two words.
-    let sp = 0x7fff_0000_0000i64 - 16;
+    // Inside `f` the stack pointer is the top minus its frame's three words.
+    let sp = 0x7fff_0000_0000i64 - 24;
     let with_bytes = |bytes| {
         single(vec![
             AddressOf(B, Data::Global(Global::StackLimit)),
