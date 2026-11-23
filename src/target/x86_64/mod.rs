@@ -9,6 +9,7 @@ mod encode_flow_tests;
 #[cfg(test)]
 mod encode_tests;
 pub mod inst;
+pub mod linux;
 pub mod lower;
 #[cfg(test)]
 mod lower_tests;

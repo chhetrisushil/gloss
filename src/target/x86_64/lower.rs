@@ -7,7 +7,9 @@
 use std::collections::HashMap;
 
 use super::inst::{AluOp, Cc, Mem, R, Sym, X};
+use super::linux;
 use crate::ir::{Cond, Data, Function, Global, Inst, IntOp, Label, Reg, Shift, inst_text};
+use crate::number::SCALE;
 
 /// Lowers one function; `params` maps every callable function to its parameter count.
 /// `Int(Div)` and `Int(Rem)` require a divisor greater than 0 (ruling M2-R7): `idiv` is
@@ -146,18 +148,27 @@ fn inst_x(
             out.push(X::Alu(AluOp::Cmp, R::Rdx, R::Rsi));
             out.push(X::Jcc(Cc::B, label(f, *fail)));
         }
-        Inst::NumAdd { .. }
-        | Inst::NumSub { .. }
-        | Inst::NumNeg { .. }
-        | Inst::NumMul { .. }
-        | Inst::NumDiv { .. }
-        | Inst::NumRem { .. }
-        | Inst::NumWhole
-        | Inst::System(_) => {
+        Inst::NumAdd { range } => checked(AluOp::Add, f, *range, out),
+        Inst::NumSub { range } => checked(AluOp::Sub, f, *range, out),
+        Inst::NumNeg { range } => out.extend([X::Neg(R::Rax), X::Jcc(Cc::O, label(f, *range))]),
+        Inst::NumWhole => out.extend([
+            X::Cqo,
+            X::MovRI(R::Rsi, SCALE),
+            X::Idiv(R::Rsi),
+            X::Imul(R::Rax, R::Rsi),
+        ]),
+        Inst::System(p) => linux::system(*p, &format!("L{}_s{}", f.name, out.len()), out),
+        Inst::NumMul { .. } | Inst::NumDiv { .. } | Inst::NumRem { .. } => {
             return Err(format!("cannot lower {} yet", inst_text(inst).trim()));
         }
     }
     Ok(())
+}
+
+/// `a = a op b` that jumps to `range` when the result overflows.
+fn checked(op: AluOp, f: &Function, range: Label, out: &mut Vec<X>) {
+    out.push(X::Alu(op, R::Rax, R::Rcx));
+    out.push(X::Jcc(Cc::O, label(f, range)));
 }
 
 fn int_op(op: IntOp, out: &mut Vec<X>) {
