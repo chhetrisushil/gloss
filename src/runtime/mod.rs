@@ -11,6 +11,7 @@ mod numbers;
 mod output;
 #[cfg(test)]
 mod tests;
+mod text;
 
 use crate::ir::{Data, Function, Inst, Module};
 
@@ -28,6 +29,7 @@ pub fn routines() -> Vec<Function> {
     let mut all = core::routines();
     all.extend(output::routines());
     all.extend(numbers::routines());
+    all.extend(text::routines());
     all
 }
 

@@ -583,3 +583,71 @@ fn a_name_of_more_than_4096_bytes_falls_back() {
     };
     assert!(falls_back(faults, 11));
 }
+
+fn equal_of(x: u32, y: u32) -> Vec<Inst> {
+    vec![
+        AddressOf(A, Data::Text(x)),
+        Push(A),
+        AddressOf(A, Data::Text(y)),
+        Push(A),
+        Call("text_equal".into()),
+        // The answer is 0 or 1; show it as a digit through `out_number`'s fixed point form.
+        Const(B, 10_000),
+        Int(IntOp::Mul),
+        Push(A),
+        Call("out_number".into()),
+    ]
+}
+
+#[test]
+fn text_equal_compares_lengths_then_bytes() {
+    // The module interns equal texts, so these five are distinct.
+    let texts: [&[u8]; 5] = [b"", b"abc", b"abd", b"abcd", b"xbc"];
+    let mut body = Vec::new();
+    let pairs = [(0, 1), (1, 2), (1, 3), (3, 1), (1, 4), (1, 1), (0, 0)];
+    for (x, y) in pairs {
+        body.extend(equal_of(x, y));
+    }
+    body.push(Call("flush".into()));
+    let o = run(&program(body, &texts));
+    assert_eq!(String::from_utf8(o.stdout).unwrap(), "0000011");
+}
+
+#[test]
+fn a_text_built_on_the_heap_equals_the_same_bytes_in_the_program() {
+    let body = vec![
+        Const(A, 16),
+        Push(A),
+        Const(A, 0),
+        Push(A),
+        Call("alloc".into()),
+        Const(B, 3),
+        Store {
+            base: A,
+            offset: 0,
+            from: B,
+        },
+        Push(A),
+        AddressOf(B, Data::Text(0)),
+        Load {
+            to: B,
+            base: B,
+            offset: 8,
+        },
+        Store {
+            base: A,
+            offset: 8,
+            from: B,
+        },
+        AddressOf(B, Data::Text(0)),
+        Push(B),
+        Call("text_equal".into()),
+        Const(B, 10_000),
+        Int(IntOp::Mul),
+        Push(A),
+        Call("out_number".into()),
+        Call("flush".into()),
+    ];
+    let o = run(&program(body, &[b"abc"]));
+    assert_eq!(String::from_utf8(o.stdout).unwrap(), "1");
+}
