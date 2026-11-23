@@ -1,0 +1,5 @@
+feature start
+  set total to 120
+  set people to 0
+  show "Before"
+  divide total by people
