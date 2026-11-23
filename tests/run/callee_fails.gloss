@@ -1,0 +1,7 @@
+feature half
+  needs n as number
+  give 10 / n
+
+feature start
+  show "before"
+  show (half with 0)

@@ -1,0 +1,11 @@
+feature hello
+  show "hello"
+
+feature twice
+  needs n as number
+  show n
+  show n
+
+feature start
+  run hello
+  run twice with 3
