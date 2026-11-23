@@ -1,0 +1,2 @@
+feature start
+  show "a‏b‮x" as number
