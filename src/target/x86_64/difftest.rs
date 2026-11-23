@@ -6,72 +6,21 @@ mod calls;
 mod memory;
 mod num;
 mod ops;
+mod runner;
 mod sys;
 
-use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
-use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use runner::{DEADLINE, run_program};
 
 use crate::ir::Reg::{A, B};
 use crate::ir::{Data, Function, Inst, Module, Prim};
 use crate::irsim;
-use crate::target::x86_64_linux;
 
 /// What a run did: status, standard output and standard error.
 type Ran = (i32, Vec<u8>, Vec<u8>);
 
-/// Mirrors `tests/run_support`: `GLOSS_RUNNER` (split on spaces), else `orb -m gloss-amd64`
-/// on macOS, else direct on x86-64 Linux; `None` (after a visible skip) otherwise.
+/// Runs `m` for real, with `stdin`; `None` without a runner. A hang or a signal is a failure.
 fn real(m: &Module, stdin: &[u8]) -> Option<Ran> {
-    let prefix: Vec<String> = match std::env::var("GLOSS_RUNNER") {
-        Ok(r) => r
-            .split(' ')
-            .filter(|w| !w.is_empty())
-            .map(String::from)
-            .collect(),
-        Err(_) if cfg!(target_os = "macos") => {
-            ["orb", "-m", "gloss-amd64"].map(String::from).to_vec()
-        }
-        Err(_) if cfg!(all(target_os = "linux", target_arch = "x86_64")) => Vec::new(),
-        Err(_) => {
-            let _ = std::io::stderr().write_all(b"difftest skipped: no x86-64 Linux runner\n");
-            return None;
-        }
-    };
-    static RUNS: AtomicUsize = AtomicUsize::new(0);
-    let name = format!(
-        "difftest-{}-{}",
-        std::process::id(),
-        RUNS.fetch_add(1, Ordering::SeqCst)
-    );
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target/tmp")
-        .join(name);
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("prog");
-    std::fs::write(&path, x86_64_linux().executable(m).expect("builds")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let mut cmd = match prefix.split_first() {
-        Some((program, args)) => {
-            let mut c = Command::new(program);
-            c.args(args).arg(&path);
-            c
-        }
-        None => Command::new(&path),
-    };
-    let mut child = cmd
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("runs");
-    // A program may exit without reading its input: a broken pipe is not an error.
-    let _ = child.stdin.take().expect("stdin").write_all(stdin);
-    let out = child.wait_with_output().expect("finishes");
-    std::fs::remove_dir_all(&dir).unwrap();
-    Some((out.status.code().expect("exits"), out.stdout, out.stderr))
+    run_program(m, stdin, DEADLINE).map(|ran| ran.expect("the program ends"))
 }
 
 fn simulated(m: &Module, stdin: &[u8]) -> Ran {
@@ -186,4 +135,19 @@ fn number_programs_agree() {
 #[test]
 fn system_programs_agree() {
     sys::programs(&mut |name, m, stdin| agree_program(name, m, stdin));
+}
+
+#[test]
+fn a_program_that_never_ends_times_out() {
+    let mut m = Module::default();
+    program(
+        &mut m,
+        vec![
+            Inst::Mark(crate::ir::Label(1)),
+            Inst::Jump(crate::ir::Label(1)),
+        ],
+    );
+    if let Some(ran) = run_program(&m, b"", std::time::Duration::from_millis(500)) {
+        assert!(ran.unwrap_err().starts_with("timed out"));
+    }
 }
