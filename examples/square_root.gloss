@@ -1,0 +1,11 @@
+feature square_root
+  needs x as number
+  set guess to x / 2
+  for each i from 1 to 20
+    set guess to (guess + x / guess) / 2
+  give guess
+
+feature start
+  show "square root of 2 is ", (square_root with 2)
+  show "square root of 10 is ", (square_root with 10) as text with 2 places
+  show "square root of 144 is ", (square_root with 144)

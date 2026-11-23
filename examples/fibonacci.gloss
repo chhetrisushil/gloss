@@ -1,0 +1,14 @@
+feature fib
+  needs n as number
+  if n is less than 2
+    give n
+  give (fib with n - 1) + (fib with n - 2)
+
+feature start
+  set a to 0
+  set b to 1
+  for each i from 0 to 15
+    show i, ": ", a, " and by recursion ", (fib with i)
+    set next to a + b
+    set a to b
+    set b to next
