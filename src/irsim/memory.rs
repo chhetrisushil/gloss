@@ -14,7 +14,7 @@ const MAP_LIMIT: i64 = 1 << 40;
 /// Where the globals start, in `Global` declaration order.
 const GLOBAL_BASE: u64 = 0x2000_0000;
 
-const GLOBALS: [Global; 9] = [
+const GLOBALS: [Global; 10] = [
     Global::HeapNext,
     Global::HeapEnd,
     Global::StackLimit,
@@ -23,6 +23,7 @@ const GLOBALS: [Global; 9] = [
     Global::InLen,
     Global::InPos,
     Global::InBuf,
+    Global::EntrySp,
     Global::NumBuf,
 ];
 
@@ -33,6 +34,7 @@ fn global_size(g: Global) -> u64 {
         Global::HeapNext
         | Global::HeapEnd
         | Global::StackLimit
+        | Global::EntrySp
         | Global::OutLen
         | Global::InLen
         | Global::InPos => 8,

@@ -7,6 +7,11 @@ use std::collections::HashMap;
 /// The top of the simulated stack, which grows down.
 const STACK_TOP: u64 = 0x7fff_0000_0000;
 
+/// The executable's name in the simulated initial stack, and where it sits above the
+/// arguments: its end rounds up to `STACK_TOP - 4096` (see `Machine::initial_stack`).
+const EXEC_NAME: &[u8] = b"/prog";
+const EXEC_NAME_OFFSET: u64 = 100;
+
 /// The soft stack limit `Prim::StackSize` reports.
 pub const STACK_SIZE: i64 = 1024 * 1024;
 
@@ -190,8 +195,42 @@ impl<'m> Machine<'m> {
         self.frames.is_empty().then_some(self.a)
     }
 
+    /// Lays out what the kernel leaves at the entry of a process, like Linux: `argc`, argv, NULL,
+    /// envp, NULL, the auxiliary vector ending in `AT_NULL`, and the strings above, the
+    /// executable's name last, a page or two below the top. `Global::EntrySp` gets the address
+    /// of `argc`.
+    fn initial_stack(&mut self) {
+        let name_at = STACK_TOP - 8192 + EXEC_NAME_OFFSET;
+        for (i, byte) in EXEC_NAME.iter().chain(&[0]).enumerate() {
+            self.memory.write_byte(name_at + i as u64, *byte);
+        }
+        // argc, argv[0], NULL, envp[0], NULL, AT_PAGESZ, AT_EXECFN, AT_NULL.
+        let words = [
+            1,
+            name_at as i64,
+            0,
+            name_at as i64,
+            0,
+            6,
+            4096,
+            31,
+            name_at as i64,
+            0,
+            0,
+        ];
+        self.sp = STACK_TOP - 8192 - 8 * words.len() as u64;
+        for (i, w) in words.iter().enumerate() {
+            self.memory.write(self.sp + 8 * i as u64, *w);
+        }
+        let entry_sp = self.memory.address_of(Data::Global(Global::EntrySp));
+        self.memory.write(entry_sp, self.sp as i64);
+    }
+
     /// Runs `name` with `args` pushed left to right, until it returns or exits.
     pub fn execute(&mut self, name: &str, args: &[i64]) -> Ended {
+        if name == "_start" {
+            self.initial_stack();
+        }
         for &arg in args {
             self.push(arg);
         }

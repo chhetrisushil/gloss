@@ -10,7 +10,7 @@ use crate::ir::{Global, IO_BUF_BYTES, Module, NUMBER_BUF_BYTES};
 use crate::target::elf::{Image, write};
 
 /// The globals in declaration order, as `irsim` lays them out.
-const GLOBALS: [Global; 9] = [
+const GLOBALS: [Global; 10] = [
     Global::HeapNext,
     Global::HeapEnd,
     Global::StackLimit,
@@ -19,6 +19,7 @@ const GLOBALS: [Global; 9] = [
     Global::InLen,
     Global::InPos,
     Global::InBuf,
+    Global::EntrySp,
     Global::NumBuf,
 ];
 
@@ -29,6 +30,7 @@ fn global_size(g: Global) -> usize {
         Global::HeapNext
         | Global::HeapEnd
         | Global::StackLimit
+        | Global::EntrySp
         | Global::OutLen
         | Global::InLen
         | Global::InPos => 8,

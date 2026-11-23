@@ -1,7 +1,7 @@
 //! The entry routine, the allocator and the stack limit.
 
 use super::asm::Asm;
-use crate::ir::Cond::{Ge, Gt, Le, Lt, Ne};
+use crate::ir::Cond::{Eq, Ge, Gt, Le, Lt, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Function, Global, Inst::*, IntOp, Prim};
 
@@ -101,8 +101,8 @@ fn fail_memory() -> Function {
     s.finish("fail_memory", 1, 0)
 }
 
-/// `stack_limit(size, sp)`: the limit for a stack pointer `sp` and a `StackSize` of `size`
-/// (-1 for unlimited): `sp - min(size, 1 GiB) + 64 KiB`, with `size` 8 MiB when unlimited.
+/// `stack_limit(size, top)`: the limit for a stack top `top` and a `StackSize` of `size`
+/// (-1 for unlimited): `top - min(size, 1 GiB) + 64 KiB`, with `size` 8 MiB when unlimited.
 fn stack_limit() -> Function {
     let mut s = Asm::default();
     let (known, capped) = (s.label(), s.label());
@@ -123,18 +123,111 @@ fn stack_limit() -> Function {
     s.finish("stack_limit", 2, 0)
 }
 
-/// `stack_init`: sets the limit from the stack pointer here, in `_start`'s call, not from the
-/// top of the stack above argv, the environment and the auxiliary vector. If those take more
-/// than the 64 KiB margin, a deep recursion may fault instead of failing with code 10.
+/// `stack_init`: sets the limit from the top of the initial stack. The kernel puts `argc`,
+/// argv, envp and the auxiliary vector at the entry stack pointer (`Global::EntrySp`) and the
+/// strings above them; `AT_EXECFN` (31) points at the executable's name, the highest string, so
+/// its end rounded up to a page is the stack top, however big the environment is. Without
+/// `AT_EXECFN` the stack pointer here is used instead, which may leave too small a margin.
+/// Slots: 1 the cursor through the entry stack, 2 the stack top.
 fn stack_init() -> Function {
+    const AT_EXECFN: i64 = 31;
     let mut s = Asm::default();
+    let (env, env_end, aux, found, scan, ended, none, have) = (
+        s.label(),
+        s.label(),
+        s.label(),
+        s.label(),
+        s.label(),
+        s.label(),
+        s.label(),
+        s.label(),
+    );
+    // Skip `argc`, the argv pointers and their NULL: `8 * (argc + 2)` bytes.
+    s.gload(A, Global::EntrySp);
+    s.i(StoreSlot(1, A));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(AddImm(A, 2));
+    s.i(Shift(crate::ir::Shift::Left, 3));
+    s.i(LoadSlot(B, 1));
+    s.i(Int(IntOp::Add));
+    s.i(StoreSlot(1, A));
+    // Skip the envp pointers and their NULL.
+    s.i(Mark(env));
+    s.i(LoadSlot(A, 1));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(Const(B, 0));
+    s.jump_if(Eq, env_end);
+    s.i(LoadSlot(A, 1));
+    s.i(AddImm(A, 8));
+    s.i(StoreSlot(1, A));
+    s.i(Jump(env));
+    s.i(Mark(env_end));
+    s.i(LoadSlot(A, 1));
+    s.i(AddImm(A, 8));
+    s.i(StoreSlot(1, A));
+    // Walk the (type, value) pairs to `AT_EXECFN` or the `AT_NULL` that ends them.
+    s.i(Mark(aux));
+    s.i(LoadSlot(A, 1));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(Const(B, 0));
+    s.jump_if(Eq, none);
+    s.i(Const(B, AT_EXECFN));
+    s.jump_if(Eq, found);
+    s.i(LoadSlot(A, 1));
+    s.i(AddImm(A, 16));
+    s.i(StoreSlot(1, A));
+    s.i(Jump(aux));
+    // The name's end (past its NUL), rounded up to a page.
+    s.i(Mark(found));
+    s.i(LoadSlot(A, 1));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 8,
+    });
+    s.i(StoreSlot(2, A));
+    s.i(Mark(scan));
+    s.i(LoadSlot(A, 2));
+    s.i(LoadByte {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(Const(B, 0));
+    s.jump_if(Eq, ended);
+    s.i(LoadSlot(A, 2));
+    s.i(AddImm(A, 1));
+    s.i(StoreSlot(2, A));
+    s.i(Jump(scan));
+    s.i(Mark(ended));
+    s.i(LoadSlot(A, 2));
+    s.i(AddImm(A, 1 + 4095));
+    s.i(Const(B, -4096));
+    s.i(Int(IntOp::And));
+    s.i(StoreSlot(2, A));
+    s.i(Jump(have));
+    s.i(Mark(none));
+    s.i(StackPointer(A));
+    s.i(StoreSlot(2, A));
+    s.i(Mark(have));
     s.i(System(Prim::StackSize));
     s.i(Push(A));
-    s.i(StackPointer(A));
-    s.i(Push(A));
+    s.push_slot(2);
     s.call("stack_limit");
     s.gstore(Global::StackLimit, A, B);
-    s.finish("stack_init", 0, 0)
+    s.finish("stack_init", 0, 2)
 }
 
 pub fn routines() -> Vec<Function> {
