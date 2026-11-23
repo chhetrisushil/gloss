@@ -11,6 +11,7 @@ mod numbers;
 mod output;
 mod parse;
 mod places;
+mod shown;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -23,8 +24,20 @@ const COLON: u32 = 2;
 const NEWLINE: u32 = 3;
 const OUT_OF_MEMORY: u32 = 4;
 
+/// The index of the table of invisible characters, which `shown::unshowable_table` builds.
+const UNSHOWABLE: u32 = 5;
+
 /// The texts the routines refer to.
 const TEXTS: [&[u8]; 5] = [b"line ", b": failure ", b": ", b"\n", b"out of memory"];
+
+/// The bytes of the runtime text `i`.
+fn text_bytes(i: u32) -> Vec<u8> {
+    if i == UNSHOWABLE {
+        shown::unshowable_table()
+    } else {
+        TEXTS[i as usize].to_vec()
+    }
+}
 
 /// Every runtime routine.
 pub fn routines() -> Vec<Function> {
@@ -53,7 +66,7 @@ pub fn add_reachable(m: &mut Module, called: &[String]) {
         for inst in &mut function.body {
             match inst {
                 Inst::Call(callee) => pending.push(callee.clone()),
-                Inst::AddressOf(_, Data::Text(i)) => *i = m.text(TEXTS[*i as usize]),
+                Inst::AddressOf(_, Data::Text(i)) => *i = m.text(&text_bytes(*i)),
                 _ => {}
             }
         }
