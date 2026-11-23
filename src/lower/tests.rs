@@ -136,3 +136,39 @@ fn field_and_item_targets_are_not_built_yet() {
     let d = lowered(rec).unwrap_err();
     assert_eq!(d.problem, "this compiler cannot build this statement yet");
 }
+
+#[test]
+fn and_jumps_past_its_right_side_when_the_left_is_no() {
+    let m = lowered("feature start\n  show (1 is 2 and 3 is 3)\n").unwrap();
+    let t = start_text(&m);
+    assert!(
+        t.contains(
+            "  a = 10000\n  push a\n  a = 20000\n  b = a\n  pop a\n  compare a, b\n  a = 1 if eq\n  \
+             b = 0\n  compare a, b\n  jump if eq L0\n  a = 30000\n  push a\n  a = 30000\n  b = a\n  \
+             pop a\n  compare a, b\n  a = 1 if eq\nL0:\n"
+        ),
+        "{t}"
+    );
+}
+
+#[test]
+fn or_jumps_past_its_right_side_when_the_left_is_yes() {
+    let m = lowered("feature start\n  show (yes or no)\n").unwrap();
+    let t = start_text(&m);
+    assert!(
+        t.contains("  a = 1\n  b = 1\n  compare a, b\n  jump if eq L0\n  a = 0\nL0:\n"),
+        "{t}"
+    );
+}
+
+#[test]
+fn a_truth_shows_as_yes_or_no_texts() {
+    let m = lowered("feature start\n  show yes\n").unwrap();
+    assert!(m.texts.contains(&b"yes".to_vec()) && m.texts.contains(&b"no".to_vec()));
+}
+
+#[test]
+fn comparing_texts_is_not_built_yet() {
+    let d = lowered("feature start\n  show (\"a\" is \"b\")\n").unwrap_err();
+    assert_eq!(d.problem, "this compiler cannot build this expression yet");
+}

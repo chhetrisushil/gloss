@@ -63,16 +63,18 @@ impl Lowerer<'_> {
                 self.emit(Inst::NumRem { zero });
                 Ok(())
             }
-            _ => Err(Diagnostic::error(
-                self.src,
-                e.line,
-                "this compiler cannot build this expression yet",
-            )),
+            _ => self.truth(e).unwrap_or_else(|| {
+                Err(Diagnostic::error(
+                    self.src,
+                    e.line,
+                    "this compiler cannot build this expression yet",
+                ))
+            }),
         }
     }
 
     /// Left in `a`, right in `b`.
-    fn operands(&mut self, left: &Expr, right: &Expr) -> Result<(), Diagnostic> {
+    pub fn operands(&mut self, left: &Expr, right: &Expr) -> Result<(), Diagnostic> {
         self.expr(left)?;
         self.emit(Inst::Push(Reg::A));
         self.expr(right)?;
