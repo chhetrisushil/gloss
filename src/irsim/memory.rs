@@ -7,6 +7,10 @@ use std::collections::HashMap;
 /// Where read-only texts start: each is an 8-byte little-endian length, then the bytes,
 /// padded to 8-byte alignment.
 const TEXT_BASE: u64 = 0x1000_0000;
+/// Where `Prim::Map` hands out memory.
+const MAP_BASE: u64 = 0x4000_0000_0000;
+/// The most one `Prim::Map` call may ask for.
+const MAP_LIMIT: i64 = 1 << 40;
 /// Where the globals start, in `Global` declaration order.
 const GLOBAL_BASE: u64 = 0x2000_0000;
 
@@ -44,6 +48,8 @@ pub struct Memory {
     desc_addrs: Vec<u64>,
     /// The end of the read-only texts and descriptors.
     rodata_end: u64,
+    /// The blocks `Prim::Map` handed out, as start and end addresses.
+    mapped: Vec<(u64, u64)>,
 }
 
 impl Memory {
@@ -54,6 +60,7 @@ impl Memory {
             text_addrs: Vec::new(),
             desc_addrs: Vec::new(),
             rodata_end: TEXT_BASE,
+            mapped: Vec::new(),
         };
         let mut next = TEXT_BASE;
         for text in &module.texts {
@@ -82,8 +89,20 @@ impl Memory {
         }
     }
 
+    /// Hands out `len` fresh zeroed bytes, or gives 0 when `len` is negative or above 1 TiB.
+    /// Unwritten bytes read as zero, so the block needs no filling.
+    pub fn map(&mut self, len: i64) -> u64 {
+        if !(0..=MAP_LIMIT).contains(&len) {
+            return 0;
+        }
+        let start = self.mapped.last().map_or(MAP_BASE, |&(_, end)| end);
+        self.mapped
+            .push((start, start + (len as u64).next_multiple_of(8)));
+        start
+    }
+
     /// Whether the `len` bytes at `addr` lie in the read-only data, or (when `write` is set,
-    /// only there) in the globals. The stack is the machine's to check; Task 3b adds `Map`.
+    /// only there) in the globals or a mapped block. The stack is the machine's to check.
     pub fn allows(&self, addr: u64, len: u64, write: bool) -> bool {
         let Some(end) = addr.checked_add(len) else {
             return false;
@@ -91,7 +110,8 @@ impl Memory {
         let globals_end = GLOBAL_BASE + GLOBALS.iter().map(|&g| global_size(g)).sum::<u64>();
         let in_rodata = addr >= TEXT_BASE && end <= self.rodata_end;
         let in_globals = addr >= GLOBAL_BASE && end <= globals_end;
-        in_globals || (in_rodata && !write)
+        let in_mapped = self.mapped.iter().any(|&(s, e)| addr >= s && end <= e);
+        in_globals || in_mapped || (in_rodata && !write)
     }
 
     pub fn read_byte(&self, addr: u64) -> u8 {

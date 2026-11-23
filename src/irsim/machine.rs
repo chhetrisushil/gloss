@@ -43,6 +43,9 @@ pub struct Machine<'m> {
     pub compared: Option<(i64, i64)>,
     /// The operands of the `Compare` just run, usable by the next instruction.
     pub fresh: Option<(i64, i64)>,
+    pub stdin: Vec<u8>,
+    /// How much of `stdin` `Prim::Read` has handed out.
+    pub stdin_pos: usize,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
 }
@@ -69,6 +72,8 @@ impl<'m> Machine<'m> {
             b: 0,
             compared: None,
             fresh: None,
+            stdin: Vec::new(),
+            stdin_pos: 0,
             stdout: Vec::new(),
             stderr: Vec::new(),
         }
