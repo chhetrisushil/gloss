@@ -111,27 +111,11 @@ fn show_in_record() -> Function {
     s.finish("show_in_record", 2, 0)
 }
 
-/// `show_value(value, desc)`: a record as `E with f v, g w`, or a scalar. Slots: 1 the field
-/// index, 2 the field count. Records hold only scalars, so nothing here recurses.
-fn show_value() -> Function {
+/// `show_fields(value, desc)`: a record as `E with f v, g w`. Slots: 1 the field index, 2 the
+/// field count. Records hold only scalars, so nothing here recurses.
+fn show_fields() -> Function {
     let mut s = Asm::default();
-    let (record, again, done, first, list) =
-        (s.label(), s.label(), s.label(), s.label(), s.label());
-    s.i(LoadArg(A, 2));
-    s.i(Load {
-        to: A,
-        base: A,
-        offset: 0,
-    });
-    s.i(Const(B, 3));
-    s.jump_if(Eq, record);
-    s.i(Const(B, 4));
-    s.jump_if(Eq, list);
-    s.push_arg(1);
-    s.push_arg(2);
-    s.call("show_in_record");
-    s.i(Return);
-    s.i(Mark(record));
+    let (again, done, first) = (s.label(), s.label(), s.label());
     s.i(LoadArg(A, 2));
     s.i(Load {
         to: A,
@@ -199,6 +183,31 @@ fn show_value() -> Function {
     s.i(StoreSlot(1, A));
     s.i(Jump(again));
     s.i(Mark(done));
+    s.finish("show_fields", 2, 2)
+}
+
+/// `show_value(value, desc)`: a record, a list, or a scalar.
+fn show_value() -> Function {
+    let mut s = Asm::default();
+    let (record, list) = (s.label(), s.label());
+    s.i(LoadArg(A, 2));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(Const(B, 3));
+    s.jump_if(Eq, record);
+    s.i(Const(B, 4));
+    s.jump_if(Eq, list);
+    s.push_arg(1);
+    s.push_arg(2);
+    s.call("show_in_record");
+    s.i(Return);
+    s.i(Mark(record));
+    s.push_arg(1);
+    s.push_arg(2);
+    s.call("show_fields");
     s.i(Return);
     // The lists task replaces this trap with the list form.
     s.i(Mark(list));
@@ -206,11 +215,11 @@ fn show_value() -> Function {
     s.push_text(LIST_TRAP);
     s.call("err_text");
     s.call("fail_end");
-    s.finish("show_value", 2, 2)
+    s.finish("show_value", 2, 0)
 }
 
 pub(super) fn routines() -> Vec<Function> {
-    vec![out_quoted(), show_in_record(), show_value()]
+    vec![out_quoted(), show_in_record(), show_fields(), show_value()]
 }
 
 #[cfg(test)]
