@@ -43,14 +43,15 @@ pub struct Faults {
 
 /// Runs the function `entry` as a program, feeding it `stdin`.
 pub fn run(m: &Module, entry: &str, stdin: &[u8]) -> Outcome {
-    run_with(m, entry, stdin, Faults::default())
+    run_with(m, entry, stdin, &[], Faults::default())
 }
 
-/// Like `run`, with write faults.
-pub fn run_with(m: &Module, entry: &str, stdin: &[u8], faults: Faults) -> Outcome {
+/// Like `run`, with the program arguments (after `argv[0]`) and write faults.
+pub fn run_with(m: &Module, entry: &str, stdin: &[u8], args: &[&str], faults: Faults) -> Outcome {
     let mut machine = Machine::new(m);
     machine.faults = faults;
     machine.stdin = stdin.to_vec();
+    machine.args = args.iter().map(|a| a.to_string()).collect();
     let status = match machine.execute(entry, &[]) {
         Ended::Returned(_) => 0,
         Ended::Exited(status) => status,

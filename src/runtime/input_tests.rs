@@ -7,7 +7,7 @@ use crate::ir::{Data, Global, Inst, Prim};
 use crate::irsim::{self, Faults, Outcome};
 
 fn run_with(body: Vec<Inst>, stdin: &[u8], faults: Faults) -> Outcome {
-    irsim::run_with(&program(body, &[b"x"]), "_start", stdin, faults)
+    irsim::run_with(&program(body, &[b"x"]), "_start", stdin, &[], faults)
 }
 
 /// Runs `body` on `stdin`, which ends with the exit status in `a`.

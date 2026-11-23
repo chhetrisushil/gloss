@@ -11,6 +11,8 @@ const STACK_TOP: u64 = 0x7fff_0000_0000;
 /// arguments: its end rounds up to `STACK_TOP - 4096` (see `Machine::initial_stack`).
 const EXEC_NAME: &[u8] = b"/prog";
 const EXEC_NAME_OFFSET: u64 = 100;
+/// The most argument bytes (with their NULs) that fit below the name and the stack top.
+const MAX_ARG_BYTES: u64 = 3000;
 
 /// What `stack_init` takes as the top of the stack in `irsim`.
 pub const INITIAL_STACK_TOP: u64 = STACK_TOP - 4096;
@@ -57,6 +59,8 @@ pub struct Machine<'m> {
     pub stdout: Vec<u8>,
     /// Test-only write faults.
     pub faults: super::Faults,
+    /// The program arguments after `argv[0]`.
+    pub args: Vec<String>,
     pub stderr: Vec<u8>,
     /// How many `Write` calls the program made.
     pub writes: u32,
@@ -88,6 +92,7 @@ impl<'m> Machine<'m> {
             stdin_pos: 0,
             stdout: Vec::new(),
             faults: super::Faults::default(),
+            args: Vec::new(),
             stderr: Vec::new(),
             writes: 0,
         }
@@ -202,11 +207,23 @@ impl<'m> Machine<'m> {
     }
 
     /// Lays out what the kernel leaves at the entry of a process, like Linux: `argc`, argv, NULL,
-    /// envp, NULL, the auxiliary vector ending in `AT_NULL`, and the strings above, the
-    /// executable's name last, a page or two below the top. `Global::EntrySp` gets the address
-    /// of `argc`.
+    /// envp, NULL, the auxiliary vector ending in `AT_NULL`, and the strings above: the
+    /// arguments first, the executable's name last (the highest string), a page or two below
+    /// the top. `Global::EntrySp` gets the address of `argc`.
     fn initial_stack(&mut self) {
-        let name_at = STACK_TOP - 8192 + EXEC_NAME_OFFSET;
+        let arg_bytes: u64 = self.args.iter().map(|a| a.len() as u64 + 1).sum();
+        assert!(arg_bytes <= MAX_ARG_BYTES, "irsim: too many argument bytes");
+        let mut at = STACK_TOP - 8192 + EXEC_NAME_OFFSET;
+        let mut argv = Vec::new();
+        let name_at = at + arg_bytes;
+        argv.push(name_at as i64);
+        for arg in &self.args {
+            argv.push(at as i64);
+            for byte in arg.bytes().chain([0]) {
+                self.memory.write_byte(at, byte);
+                at += 1;
+            }
+        }
         let name: Vec<u8> = if self.faults.long_exec_name {
             vec![b'x'; 5000]
         } else {
@@ -215,8 +232,10 @@ impl<'m> Machine<'m> {
         for (i, byte) in name.iter().chain(&[0]).enumerate() {
             self.memory.write_byte(name_at + i as u64, *byte);
         }
-        // argc, argv[0], NULL, envp[0], NULL, then the auxiliary vector.
-        let mut words = vec![1, name_at as i64, 0, name_at as i64, 0, 6, 4096];
+        // argc, argv, NULL, envp[0], NULL, then the auxiliary vector.
+        let mut words = vec![argv.len() as i64];
+        words.extend(argv);
+        words.extend([0, name_at as i64, 0, 6, 4096]);
         if self.faults.far_exec_name {
             words.extend([33, 0].repeat(64));
         }
