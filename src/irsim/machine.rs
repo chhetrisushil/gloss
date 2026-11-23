@@ -47,6 +47,8 @@ pub struct Machine<'m> {
     /// How much of `stdin` `Prim::Read` has handed out.
     pub stdin_pos: usize,
     pub stdout: Vec<u8>,
+    /// Test-only write faults.
+    pub faults: super::Faults,
     pub stderr: Vec<u8>,
 }
 
@@ -75,6 +77,7 @@ impl<'m> Machine<'m> {
             stdin: Vec::new(),
             stdin_pos: 0,
             stdout: Vec::new(),
+            faults: super::Faults::default(),
             stderr: Vec::new(),
         }
     }

@@ -5,7 +5,7 @@ use crate::ir::{
     IntOp, Module, Prim,
     Reg::{A, B},
 };
-use crate::irsim::{self, Outcome};
+use crate::irsim::{self, Faults, Outcome};
 
 /// A module whose `_start` is `body` followed by `exit 0`, with the runtime it calls.
 fn program(body: Vec<Inst>, texts: &[&[u8]]) -> Module {
@@ -321,4 +321,54 @@ fn stack_init_sets_the_limit_below_its_own_stack_pointer() {
     let below = irsim::call(&returning(1, body), "main", &[]);
     let want = (8 << 20) - (64 << 10);
     assert!((want..want + 256).contains(&below), "{below}");
+}
+
+fn run_with(m: &Module, faults: Faults) -> Outcome {
+    irsim::run_with(m, "_start", b"", faults)
+}
+
+#[test]
+fn write_all_delivers_every_byte_through_short_writes() {
+    let faults = Faults {
+        short_write: Some(7),
+        ..Faults::default()
+    };
+    let text: Vec<u8> = (0..5000u32).map(|i| (i % 251) as u8).collect();
+    let o = run_with(&program(write_text(1, 5000), &[&text]), faults);
+    assert_eq!((o.status, o.stdout), (0, text));
+}
+
+#[test]
+fn a_failing_standard_output_write_exits_2_with_no_message() {
+    let mut body = out_text(0);
+    body.push(Call("flush".into()));
+    let faults = Faults {
+        failing_fds: vec![1],
+        ..Faults::default()
+    };
+    let o = run_with(&program(body, &[b"data"]), faults);
+    assert_eq!((o.status, o.stdout.len(), o.stderr.len()), (2, 0, 0));
+}
+
+#[test]
+fn a_failing_standard_error_write_exits_2() {
+    let faults = || Faults {
+        failing_fds: vec![2],
+        ..Faults::default()
+    };
+    let say = vec![
+        AddressOf(A, Data::Text(0)),
+        Push(A),
+        Call("err_text".into()),
+    ];
+    assert_eq!(run_with(&program(say, &[b"oops"]), faults()).status, 2);
+    let begin = vec![
+        Const(A, 1),
+        Push(A),
+        Const(A, 2),
+        Push(A),
+        Call("fail_begin".into()),
+    ];
+    let o = run_with(&program(begin, &[]), faults());
+    assert_eq!((o.status, o.stderr.len()), (2, 0));
 }

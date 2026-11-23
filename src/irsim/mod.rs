@@ -20,9 +20,24 @@ pub struct Outcome {
     pub status: i32,
 }
 
+/// Faults a test can make `Write` show, as a real kernel sometimes does.
+#[derive(Default)]
+pub struct Faults {
+    /// `Write` takes at most this many bytes per call (a short write).
+    pub short_write: Option<u64>,
+    /// `Write` to these descriptors fails with a negative result.
+    pub failing_fds: Vec<i64>,
+}
+
 /// Runs the function `entry` as a program, feeding it `stdin`.
 pub fn run(m: &Module, entry: &str, stdin: &[u8]) -> Outcome {
+    run_with(m, entry, stdin, Faults::default())
+}
+
+/// Like `run`, with write faults.
+pub fn run_with(m: &Module, entry: &str, stdin: &[u8], faults: Faults) -> Outcome {
     let mut machine = Machine::new(m);
+    machine.faults = faults;
     machine.stdin = stdin.to_vec();
     let status = match machine.execute(entry, &[]) {
         Ended::Returned(_) => 0,

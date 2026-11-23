@@ -5,6 +5,8 @@ use crate::ir::Prim;
 
 /// What `Write` and `Read` give for a file descriptor the program does not have.
 const EBADF: i64 = -9;
+/// What a `Write` that a test makes fail gives.
+const EIO: i64 = -5;
 
 impl Machine<'_> {
     /// Runs a primitive: pops its arguments and leaves the result in `a`. Gives the end of
@@ -41,6 +43,11 @@ impl Machine<'_> {
             self.a = EBADF;
             return;
         }
+        if self.faults.failing_fds.contains(&fd) {
+            self.a = EIO;
+            return;
+        }
+        let len = len.min(self.faults.short_write.unwrap_or(len));
         self.check(addr, len, false);
         let bytes: Vec<u8> = (0..len).map(|i| self.memory.read_byte(addr + i)).collect();
         let out = if fd == 1 {
