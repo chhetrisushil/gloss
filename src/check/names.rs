@@ -183,6 +183,11 @@ fn later_path_problem(path: &str) -> Option<String> {
             "A part of the file name starts or ends with a space; the permission list could not show it clearly".into(),
         );
     }
+    if path.contains('"') {
+        return Some(
+            "A file name cannot contain a double quote, because the permission list could not show it clearly".into(),
+        );
+    }
     let last = path.rsplit('/').next().unwrap_or_default();
     let ending = [".gloss", ".allow", ".trace", ".svg"]
         .into_iter()
@@ -367,6 +372,12 @@ mod tests {
             t("data/ x.csv"),
             [
                 r#"line 5: table t of E in "data/ x.csv". A part of the file name starts or ends with a space; the permission list could not show it clearly."#
+            ]
+        );
+        assert_eq!(
+            t(r#"a""b.csv"#),
+            [
+                r#"line 5: table t of E in "a""b.csv". A file name cannot contain a double quote, because the permission list could not show it clearly."#
             ]
         );
         for ending in [".gloss", ".allow", ".trace", ".svg"] {
