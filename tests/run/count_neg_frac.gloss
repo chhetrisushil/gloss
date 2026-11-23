@@ -1,0 +1,4 @@
+feature start
+  show "go"
+  for each i from -2.5 to 3
+    show i
