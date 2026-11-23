@@ -1,0 +1,19 @@
+record P
+  age as number
+
+feature oldest
+  needs ps as list of P
+  give ps
+
+feature start
+  set ps to list of (P with age 1), (P with age 2)
+  set qs to ps
+  for each q in qs
+    set age of q to 9
+    stop
+  for each q in qs
+    add 1 to age of q
+  set rs to oldest with ps
+  for each r in rs
+    add 5 to age of r
+  show ps, " ", qs, " ", rs
