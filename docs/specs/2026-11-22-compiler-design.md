@@ -224,10 +224,59 @@ The milestone ledger (every ruling R2–R49 and the review record) is kept at `~
 | 23, 24 | Out of memory; the spec's programs and failure messages | #264, #265–#266 |
 
 **Deviations from the decisions above** (rulings are numbered M2-R1 … M2-R35 in the milestone ledger):
-- **D14 (200-line PRs):** tasks over the cap were split into sequential PRs, never stacked and never trimmed to fit (M2-R2, M2-R4, M2-R5, M2-R6); a stack of work goes in as one branch per commit.
+- **D14 (200-line PRs):** tasks over the cap were split into sequential PRs, never stacked and never trimmed to fit (M2-R2, M2-R4, M2-R5). Work happened in the main checkout, one branch at a time, after a worktree was deleted under a running session (M2-R6).
 - **D2 and D17:** the machine is Alpine 3.23 `gloss-amd64` under Rosetta; `objdump` comes from `apk add binutils`. Rosetta is not a real kernel, so CI (`ubuntu-latest`) is the check of the real loader.
-- **D21 (irsim):** the `.ulimit` run cases are skipped under `irsim`, which has a fixed 8 MiB stack.
+- **D21 (irsim):** the `.ulimit` run cases are skipped under `irsim`, which has no address-space limit; the skips are counted against the `.ulimit` files so none can vanish.
 - **D22:** the refusal prints as `tables arrive in milestone 3.` (the renderer adds the period to a program-level problem).
 - **§4.2 pipeline:** there is no `codegen` module; `lower` and `target` take its place.
 - **IR machine (§4.6):** `b` (`rcx`) survives a call, so each callee saves it in an extra frame word (M2-R12). `cmp r,[mem]` and `movzx` were not added to the encoder; the backend uses existing forms (M2-R13).
 - **Plan rulings:** P1: a `for each … from … to` start that is not whole is failure 3, `the start of a count must be whole (<source> is <value>)`. P2: a feature that falls off its end stops with `internal error: feature <name> ended without giving a value`, status 2 (worded and placed by M2-R25). P3: failure routines take the line as an argument; there is no current-line global.
+
+**Rulings** (final state; later rulings are noted against the ones they supersede):
+
+*Numbers and arithmetic*
+- M2-R1: `#[allow(clippy::should_implement_trait)]` on `Number::rem`; the plan fixes the name.
+- M2-R7: IR `Int(Div)`/`Int(Rem)` need a divisor above 0 (the runtime uses only positive constants); `irsim` panics on others.
+- M2-R8: after a failed `Num*` jump `a` is undefined (x86 has already written `rax`) and `b` is unchanged; `irsim` poisons `a`.
+- M2-R22: the grammar admits a minus after a built-in's `of` and both `remainder` operands, because the spec's own prose examples (`whole of -3.5`, `remainder of -7 by 2`) did not parse; parser, formatter and `spec/v0.md` changed.
+- M2-R23: the words in a failure's parentheses are the failing expression as `gloss format` writes it (the AST has no column spans); `spec/v0.md` §10 reworded.
+
+*IR, instruction encoder and backend*
+- M2-R3: `Module::text`/`desc` keep a linear scan.
+- M2-R9: `MovRI` prints as `movabs`, because the encoder always emits an imm64 form.
+- M2-R10: the encoder keeps `u8` shift counts; the backend asserts 0..63.
+- M2-R12, M2-R13: see the deviations above.
+
+*Run support and Mac execution*
+- M2-R11: `GLOSS_RUNNER` is split on spaces by design; a runner path with a space needs a wrapper script.
+- M2-R14: when the runner starts with `orb`, output goes to fresh files in the shared test directory and is read back, because OrbStack's forwarding drops the tail of piped output under load (found with plain `head -c 1MiB`; 0 of 4800 runs short afterwards, against 10 of 3200 before). An `#[ignore]` stress test keeps the evidence.
+
+*Runtime*
+- M2-R15, M2-R32: a failed write (result 0 or below) or a failed read ends the program with status 2 and no message, after flushing.
+- M2-R16: `stack_limit(size, sp)` is a separate routine so the cap cases can be tested.
+- M2-R17: `_start` calls `f_start`.
+- M2-R18, superseded by M2-R26: the stack limit is measured from the top of the initial stack (the end of the `AT_EXECFN` string rounded up to a page), falling back to the entry stack pointer; the walks of envp, auxv and the name are bounded (65536, 64, 4096). The 65536 bound is untested (M2-R27).
+- M2-R20, superseded by M2-R21: showing a number never allocates (a 32-byte scratch, `Global::NumBuf`); `number_text(n, line)` allocates and is used for joins and `as text`.
+- M2-R25: the fall-off message has no `line N:` prefix, flushes first and exits 2; it is lowered inline.
+- M2-R28: `parse_number` returns its status in `a` and its value in the first 8 bytes of `NumBuf`, valid until the next `number_format` or `parse_number`.
+- M2-R29: `err_shown` never reads past the end; an invalid UTF-8 byte counts as one character and is written `\u{FFFD}`.
+- M2-R30, M2-R31: the source in every failure message escapes invisible characters as `\u{XXXX}`; a quote inside failure 5's quoted text is doubled (`spec/v0.md` §10 updated).
+
+*Lowering and checking*
+- M2-R19: placeholders for unlowered constructs read `this compiler cannot build this statement/expression yet`.
+- M2-R24: the spec's §9 program needed lists, so `features.gloss` was added with lists.
+- M2-R33: no run case above 10000 bytes of input; growth is unit-tested at 100000 bytes and 1 MiB was checked by hand.
+- M2-R34: replacing an item of a list a loop is walking (`set`, or an arithmetic verb on an item) is refused with the existing `cannot change while the loop on line N walks it`; changing a field of an item stays allowed (`spec/v0.md` §4 updated).
+- M2-R35: the out-of-memory case runs with a 1 GiB `.ulimit` (the plan said 64 MiB), since Rosetta needs about 800 MB of address space to start.
+
+**Tests:** 517 pass and 1 is ignored (the stress test): 414 unit tests and 103 integration tests, including the CLI, 89 run cases (real and `irsim`), the examples, the spec guard, the 2000-result number reference, the objdump check (opt-in, so it skips by default), and the differential tests of backend against `irsim`. Encoder sweeps against `objdump` found 0 mismatches over more than 40,000 instructions; the number routines agreed on 220,000 generated pairs.
+
+**Known limits and deferred items:**
+- **M3 and M4:** tables (refused, D22), `load`, `save`, `clear`, `expect` and `input`. Run-time failures 6–8 are worded in M3. The permission list must show file names unambiguously (carried from M1).
+- **Memory:** nothing is freed. A run under Rosetta needs a `ulimit -v` above about 800 MB, so the out-of-memory case uses 1 GiB (M2-R35), unverified on native x86-64.
+- **Stack:** `irsim` models a 1 MiB stack (smaller than the real 8 MiB default, to keep `too_deep` cheap), so the depth at which failure 10 triggers differs from a real run; the message is the same. The stack limit is capped at 1 GiB.
+- **Mac runs:** every run under `orb` is Rosetta. The `tests/scaling.rs` reverse-chain test once took 10.5 s under heavy compile load (bound 10 s), and the difftest once failed in a cold run that could not be reproduced; both are WATCH items. Once, a runaway `dhcpcd` inside the machine kept OrbStack at 100% CPU and slowed the run tests about 20 times; if run tests crawl, check the machine's processes first.
+- **Failure messages** quote the expression as `gloss format` writes it (M2-R23).
+- **Reviews:** the encoder, ELF writer, runtime memory, input and descriptor code each had a first review on the top tier.
+
+The milestone ledger (every ruling, review record and carry) is kept in `.superpowers/sdd/2026-11-23-compiler-m2-codegen/progress.md`.
