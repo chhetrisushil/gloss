@@ -681,3 +681,60 @@ fn number_text_gives_a_fresh_text_that_outlives_the_next_format() {
     let o = run(&program(body, &[]));
     assert_eq!(String::from_utf8(o.stdout).unwrap(), "997");
 }
+
+#[test]
+fn put_decimal_appends_zero_padded_digits_and_returns_the_new_length() {
+    let cases: [(i64, i64); 9] = [
+        (0, 1),
+        (7, 1),
+        (10, 1),
+        (7, 4),
+        (123, 2),
+        (9999, 4),
+        (42, 0),
+        (922_337_203_685_477, 1),
+        (i64::MAX, 19),
+    ];
+    let mut body = Vec::new();
+    for (value, width) in cases {
+        // A buffer holding "x", kept on the stack while `put_decimal` appends after it.
+        body.extend([
+            Const(A, 64),
+            Push(A),
+            Const(A, 1),
+            Push(A),
+            Call("alloc".into()),
+        ]);
+        body.extend([
+            Const(B, i64::from(b'x')),
+            StoreByte {
+                base: A,
+                offset: 8,
+                from: B,
+            },
+            Push(A),
+            Push(A),
+        ]);
+        for n in [1, value, width] {
+            body.extend([Const(A, n), Push(A)]);
+        }
+        body.extend([Call("put_decimal".into()), Pop(B)]);
+        body.extend([
+            Store {
+                base: B,
+                offset: 0,
+                from: A,
+            },
+            Push(B),
+            Call("out_text".into()),
+        ]);
+        body.extend(out_text(0));
+    }
+    body.push(Call("flush".into()));
+    let o = run(&program(body, &[b"\n"]));
+    let want: String = cases
+        .iter()
+        .map(|(v, w)| format!("x{v:0w$}\n", w = *w as usize))
+        .collect();
+    assert_eq!(String::from_utf8(o.stdout).unwrap(), want);
+}
