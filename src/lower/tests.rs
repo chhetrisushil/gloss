@@ -139,10 +139,10 @@ fn a_negative_position_is_failure_2_and_the_last_item_is_reachable() {
 }
 
 #[test]
-fn a_record_copied_into_an_item_is_not_built_yet() {
+fn a_stored_record_is_copied_unless_it_was_just_built() {
     let rec = "record B\n  n as number\n\nfeature start\n  set xs to list of (B with n 1)\n  set item 1 of xs to item 1 of xs\n";
-    let d = lowered(rec).unwrap_err();
-    assert_eq!(d.problem, "this compiler cannot build this statement yet");
+    let t = start_text(&lowered(rec).unwrap());
+    assert_eq!(t.matches("call copy_value").count(), 1, "{t}");
 }
 
 #[test]

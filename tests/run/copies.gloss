@@ -1,0 +1,19 @@
+record P
+  age as number
+
+feature same
+  needs xs as list of number
+  give xs
+
+feature start
+  set a to list of 1, 2
+  set b to a
+  append 3 to b
+  set c to same with a
+  append 4 to c
+  set r to P with age 1
+  set ps to list of r
+  set age of r to 2
+  set q to item 1 of ps
+  set age of q to 3
+  show a, " ", b, " ", c, " ", ps
