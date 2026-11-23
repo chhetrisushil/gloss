@@ -4,6 +4,7 @@
 
 mod calls;
 mod memory;
+mod num;
 mod ops;
 
 use std::io::Write;
@@ -13,7 +14,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::ir::Reg::{A, B};
-use crate::ir::{Function, Inst, Module, Prim};
+use crate::ir::{Data, Function, Inst, Module, Prim};
 use crate::irsim;
 use crate::target::x86_64_linux;
 
@@ -126,4 +127,57 @@ fn value_cases_agree() {
     cases.extend(memory::cases());
     let names: Vec<String> = cases.iter().map(|c| c.name.clone()).collect();
     agree(&value_module(calls::helpers(), &cases), &names, b"");
+}
+
+/// Writes the `words` 8-byte words on top of the stack to standard output, then pops them.
+/// It uses `b` as scratch.
+fn write_words(words: i64) -> Vec<Inst> {
+    vec![
+        Inst::StackPointer(B),
+        Inst::Const(A, 1),
+        Inst::Push(A),
+        Inst::Push(B),
+        Inst::Const(A, 8 * words),
+        Inst::Push(A),
+        Inst::System(Prim::Write),
+    ]
+}
+
+/// Writes the text constant `text` (bytes only) to standard output, then clobbers `a`.
+fn write_text(text: u32, len: i64) -> Vec<Inst> {
+    vec![
+        Inst::Const(A, 1),
+        Inst::Push(A),
+        Inst::AddressOf(A, Data::Text(text)),
+        Inst::AddImm(A, 8),
+        Inst::Push(A),
+        Inst::Const(A, len),
+        Inst::Push(A),
+        Inst::System(Prim::Write),
+    ]
+}
+
+/// A program: `_start` has the body `body`, which must end by exiting.
+fn program(m: &mut Module, body: Vec<Inst>) {
+    let mut all = vec![Inst::Enter(0)];
+    all.extend(body);
+    m.functions.push(Function {
+        name: "_start".into(),
+        params: 0,
+        slots: 0,
+        body: all,
+    });
+}
+
+/// Runs the whole program in both machines and compares everything it did.
+fn agree_program(name: &str, m: &Module, stdin: &[u8]) {
+    let want = simulated(m, stdin);
+    if let Some(got) = real(m, stdin) {
+        assert_eq!(got, want, "{name}");
+    }
+}
+
+#[test]
+fn number_programs_agree() {
+    num::programs(&mut |name, m| agree_program(name, m, b""));
 }
