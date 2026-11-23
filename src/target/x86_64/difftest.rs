@@ -3,6 +3,7 @@
 //! runner and says so on standard error when there is none.
 
 mod calls;
+mod ops;
 
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -119,7 +120,8 @@ fn agree(m: &Module, names: &[String], stdin: &[u8]) {
 
 #[test]
 fn value_cases_agree() {
-    let cases = calls::cases();
+    let mut cases = calls::cases();
+    cases.extend(ops::cases());
     let names: Vec<String> = cases.iter().map(|c| c.name.clone()).collect();
     agree(&value_module(calls::helpers(), &cases), &names, b"");
 }
