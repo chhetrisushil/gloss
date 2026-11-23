@@ -1,0 +1,8 @@
+feature countdown
+  needs n as number
+  if n is 0
+    give 0
+  give countdown with n - 1
+
+feature start
+  show (countdown with 1000)

@@ -1,0 +1,5 @@
+feature answer
+  give 42
+
+feature start
+  show answer

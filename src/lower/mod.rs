@@ -111,6 +111,26 @@ fn lower_feature(
     })
 }
 
+/// Fills in every `StackCheck`: the callee's frame is `8 * (slots + 3)` bytes (a return
+/// address, a saved frame pointer, a saved `b` and the slots), plus 64 for the helpers that
+/// run below it (M2-R12). The callee's hidden slots are known only after it is lowered.
+fn size_stack_checks(module: &mut Module) {
+    let slots: BTreeMap<String, u32> = module
+        .functions
+        .iter()
+        .map(|f| (f.name.clone(), f.slots))
+        .collect();
+    for f in &mut module.functions {
+        for i in 1..f.body.len() {
+            if let (Inst::Call(name), Inst::StackCheck { bytes, .. }) =
+                (&f.body[i].clone(), &mut f.body[i - 1])
+            {
+                *bytes = 8 * (slots[name] + 3) + 64;
+            }
+        }
+    }
+}
+
 /// Slots are numbered from 1: variables first, then loop variables. A name gets one slot, so
 /// two loops that use the same name share it; the count is the number of unique variable and
 /// loop names, inputs excluded (they are read with `LoadArg`).
@@ -141,6 +161,7 @@ pub fn lower(program: &Program, types: &TypeInfo, src: &Source) -> Result<Module
         let f = lower_feature(&mut module, src, types, feature, &mut called)?;
         module.functions.push(f);
     }
+    size_stack_checks(&mut module);
     runtime::add_reachable(&mut module, &called);
     Ok(module)
 }

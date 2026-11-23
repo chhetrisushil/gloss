@@ -47,6 +47,11 @@ impl Lowerer<'_> {
         self.fail_label(1, "dividing by zero (", source, " is 0)")
     }
 
+    /// Failure 10, for a call of `feature` that ran out of stack.
+    pub fn too_deep(&mut self, feature: &str) -> Label {
+        self.fail_label(10, "calls nested too deep (", feature, ")")
+    }
+
     /// Failure 3 for a count end or start whose source is `source` and whose value is in
     /// `slot`; `what` is `end` or `start`.
     pub fn not_whole(&mut self, what: &str, source: &str, slot: u32) -> Label {

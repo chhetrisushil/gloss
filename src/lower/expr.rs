@@ -22,6 +22,7 @@ impl Lowerer<'_> {
                 Ok(())
             }
             ExprKind::Paren(inner) => self.expr(inner),
+            ExprKind::Call { feature, inputs } => self.feature_call(feature, inputs),
             ExprKind::Name(name) => self.name(e, name),
             ExprKind::Negate(inner) => {
                 self.expr(inner)?;
@@ -97,11 +98,25 @@ impl Lowerer<'_> {
                 self.emit(Inst::LoadArg(Reg::A, at as u32 + 1));
                 Ok(())
             }
+            Some(NameKind::FeatureCall) => self.feature_call(name, &[]),
             _ => Err(Diagnostic::error(
                 self.src,
                 e.line,
                 "this compiler cannot build this expression yet",
             )),
         }
+    }
+
+    /// Pushes the inputs left to right, checks the stack, calls; the backend drops the inputs
+    /// and the result is in `a`. The check's size is filled in once every feature is lowered.
+    pub fn feature_call(&mut self, feature: &str, inputs: &[Expr]) -> Result<(), Diagnostic> {
+        for input in inputs {
+            self.expr(input)?;
+            self.emit(Inst::Push(Reg::A));
+        }
+        let fail = self.too_deep(feature);
+        self.emit(Inst::StackCheck { bytes: 0, fail });
+        self.emit(Inst::Call(super::function_name(feature)));
+        Ok(())
     }
 }

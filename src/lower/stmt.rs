@@ -73,6 +73,18 @@ impl Lowerer<'_> {
                 to,
                 body,
             } => self.count(s.line, var, from, to, body),
+            StmtKind::Give(value) => {
+                self.line = s.line;
+                self.emit(Inst::Line(s.line));
+                self.expr(value)?;
+                self.emit(Inst::Return);
+                Ok(())
+            }
+            StmtKind::Run { feature, inputs } => {
+                self.line = s.line;
+                self.emit(Inst::Line(s.line));
+                self.feature_call(feature, inputs)
+            }
             StmtKind::Skip | StmtKind::Stop => {
                 let (skip, stop) = *self.loops.last().expect("skip and stop sit inside a loop");
                 let target = if matches!(s.kind, StmtKind::Skip) {
