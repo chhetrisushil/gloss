@@ -2,6 +2,7 @@
 
 use super::machine::Machine;
 use crate::ir::{Inst, IntOp, Shift};
+use crate::number::Number;
 
 fn int_op(op: IntOp, a: i64, b: i64) -> i64 {
     if matches!(op, IntOp::Div | IntOp::Rem) {
@@ -110,14 +111,32 @@ impl Machine<'_> {
             }
             Inst::Return => return self.leave(),
             Inst::Enter(n) => assert_eq!(*n as usize, self.frame().slots.len()),
-            Inst::NumAdd { .. }
-            | Inst::NumSub { .. }
-            | Inst::NumNeg { .. }
-            | Inst::NumMul { .. }
-            | Inst::NumDiv { .. }
-            | Inst::NumRem { .. }
-            | Inst::NumWhole
-            | Inst::System(_) => todo!("Task 3b"),
+            Inst::NumAdd { range } => {
+                let result = Number(self.a).checked_add(Number(self.b));
+                self.settle(result, *range, *range);
+            }
+            Inst::NumSub { range } => {
+                let result = Number(self.a).checked_sub(Number(self.b));
+                self.settle(result, *range, *range);
+            }
+            Inst::NumNeg { range } => {
+                let result = Number(self.a).checked_neg();
+                self.settle(result, *range, *range);
+            }
+            Inst::NumMul { range } => {
+                let result = Number(self.a).mul_round(Number(self.b));
+                self.settle(result, *range, *range);
+            }
+            Inst::NumDiv { zero, range } => {
+                let result = Number(self.a).div_round(Number(self.b));
+                self.settle(result, *zero, *range);
+            }
+            Inst::NumRem { zero } => {
+                let result = Number(self.a).rem(Number(self.b));
+                self.settle(result, *zero, *zero);
+            }
+            Inst::NumWhole => self.a = Number(self.a).whole().0,
+            Inst::System(_) => todo!("Task 3b"),
         }
         None
     }
