@@ -1,20 +1,20 @@
 //! Byte layouts for the arithmetic, shift and flag instructions.
 
-use super::emit::{code, rex};
+use super::emit::{code, modrm_reg, rex};
 use super::inst::{AluOp, Cc, R};
 
 /// `REX.W op /r` on two registers: `reg` in ModRM.reg, `rm` in ModRM.rm.
 pub fn rr(out: &mut Vec<u8>, op: &[u8], reg: R, rm: R) {
     rex(out, true, reg, Some(rm), false);
     out.extend_from_slice(op);
-    out.push(0b11_000_000 | ((code(reg) & 7) << 3) | (code(rm) & 7));
+    modrm_reg(out, reg, rm);
 }
 
-/// `REX.W op /digit` on one register, followed by `tail`.
-pub fn digit(out: &mut Vec<u8>, op: u8, digit: u8, rm: R, tail: &[u8]) {
+/// `REX.W op /ext` on one register, followed by `tail`.
+pub fn digit(out: &mut Vec<u8>, op: u8, ext: u8, rm: R, tail: &[u8]) {
     rex(out, true, R::Rax, Some(rm), false);
     out.push(op);
-    out.push(0b11_000_000 | (digit << 3) | (code(rm) & 7));
+    out.push(0b11_000_000 | (ext << 3) | (code(rm) & 7));
     out.extend_from_slice(tail);
 }
 

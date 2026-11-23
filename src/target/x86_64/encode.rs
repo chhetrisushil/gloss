@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use super::emit::{code, mem_base, modrm_mem, modrm_reg, rex};
+use super::emit::{code, mem_base, modrm_mem, rex};
 use super::encode_alu as alu;
 use super::inst::{Mem, R, Sym, X, text};
 
@@ -49,9 +49,7 @@ fn reg_mem(e: &mut Encoded, w: bool, op: &[u8], r: R, m: &Mem, force: bool) {
 fn one(e: &mut Encoded, x: &X) -> Result<(), String> {
     match x {
         X::MovRR(d, s) => {
-            rex(&mut e.bytes, true, *s, Some(*d), false);
-            e.bytes.push(0x89);
-            modrm_reg(&mut e.bytes, *s, *d);
+            alu::rr(&mut e.bytes, &[0x89], *s, *d);
         }
         X::MovRI(d, n) => {
             rex(&mut e.bytes, true, R::Rax, Some(*d), false);
