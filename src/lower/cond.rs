@@ -27,6 +27,10 @@ impl Lowerer<'_> {
             {
                 self.compare(*op, left, right)
             }
+            // The checker lets only `is` and `is not` compare text.
+            ExprKind::Compare { op, left, right } if self.is_text(left) => {
+                self.compare_text(*op == CompareOp::IsNot, left, right)
+            }
             ExprKind::Not(inner) => self.not(inner),
             ExprKind::And(parts) => self.join(parts, 0),
             ExprKind::Or(parts) => self.join(parts, 1),
@@ -45,6 +49,24 @@ impl Lowerer<'_> {
             CompareOp::AtLeast => Cond::Ge,
             CompareOp::AtMost => Cond::Le,
         }));
+        Ok(())
+    }
+
+    /// Both texts are pushed for `text_equal`; `is not` flips its answer.
+    fn compare_text(&mut self, negate: bool, left: &Expr, right: &Expr) -> Result<(), Diagnostic> {
+        self.expr(left)?;
+        self.emit(Inst::Push(Reg::A));
+        self.expr(right)?;
+        self.emit(Inst::Push(Reg::A));
+        self.call("text_equal");
+        if negate {
+            self.emit(Inst::Move {
+                to: Reg::B,
+                from: Reg::A,
+            });
+            self.emit(Inst::Const(Reg::A, 1));
+            self.emit(Inst::Int(IntOp::Sub));
+        }
         Ok(())
     }
 
