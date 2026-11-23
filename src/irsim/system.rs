@@ -32,6 +32,9 @@ impl Machine<'_> {
         (fd, addr, len as u64)
     }
 
+    /// Writes to `fd` 1 or 2, always in full. Unlike Linux it does not model SIGPIPE or a
+    /// closed standard output: the design spec has a write to a closed pipe kill the
+    /// program quietly, which only a real run shows.
     fn write(&mut self) {
         let (fd, addr, len) = self.pop_transfer();
         if fd != 1 && fd != 2 {

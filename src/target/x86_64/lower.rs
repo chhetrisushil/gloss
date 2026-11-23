@@ -144,6 +144,9 @@ fn inst_x(
             }
         }
         Inst::StackCheck { bytes, fail } => {
+            // The number helpers (a return address) and the syscall wrappers (`rcx` and, for
+            // StackSize, a 16-byte buffer) use up to 24 bytes below the IR's stack; the
+            // plan's `8 * (slots + 3) + 64` margin per frame covers them.
             out.push(X::Lea(R::Rdx, Mem::Base(R::Rsp, -disp(u64::from(*bytes))?)));
             out.push(X::MovRM(R::Rsi, Mem::Rip(Sym::Global(Global::StackLimit))));
             out.push(X::Alu(AluOp::Cmp, R::Rdx, R::Rsi));
