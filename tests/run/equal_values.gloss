@@ -1,0 +1,25 @@
+record P
+  name as text
+  age as number
+  ok as truth
+
+feature start
+  set a to P with name "Asha", age 9, ok yes
+  set b to P with name "Asha", age 9, ok yes
+  set c to P with name "Asha", age 9, ok no
+  show (a is b), (a is c), (a is not c), (a is not b)
+  set xs to list of 4, 9, 2
+  show (xs is list of 4, 9, 2), (xs is list of 4, 9), (xs is not list of 4, 9, 3)
+  show (xs is not list of 4, 9, 2), (empty list of number is empty list of number)
+  set ws to list of "a""b", "c"
+  show (ws is list of "a""b", "c"), (ws is list of "a""b", "d"), (ws is not list of "a", "c")
+  set ps to list of (P with name "A", age 1, ok yes), (P with name "B", age 2, ok no)
+  set same to list of (P with name "A", age 1, ok yes), (P with name "B", age 2, ok no)
+  set fewer to list of (P with name "A", age 1, ok yes)
+  set other to list of (P with name "A", age 1, ok yes), (P with name "B", age 2, ok yes)
+  show (ps is same), (ps is fewer), (ps is other), (ps is not other)
+  set ts to list of yes, no
+  show (ts is list of yes, no), (ts is list of yes, yes)
+  show (item 1 of ps is P with name "A", age 1, ok yes), (item 2 of ps is item 1 of ps)
+  if xs is list of 4, 9, 2
+    show "branch"

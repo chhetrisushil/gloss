@@ -4,7 +4,7 @@ use crate::ast::stmt::Stmt;
 use crate::ast::{CompareOp, Expr, ExprKind};
 use crate::check::Ty;
 use crate::diag::Diagnostic;
-use crate::ir::{Cond, Inst, IntOp, Label, Reg};
+use crate::ir::{Cond, Data, Inst, IntOp, Label, Reg};
 
 impl Lowerer<'_> {
     pub fn is_truth(&self, e: &Expr) -> bool {
@@ -30,6 +30,12 @@ impl Lowerer<'_> {
             // The checker lets only `is` and `is not` compare text.
             ExprKind::Compare { op, left, right } if self.is_text(left) => {
                 self.compare_text(*op == CompareOp::IsNot, left, right)
+            }
+            // Lists and records are compared by their parts.
+            ExprKind::Compare { op, left, right }
+                if self.list_item_type(left).is_some() || self.record_type(left).is_some() =>
+            {
+                self.compare_values(*op == CompareOp::IsNot, left, right)
             }
             ExprKind::IsNumber { value, negated } => self.is_number_check(*negated, value),
             ExprKind::Not(inner) => self.not(inner),
@@ -60,6 +66,33 @@ impl Lowerer<'_> {
         self.expr(right)?;
         self.emit(Inst::Push(Reg::A));
         self.call("text_equal");
+        if negate {
+            self.emit(Inst::Move {
+                to: Reg::B,
+                from: Reg::A,
+            });
+            self.emit(Inst::Const(Reg::A, 1));
+            self.emit(Inst::Int(IntOp::Sub));
+        }
+        Ok(())
+    }
+
+    /// Both values are pushed for `equal_values` with the descriptor of their type.
+    fn compare_values(
+        &mut self,
+        negate: bool,
+        left: &Expr,
+        right: &Expr,
+    ) -> Result<(), Diagnostic> {
+        let ty = self.types.expr_types[left.id.0 as usize].clone();
+        let desc = self.type_desc(&ty.expect("the checker typed the left side"));
+        self.expr(left)?;
+        self.emit(Inst::Push(Reg::A));
+        self.expr(right)?;
+        self.emit(Inst::Push(Reg::A));
+        self.emit(Inst::AddressOf(Reg::A, Data::Desc(desc)));
+        self.emit(Inst::Push(Reg::A));
+        self.call("equal_values");
         if negate {
             self.emit(Inst::Move {
                 to: Reg::B,
