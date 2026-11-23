@@ -247,6 +247,41 @@ pub(crate) fn write_atomically(
 mod tests {
     use super::*;
 
+    /// A fresh folder for one test, removed afterwards.
+    fn folder(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("gloss-write-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_link_at_the_temporary_name_is_never_followed() {
+        let dir = folder("link");
+        let victim = dir.join("victim");
+        std::fs::write(&victim, "keep").unwrap();
+        let first = dir.join(format!(".gloss-write-{}-0.tmp", std::process::id()));
+        std::os::unix::fs::symlink(&victim, &first).unwrap();
+        write_atomically(&dir.join("t.allow"), b"new", Some(0o644)).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("t.allow")).unwrap(), "new");
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+        assert!(std::fs::symlink_metadata(&first).unwrap().is_symlink());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn writing_stops_when_every_temporary_name_is_taken() {
+        let dir = folder("full");
+        for n in 0..100 {
+            let name = format!(".gloss-write-{}-{n}.tmp", std::process::id());
+            std::fs::write(dir.join(name), "").unwrap();
+        }
+        let e = write_atomically(&dir.join("t.allow"), b"new", Some(0o644)).unwrap_err();
+        assert_eq!(e.to_string(), "no free temporary file name");
+        assert!(!dir.join("t.allow").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// In 3a nothing may ask a question, so any call fails the test.
     struct FakePrompt {
         terminal: bool,
