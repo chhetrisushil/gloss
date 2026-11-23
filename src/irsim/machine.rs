@@ -7,6 +7,17 @@ use std::collections::HashMap;
 /// The top of the simulated stack, which grows down.
 const STACK_TOP: u64 = 0x7fff_0000_0000;
 
+/// The soft stack limit `Prim::StackSize` reports.
+pub const STACK_SIZE: i64 = 8 * 1024 * 1024;
+
+/// How the program stopped.
+pub enum Ended {
+    /// The outermost function returned this result.
+    Returned(i64),
+    /// `Prim::Exit` ran with this status.
+    Exited(i32),
+}
+
 /// One active call.
 pub struct Frame {
     pub func: usize,
@@ -32,6 +43,8 @@ pub struct Machine<'m> {
     pub compared: Option<(i64, i64)>,
     /// The operands of the `Compare` just run, usable by the next instruction.
     pub fresh: Option<(i64, i64)>,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
 }
 
 fn label_positions(function: &Function) -> HashMap<Label, usize> {
@@ -56,6 +69,8 @@ impl<'m> Machine<'m> {
             b: 0,
             compared: None,
             fresh: None,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
         }
     }
 
@@ -166,8 +181,8 @@ impl<'m> Machine<'m> {
         self.frames.is_empty().then_some(self.a)
     }
 
-    /// Runs `name` with `args` pushed left to right, until it returns.
-    pub fn execute(&mut self, name: &str, args: &[i64]) -> i64 {
+    /// Runs `name` with `args` pushed left to right, until it returns or exits.
+    pub fn execute(&mut self, name: &str, args: &[i64]) -> Ended {
         for &arg in args {
             self.push(arg);
         }
@@ -179,8 +194,8 @@ impl<'m> Machine<'m> {
         );
         self.enter(name);
         loop {
-            if let Some(result) = self.step() {
-                return result;
+            if let Some(ended) = self.step() {
+                return ended;
             }
         }
     }
