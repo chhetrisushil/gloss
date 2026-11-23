@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use super::encode::encode;
-use super::inst::{X, text};
+use super::inst::{Mem, R, X, text};
 use super::lower::lower_function;
 use crate::ir::Reg::{A, B};
-use crate::ir::{Cond, Data, Function, Global, Inst, Label, Prim};
+use crate::ir::{Cond, Data, Function, Global, Inst, IntOp, Label, Prim, Shift};
 
 fn func(params: u32, slots: u32, body: Vec<Inst>) -> Function {
     Function {
@@ -199,9 +199,101 @@ fn a_stack_check_compares_against_the_limit() {
 }
 
 #[test]
+fn integer_operations_and_shifts() {
+    assert_eq!(one(Inst::Int(IntOp::Add)), ["add rax, rcx"]);
+    assert_eq!(one(Inst::Int(IntOp::Sub)), ["sub rax, rcx"]);
+    assert_eq!(one(Inst::Int(IntOp::And)), ["and rax, rcx"]);
+    assert_eq!(one(Inst::Int(IntOp::Or)), ["or rax, rcx"]);
+    assert_eq!(one(Inst::Int(IntOp::Mul)), ["imul rax, rcx"]);
+    assert_eq!(one(Inst::Int(IntOp::Div)), ["cqo", "idiv rcx"]);
+    assert_eq!(
+        one(Inst::Int(IntOp::Rem)),
+        ["cqo", "idiv rcx", "mov rax, rdx"]
+    );
+    assert_eq!(one(Inst::Shift(Shift::Left, 3)), ["shl rax, 3"]);
+    assert_eq!(one(Inst::Shift(Shift::Right, 63)), ["sar rax, 63"]);
+    assert_eq!(one(Inst::Shift(Shift::RightLogical, 1)), ["shr rax, 1"]);
+    assert_eq!(one(Inst::AddImm(B, -8)), ["add rcx, -8"]);
+}
+
+#[test]
 fn numeric_and_system_instructions_wait_for_8b() {
     let err = lower_function(&func(0, 0, vec![Inst::NumWhole]), &known()).unwrap_err();
     assert_eq!(err, "cannot lower a = num_whole a yet");
     let err = lower_function(&func(0, 0, vec![Inst::System(Prim::Exit)]), &known());
     assert_eq!(err.unwrap_err(), "cannot lower system exit yet");
+}
+
+#[test]
+fn only_the_mapped_registers_appear() {
+    let allowed = [
+        R::Rax,
+        R::Rcx,
+        R::Rdx,
+        R::Rsi,
+        R::Rdi,
+        R::R8,
+        R::R9,
+        R::R10,
+        R::R11,
+        R::Rsp,
+        R::Rbp,
+    ];
+    let body = vec![
+        Inst::Enter(2),
+        Inst::LoadArg(A, 1),
+        Inst::StoreSlot(1, A),
+        Inst::Int(IntOp::Rem),
+        Inst::Compare,
+        Inst::SetIf(Cond::Lt),
+        Inst::StackCheck {
+            bytes: 16,
+            fail: Label(1),
+        },
+        Inst::Call("two".to_string()),
+        Inst::Mark(Label(1)),
+        Inst::Return,
+    ];
+    let xs = lower_function(&func(2, 2, body), &known()).unwrap();
+    for x in &xs {
+        for r in registers(x) {
+            assert!(allowed.contains(&r), "{x:?} uses {r:?}");
+        }
+    }
+}
+
+fn registers(x: &X) -> Vec<R> {
+    let mem = |m: &Mem| match m {
+        Mem::Base(r, _) => vec![*r],
+        Mem::Rip(_) => vec![],
+    };
+    match x {
+        X::MovRR(a, b) | X::Alu(_, a, b) | X::Imul(a, b) | X::Test(a, b) => vec![*a, *b],
+        X::MovRI(r, _)
+        | X::Push(r)
+        | X::Pop(r)
+        | X::AluI(_, r, _)
+        | X::ImulWide(r)
+        | X::Mul(r)
+        | X::Idiv(r)
+        | X::Div(r)
+        | X::Neg(r)
+        | X::Shl(r, _)
+        | X::Sar(r, _)
+        | X::Shr(r, _)
+        | X::Setcc(_, r) => vec![*r],
+        X::MovRM(r, m) | X::MovMR(m, r) | X::MovzxRM8(r, m) | X::MovM8R(m, r) | X::Lea(r, m) => {
+            let mut v = mem(m);
+            v.push(*r);
+            v
+        }
+        X::Cqo
+        | X::Jcc(..)
+        | X::Jmp(_)
+        | X::Call(_)
+        | X::Ret
+        | X::Syscall
+        | X::Label(_)
+        | X::Comment(_) => vec![],
+    }
 }
