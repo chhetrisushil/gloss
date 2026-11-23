@@ -138,16 +138,26 @@ fn err_text_writes_to_standard_error_unbuffered() {
 }
 
 #[test]
-fn err_int_writes_decimal_digits() {
-    for (n, want) in [
-        (0, "0"),
-        (7, "7"),
-        (10, "10"),
-        (4096, "4096"),
-        (i64::MAX, "9223372036854775807"),
-    ] {
+fn err_int_writes_any_number_in_decimal() {
+    let cases = [
+        0,
+        7,
+        10,
+        4096,
+        100,
+        -5,
+        -123,
+        1_000_000_000_000_000_000,
+        i64::MAX,
+        i64::MIN,
+    ];
+    for n in cases {
         let body = vec![Const(A, n), Push(A), Call("err_int".into())];
-        assert_eq!(run(&program(body, &[])).stderr, want.as_bytes(), "{n}");
+        assert_eq!(
+            run(&program(body, &[])).stderr,
+            n.to_string().as_bytes(),
+            "{n}"
+        );
     }
 }
 

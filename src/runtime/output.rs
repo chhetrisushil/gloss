@@ -2,7 +2,7 @@
 //! message pieces.
 
 use super::asm::Asm;
-use crate::ir::Cond::{Ge, Le, Lt};
+use crate::ir::Cond::{Ge, Le, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Data, Function, Global, Inst::*, IntOp, Prim};
 
@@ -131,21 +131,8 @@ fn err_text() -> Function {
     s.finish("err_text", 1, 0)
 }
 
-/// `err_int(n)`: `n` in decimal, for `n >= 0`. Each digit is written from the stack.
-fn err_int() -> Function {
-    let mut s = Asm::default();
-    let digit = s.label();
-    s.i(LoadArg(A, 1));
-    s.i(Const(B, 10));
-    s.jump_if(Lt, digit);
-    s.i(Int(IntOp::Div));
-    s.i(Push(A));
-    s.call("err_int");
-    s.i(Mark(digit));
-    s.i(LoadArg(A, 1));
-    s.i(Const(B, 10));
-    s.i(Int(IntOp::Rem));
-    s.i(AddImm(A, i32::from(b'0')));
+/// Writes the byte in `a` to standard error, from the stack.
+fn emit_byte(s: &mut Asm) {
     s.i(Push(A));
     s.push_const(2);
     s.i(StackPointer(A));
@@ -154,7 +141,72 @@ fn err_int() -> Function {
     s.push_const(1);
     s.i(System(Prim::Write));
     s.i(Pop(B));
-    s.finish("err_int", 1, 0)
+}
+
+/// `err_int(n)`: any `n` in decimal, from the highest power of ten down, skipping leading
+/// zeros. It works on `-|n|` so that the most negative number needs no special case.
+/// Slots: 1 the rest, 2 the power of ten, 3 whether a digit was written, 4 the digit.
+fn err_int() -> Function {
+    let mut s = Asm::default();
+    let (positive, store, again, print, next, done) = (
+        s.label(),
+        s.label(),
+        s.label(),
+        s.label(),
+        s.label(),
+        s.label(),
+    );
+    s.i(LoadArg(A, 1));
+    s.i(Const(B, 0));
+    s.jump_if(Ge, positive);
+    s.i(Const(A, i64::from(b'-')));
+    emit_byte(&mut s);
+    s.i(LoadArg(A, 1));
+    s.i(Jump(store));
+    s.i(Mark(positive));
+    s.i(Move { to: B, from: A });
+    s.i(Const(A, 0));
+    s.i(Int(IntOp::Sub));
+    s.i(Mark(store));
+    s.i(StoreSlot(1, A));
+    s.i(Const(A, 1_000_000_000_000_000_000));
+    s.i(StoreSlot(2, A));
+    s.i(Const(A, 0));
+    s.i(StoreSlot(3, A));
+    s.i(Mark(again));
+    for op in [IntOp::Div, IntOp::Rem] {
+        s.i(LoadSlot(A, 1));
+        s.i(LoadSlot(B, 2));
+        s.i(Int(op));
+        s.i(StoreSlot(if op == IntOp::Div { 4 } else { 1 }, A));
+    }
+    s.i(Const(A, 0));
+    s.i(LoadSlot(B, 4));
+    s.i(Int(IntOp::Sub));
+    s.i(StoreSlot(4, A));
+    s.i(Const(B, 0));
+    s.jump_if(Ne, print);
+    s.i(LoadSlot(A, 3));
+    s.jump_if(Ne, print);
+    s.i(LoadSlot(A, 2));
+    s.i(Const(B, 1));
+    s.jump_if(Ne, next);
+    s.i(Mark(print));
+    s.i(Const(A, 1));
+    s.i(StoreSlot(3, A));
+    s.i(LoadSlot(A, 4));
+    s.i(AddImm(A, i32::from(b'0')));
+    emit_byte(&mut s);
+    s.i(Mark(next));
+    s.i(LoadSlot(A, 2));
+    s.i(Const(B, 1));
+    s.jump_if(Le, done);
+    s.i(Const(B, 10));
+    s.i(Int(IntOp::Div));
+    s.i(StoreSlot(2, A));
+    s.i(Jump(again));
+    s.i(Mark(done));
+    s.finish("err_int", 1, 4)
 }
 
 /// `fail_begin(line, code)`: flushes, then starts `line <line>: failure <code>: `.
