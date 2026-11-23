@@ -1,0 +1,6 @@
+record P
+  age as number
+
+feature start
+  set xs to list of (P with age 1)
+  set age of item 2 of xs to 5

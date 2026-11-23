@@ -1,0 +1,6 @@
+record P
+  amount as number
+
+feature start
+  set xs to list of (P with amount 9999999999)
+  multiply amount of item 1 of xs by 9999999999
