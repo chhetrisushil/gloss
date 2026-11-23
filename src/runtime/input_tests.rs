@@ -144,3 +144,41 @@ fn a_text_that_cannot_double_is_out_of_memory() {
         assert_eq!(o.stderr, b"line 3: failure 10: out of memory\n", "{room}");
     }
 }
+
+/// Source line the asks are made on.
+const LINE: i64 = 7;
+
+/// A program that asks `n` times with the question `?` and shows each answer then `|`.
+fn run_asks(n: usize, stdin: &[u8]) -> Outcome {
+    let mut body: Vec<Inst> = Vec::new();
+    for _ in 0..n {
+        body.extend([AddressOf(A, Data::Text(0)), Push(A)]);
+        body.extend([Const(A, LINE), Push(A), Call("ask".into()), Push(A)]);
+        body.push(Call("out_text".into()));
+        body.extend([
+            AddressOf(A, Data::Text(1)),
+            Push(A),
+            Call("out_text".into()),
+        ]);
+    }
+    body.push(Call("flush".into()));
+    let m = program(body, &[b"?", b"|"]);
+    irsim::run(&m, "_start", stdin)
+}
+
+#[test]
+fn two_asks_share_one_buffered_input_and_drop_line_endings() {
+    for input in [&b"Asha\r\nRavi"[..], b"Asha\nRavi\n"] {
+        let o = run_asks(2, input);
+        assert_eq!((o.status, o.stdout), (0, b"?\nAsha|?\nRavi|".to_vec()));
+        assert!(o.stderr.is_empty());
+    }
+}
+
+#[test]
+fn end_of_input_with_nothing_read_is_failure_9() {
+    let o = run_asks(2, b"a\n");
+    assert_eq!(o.stdout, b"?\na|?\n");
+    let message = b"line 7: failure 9: input ended while ask was waiting\n";
+    assert_eq!((o.status, o.stderr), (2, message.to_vec()));
+}
