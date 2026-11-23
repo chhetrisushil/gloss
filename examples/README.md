@@ -12,6 +12,7 @@ Small Gloss programs that compile to x86-64 Linux executables with today's compi
 | [square_root.gloss](square_root.gloss) | Newton's method on fixed-point numbers, and `as text with 2 places` |
 | [palindromes.gloss](palindromes.gloss) | Reversing a number's digits with `remainder of` and `whole of` |
 | [binary_search.gloss](binary_search.gloss) | Binary search: finding a hidden number in a range, counting the steps, and the whole square root of a number |
+| [bubble_sort.gloss](bubble_sort.gloss) | Bubble sort on a copy of a list: swapping with `set item i of`, stopping early once a pass makes no swap, and counting the passes |
 
 Build and run one (on a Mac, through the `gloss-amd64` OrbStack machine):
 

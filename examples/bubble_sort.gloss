@@ -1,0 +1,51 @@
+feature sorted
+  needs xs as list of number
+  set ys to xs
+  set limit to count of ys
+  repeat while limit is greater than 1
+    set swapped to no
+    for each i from 1 to limit - 1
+      set left to item i of ys
+      set right to item (i + 1) of ys
+      if left is greater than right
+        set item i of ys to right
+        set item (i + 1) of ys to left
+        set swapped to yes
+    if not swapped
+      give ys
+    subtract 1 from limit
+  give ys
+
+feature passes_needed
+  needs xs as list of number
+  set ys to xs
+  set passes to 0
+  set swapped to yes
+  repeat while swapped
+    set swapped to no
+    add 1 to passes
+    for each i from 1 to count of ys - 1
+      if item i of ys is greater than item (i + 1) of ys
+        set held to item i of ys
+        set item i of ys to item (i + 1) of ys
+        set item (i + 1) of ys to held
+        set swapped to yes
+  give passes
+
+feature report
+  needs xs as list of number
+  set passes to passes_needed with xs
+  set word to "passes"
+  if passes is 1
+    set word to "pass"
+  show xs, " sorted is ", (sorted with xs), " in ", passes, " ", word
+
+feature start
+  set numbers to list of 5, 1, 4, 2, 8
+  run report with numbers
+  show "the original is unchanged: ", numbers
+  run report with (list of 1, 2, 3, 4)
+  run report with (list of 9, 7, 5, 3, 1)
+  run report with (list of 3.5, -2, 0, 3.25)
+  run report with (list of 42)
+  run report with (empty list of number)
