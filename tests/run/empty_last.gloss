@@ -1,0 +1,4 @@
+feature start
+  set xs to empty list of text
+  show "a"
+  show last of xs

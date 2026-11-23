@@ -1,0 +1,4 @@
+feature start
+  set xs to list of "a", "b", "c"
+  show item 3 of xs
+  show item (3 + 1) of xs
