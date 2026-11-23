@@ -13,5 +13,6 @@ pub mod linux;
 pub mod lower;
 #[cfg(test)]
 mod lower_tests;
+pub mod program;
 #[cfg(test)]
 mod tests;

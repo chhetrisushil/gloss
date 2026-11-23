@@ -1,5 +1,5 @@
 use super::inst::{AluOp, Cc, Mem, R, Sym, X, text};
-use crate::ir::{Data, Function, Global, Inst, Module, Reg, function_text};
+use crate::ir::{Data, Function, Global, Inst, Reg, function_text};
 
 fn local(d: i32) -> Mem {
     Mem::Base(R::Rbp, d)
@@ -167,13 +167,4 @@ fn conditions_print() {
         assert_eq!(text(&X::Setcc(c, R::Rax)), format!("set{name} al"));
         assert_eq!(text(&X::Jcc(c, "L3".to_string())), format!("j{name} L3"));
     }
-}
-
-#[test]
-fn the_target_cannot_yet_build_an_executable() {
-    let target = crate::target::x86_64_linux();
-    assert_eq!(
-        target.executable(&Module::default()),
-        Err("code generation for x86-64 Linux is not finished".to_string())
-    );
 }
