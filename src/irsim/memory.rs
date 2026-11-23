@@ -90,6 +90,7 @@ impl Memory {
     }
 
     /// Hands out `len` fresh zeroed bytes, or gives 0 when `len` is not from 1 byte to 1 TiB, as mmap fails on 0.
+    /// The 1 TiB cap is irsim's own: Linux may overcommit and grant more (or refuse less).
     /// Unwritten bytes read as zero, so the block needs no filling.
     pub fn map(&mut self, len: i64) -> u64 {
         if !(1..=MAP_LIMIT).contains(&len) {
