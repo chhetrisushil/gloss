@@ -1,5 +1,7 @@
-use super::encode::encode;
+use super::encode::{Encoded, Fixup, encode};
+use super::encode_flow::resolve;
 use super::inst::{Cc, Mem, R, Sym, X};
+use std::collections::HashMap;
 
 fn l(n: &str) -> String {
     n.to_string()
@@ -82,11 +84,70 @@ fn data_fixups_survive_with_their_offsets() {
     let xs = [
         X::Jmp(l("L")),
         X::Lea(R::Rax, Mem::Rip(Sym::Text(2))),
+        X::Lea(R::Rcx, Mem::Rip(Sym::Desc(5))),
         X::Label(l("L")),
     ];
     let e = encode(&xs).unwrap();
-    assert_eq!(e.fixups.len(), 1);
-    assert_eq!((e.fixups[0].at, e.fixups[0].end), (8, 12));
+    let got: Vec<_> = e.fixups.iter().map(|f| (f.at, f.end)).collect();
+    assert_eq!(got, [(8, 12), (15, 19)]);
+    assert_eq!(e.fixups[0].target, Sym::Text(2));
+    assert_eq!(e.fixups[1].target, Sym::Desc(5));
+}
+
+#[test]
+fn backward_rip_label_is_patched_and_removed() {
+    let xs = [
+        X::Label(l("L")),
+        X::Ret,
+        X::Ret,
+        X::Lea(R::Rax, Mem::Rip(Sym::Label(l("L")))),
+    ];
+    let e = encode(&xs).unwrap();
+    assert_eq!(e.bytes[2..], [0x48, 0x8d, 0x05, 0xf7, 0xff, 0xff, 0xff]);
+    assert!(e.fixups.is_empty());
+}
+
+#[test]
+fn call_ten_bytes_ahead() {
+    let xs = [
+        X::Call(l("f")),
+        X::Syscall,
+        X::Syscall,
+        X::Ret,
+        X::Label(l("f")),
+    ];
+    let b = bytes(&xs);
+    assert_eq!(b[..5], [0xe8, 0x05, 0, 0, 0]);
+    assert_eq!(b.len(), 10);
+}
+
+fn hand(to: usize, end: usize) -> Encoded {
+    Encoded {
+        bytes: vec![0; 4],
+        labels: HashMap::from([(l("L"), to)]),
+        fixups: vec![Fixup {
+            at: 0,
+            target: Sym::Label(l("L")),
+            end,
+        }],
+    }
+}
+
+#[test]
+fn rel32_reach_is_exact() {
+    let mut e = hand(4 + i32::MAX as usize, 4);
+    resolve(&mut e).unwrap();
+    assert_eq!(e.bytes, i32::MAX.to_le_bytes());
+    assert!(e.fixups.is_empty());
+    let mut e = hand(0, 1 << 31);
+    resolve(&mut e).unwrap();
+    assert_eq!(e.bytes, i32::MIN.to_le_bytes());
+    let far = "label L is too far away";
+    assert_eq!(
+        resolve(&mut hand(5 + i32::MAX as usize, 4)).unwrap_err(),
+        far
+    );
+    assert_eq!(resolve(&mut hand(0, (1 << 31) + 1)).unwrap_err(), far);
 }
 
 #[test]
