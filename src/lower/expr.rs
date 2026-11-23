@@ -75,6 +75,8 @@ impl Lowerer<'_> {
                 Ok(())
             }
             ExprKind::Paren(inner) => self.expr(inner),
+            ExprKind::BuildRecord { record, fields } => self.build_record(record, fields),
+            ExprKind::FieldOf { field, of } => self.field_of(field, of),
             ExprKind::Call { feature, inputs } => self.feature_call(feature, inputs),
             ExprKind::Name(name) => self.name(e, name),
             ExprKind::Negate(inner) => {

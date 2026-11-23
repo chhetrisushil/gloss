@@ -4,6 +4,7 @@ mod cond;
 mod count;
 mod expr;
 mod fail;
+mod record;
 mod stmt;
 #[cfg(test)]
 mod tests;
@@ -22,6 +23,7 @@ use crate::source::Source;
 pub(crate) struct Lowerer<'a> {
     pub module: &'a mut Module,
     pub src: &'a Source,
+    pub program: &'a Program,
     pub called: Vec<String>,
     pub body: Vec<Inst>,
     pub types: &'a TypeInfo,
@@ -78,6 +80,7 @@ fn function_name(feature: &str) -> String {
 fn lower_feature(
     module: &mut Module,
     src: &Source,
+    program: &Program,
     types: &TypeInfo,
     feature: &FeatureDecl,
     called: &mut Vec<String>,
@@ -87,6 +90,7 @@ fn lower_feature(
     let mut l = Lowerer {
         module,
         src,
+        program,
         called: Vec::new(),
         body: vec![Inst::Enter(named)],
         types,
@@ -171,7 +175,7 @@ pub fn lower(program: &Program, types: &TypeInfo, src: &Source) -> Result<Module
     let mut module = Module::default();
     let mut called = vec!["_start".to_string()];
     for feature in program.features() {
-        let f = lower_feature(&mut module, src, types, feature, &mut called)?;
+        let f = lower_feature(&mut module, src, program, types, feature, &mut called)?;
         module.functions.push(f);
     }
     size_stack_checks(&mut module);

@@ -39,7 +39,11 @@ impl Lowerer<'_> {
             StmtKind::Set {
                 target: Target::Var(name),
                 value,
-            } if self.is_number(value) || self.is_truth(value) || self.is_text(value) => {
+            } if self.is_number(value)
+                || self.is_truth(value)
+                || self.is_text(value)
+                || Self::builds_record(value) =>
+            {
                 self.line = s.line;
                 self.emit(Inst::Line(s.line));
                 self.expr(value)?;
@@ -178,6 +182,11 @@ impl Lowerer<'_> {
             _ if self.is_truth(item) => {
                 self.expr(item)?;
                 self.show_truth();
+                Ok(())
+            }
+            _ if self.record_type(item).is_some() => {
+                self.expr(item)?;
+                self.show_record(self.record_type(item).expect("just checked"));
                 Ok(())
             }
             _ => Err(Diagnostic::error(
