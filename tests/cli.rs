@@ -108,8 +108,8 @@ fn usage_and_unbuilt_commands_exit_3() {
 
 #[test]
 fn warnings_print_before_a_build_the_compiler_cannot_do_yet() {
-    // No program with a warning lowers yet (set is not built), so the build stops after it.
-    let p = temp_file("warn", "feature start\n  set unused to 1\n  show \"hi\"\n");
+    // Setting a text is not built yet, so the build stops after the warning.
+    let p = temp_file("warn", "feature start\n  set unused to \"x\"\n");
     let (code, out, err) = gloss(&["build", p.to_str().unwrap()]);
     assert_eq!((code, out.as_str()), (3, ""));
     assert!(err.starts_with("line 2: warning: "), "{err}");

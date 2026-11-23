@@ -101,3 +101,19 @@ fn a_mixed_show_lowers_each_item_in_order() {
          call out_number\n  a = address of text 2\n  push a\n  call out_text\n  return\n"
     );
 }
+
+#[test]
+fn a_sum_lowers_to_num_add_with_a_failure_block() {
+    let m = lowered("feature start\n  set t to 1 + 2\n  show t\n").unwrap();
+    assert_eq!(
+        start_text(&m),
+        "function f_start, 0 params, 1 slots\n  enter 1\nline 2\n  a = 10000\n  push a\n  \
+         a = 20000\n  b = a\n  pop a\n  a = num_add a, b; out of range L0\n  slot 1 = a\n\
+         line 3\n  a = slot 1\n  push a\n  call out_number\n  a = address of text 0\n  push a\n  \
+         call out_text\n  return\nL0:\n  a = 2\n  push a\n  a = 4\n  push a\n  call fail_begin\n  \
+         a = address of text 1\n  push a\n  call err_text\n  a = address of text 2\n  push a\n  \
+         call err_text\n  a = address of text 3\n  push a\n  call err_text\n  call fail_end\n"
+    );
+    assert_eq!(m.texts[1], b"a number went out of range (");
+    assert_eq!(m.texts[2], b"1 + 2");
+}

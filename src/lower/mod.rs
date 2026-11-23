@@ -1,6 +1,7 @@
 //! Lowering: the checked program and its `TypeInfo` become a Gloss IR module.
 
 mod expr;
+mod fail;
 mod stmt;
 #[cfg(test)]
 mod tests;
@@ -21,6 +22,14 @@ pub(crate) struct Lowerer<'a> {
     pub src: &'a Source,
     pub called: Vec<String>,
     pub body: Vec<Inst>,
+    pub types: &'a TypeInfo,
+    /// Slot numbers by variable name; inputs are read with `LoadArg` by position.
+    pub slots: BTreeMap<String, u32>,
+    pub inputs: Vec<String>,
+    pub labels: u32,
+    pub fails: Vec<fail::Fail>,
+    /// The source line of the statement being lowered.
+    pub line: u32,
 }
 
 impl Lowerer<'_> {
@@ -63,9 +72,16 @@ fn lower_feature(
         src,
         called: Vec::new(),
         body: vec![Inst::Enter(count)],
+        types,
+        slots,
+        inputs: feature.needs.iter().map(|i| i.name.clone()).collect(),
+        labels: 0,
+        fails: Vec::new(),
+        line: 0,
     };
     l.stmts(&feature.body)?;
     l.emit(Inst::Return);
+    l.emit_fails();
     for name in l.called {
         if !called.contains(&name) {
             called.push(name);
