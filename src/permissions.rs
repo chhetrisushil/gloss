@@ -323,4 +323,17 @@ mod tests {
             vec![("a.csv".to_string(), Access::ReadOnly)]
         );
     }
+
+    #[test]
+    fn hostile_lines_are_refused_or_approve_nothing() {
+        assert!(parse_allow("  note x\n").is_err());
+        assert!(parse_allow("notex\n").is_err());
+        assert!(parse_allow("read only\ta.csv\n").is_err());
+        let es = [
+            e("a.csv", Access::ReadOnly),
+            e("résumé.csv", Access::ReadOnly),
+        ];
+        let rec = parse_allow("read only  a.csv extra\nread only  résumé.csv\n").unwrap();
+        assert_eq!(needing_approval(&es, &rec, &[]), vec![&es[0], &es[1]]);
+    }
 }
