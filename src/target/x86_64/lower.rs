@@ -6,9 +6,10 @@
 
 use std::collections::HashMap;
 
+use super::arith;
 use super::inst::{AluOp, Cc, Mem, R, Sym, X};
 use super::linux;
-use crate::ir::{Cond, Data, Function, Global, Inst, IntOp, Label, Reg, Shift, inst_text};
+use crate::ir::{Cond, Data, Function, Global, Inst, IntOp, Label, Reg, Shift};
 use crate::number::SCALE;
 
 /// Lowers one function; `params` maps every callable function to its parameter count.
@@ -158,8 +159,27 @@ fn inst_x(
             X::Imul(R::Rax, R::Rsi),
         ]),
         Inst::System(p) => linux::system(*p, &format!("L{}_s{}", f.name, out.len()), out),
-        Inst::NumMul { .. } | Inst::NumDiv { .. } | Inst::NumRem { .. } => {
-            return Err(format!("cannot lower {} yet", inst_text(inst).trim()));
+        Inst::NumMul { range } => {
+            out.extend([
+                X::Call(arith::MULTIPLY.to_string()),
+                X::Test(R::Rdx, R::Rdx),
+            ]);
+            out.push(X::Jcc(Cc::Ne, label(f, *range)));
+        }
+        Inst::NumDiv { zero, range } => {
+            out.extend([
+                X::Call(arith::DIVIDE.to_string()),
+                X::AluI(AluOp::Cmp, R::Rdx, 2),
+            ]);
+            out.push(X::Jcc(Cc::E, label(f, *zero)));
+            out.extend([X::Test(R::Rdx, R::Rdx), X::Jcc(Cc::Ne, label(f, *range))]);
+        }
+        Inst::NumRem { zero } => {
+            out.extend([
+                X::Call(arith::REMAINDER.to_string()),
+                X::Test(R::Rdx, R::Rdx),
+            ]);
+            out.push(X::Jcc(Cc::Ne, label(f, *zero)));
         }
     }
     Ok(())
