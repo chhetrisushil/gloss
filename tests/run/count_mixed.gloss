@@ -1,0 +1,23 @@
+feature start
+  for each i from 1 to 2
+    show "a", i
+  for each i from 3 to 4
+    show "b", i
+  set n to 0
+  repeat while n is less than 5
+    add 1 to n
+    if n is 2
+      skip
+    if n is 4
+      stop
+    for each i from 1 to 3
+      if i is 2
+        skip
+      show n, ":", i
+  for each i from 1 to 3
+    set k to 0
+    repeat while yes
+      add 1 to k
+      if k is 2
+        stop
+    show "c", i, k
