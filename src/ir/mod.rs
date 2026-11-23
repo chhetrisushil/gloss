@@ -1,8 +1,10 @@
 //! The Gloss IR: a target-neutral machine with two registers, `a` and `b`, numbered local
 //! slots, and a stack. Backends translate it to machine code; tests interpret it.
 
+mod rodata;
 mod text;
 
+pub use rodata::{Rodata, rodata};
 pub use text::{function_text, inst_text, module_text};
 
 /// One of the two registers. Numeric instructions work on `A` and `B` and leave the result
