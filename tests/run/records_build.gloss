@@ -1,0 +1,16 @@
+record Expense
+  name as text
+  amount as number
+  paid as truth
+
+record Box
+  size as number
+
+feature start
+  set lunch to Expense with amount 120, name "Say ""hi""", paid no
+  set taxi to Expense with paid yes, amount -3.5, name "Taxi"
+  set box to Box with size 0.25
+  show amount of lunch
+  show lunch
+  show taxi
+  show "Box: ", box, " and ", size of box, " ", name of taxi, " ", paid of taxi
