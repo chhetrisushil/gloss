@@ -97,6 +97,11 @@ impl Lowerer<'_> {
                 fact: Fact::Count,
                 of,
             } => self.list_count(of),
+            ExprKind::Fact {
+                fact: fact @ (Fact::First | Fact::Last),
+                of,
+            } => self.list_end(*fact, of),
+            ExprKind::ItemOf { position, of } => self.item_of(position, of),
             ExprKind::EmptyList(_) => self.build_list(&[]),
             ExprKind::BuildList(items) => self.build_list(items),
             ExprKind::Binary { op, left, right } => {

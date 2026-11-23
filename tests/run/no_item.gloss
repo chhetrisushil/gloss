@@ -1,0 +1,3 @@
+feature start
+  set prices to list of 1, 2, 3
+  show item 7 of prices
