@@ -17,7 +17,7 @@ impl Machine<'_> {
                 let len = self.pop();
                 self.a = self.memory.map(len) as i64;
             }
-            Prim::Exit => return Some(Ended::Exited(self.pop() as i32)),
+            Prim::Exit => return Some(Ended::Exited(self.pop() as i32 & 0xff)),
             Prim::StackSize => self.a = STACK_SIZE,
         }
         None
@@ -55,9 +55,11 @@ impl Machine<'_> {
             self.a = EBADF;
             return;
         }
-        self.check(addr, len, true);
         let left = &self.stdin[self.stdin_pos..];
         let count = left.len().min(len as usize);
+        // Like read(2), touch only the bytes copied.
+        self.check(addr, count as u64, true);
+        let left = &self.stdin[self.stdin_pos..];
         for (i, &byte) in left[..count].to_vec().iter().enumerate() {
             self.memory.write_byte(addr + i as u64, byte);
         }

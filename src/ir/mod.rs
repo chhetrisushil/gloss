@@ -129,29 +129,30 @@ pub enum Inst {
         from: Reg,
     },
     /// `a = a + b`; jumps to `range` on overflow. The `Num*` instructions mean exactly the
-    /// `Number` methods.
+    /// `Number` methods. On the failure jump of any of them, `a` is undefined and `b` is
+    /// unchanged (M2-R8: on x86 the wrapped sum is already written).
     NumAdd {
         range: Label,
     },
-    /// `a = a - b`; jumps to `range` on overflow.
+    /// `a = a - b`; jumps to `range` on overflow. On the failure jump, `a` is undefined and `b` is unchanged.
     NumSub {
         range: Label,
     },
-    /// `a = -a`; jumps to `range` on overflow.
+    /// `a = -a`; jumps to `range` on overflow. On the failure jump, `a` is undefined and `b` is unchanged.
     NumNeg {
         range: Label,
     },
-    /// `a = mul_round(a, b)`.
+    /// `a = mul_round(a, b)`. On the failure jump, `a` is undefined and `b` is unchanged.
     NumMul {
         range: Label,
     },
     /// `a = div_round(a, b)`; division by zero jumps to `zero`, an out-of-range result to
-    /// `range`.
+    /// `range`. On the failure jump, `a` is undefined and `b` is unchanged.
     NumDiv {
         zero: Label,
         range: Label,
     },
-    /// `a = rem(a, b)`; a zero divisor jumps to `zero`.
+    /// `a = rem(a, b)`; a zero divisor jumps to `zero`. On the failure jump, `a` is undefined and `b` is unchanged.
     NumRem {
         zero: Label,
     },
