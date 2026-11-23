@@ -341,6 +341,7 @@ pub(super) fn routines() -> Vec<Function> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::heap_tests::{Heap, W};
     use super::super::tests::{program, run};
     use crate::ir::Reg::{A, B};
     use crate::ir::{Data, Desc, Inst::*, Module};
@@ -481,5 +482,52 @@ mod tests {
     fn a_list_shows_its_items_and_an_empty_one_names_its_type() {
         assert_eq!(shown_list(&[40000, 90000]), "list of 4, 9");
         assert_eq!(shown_list(&[]), "empty list of number");
+    }
+
+    fn shown_heap(build: impl FnOnce(&mut Heap, &mut Module) -> (u32, u32)) -> String {
+        let (mut h, mut d) = (Heap::default(), Module::default());
+        let (list, desc) = build(&mut h, &mut d);
+        String::from_utf8(h.call("show_value", &[list], desc, d)).unwrap()
+    }
+
+    #[test]
+    fn a_text_list_shows_quotes_doubled_and_an_empty_text() {
+        let out = shown_heap(|h, d| {
+            let text = d.desc(Desc::Text);
+            (h.list(&[W::T(0), W::T(1)]), d.desc(Desc::List(text)))
+        });
+        assert_eq!(out, "list of \"a\"\"b\", \"\"");
+    }
+
+    /// A record `E` of a text and a number, and the list type of it.
+    fn records(d: &mut Module) -> u32 {
+        let (text, number) = (d.desc(Desc::Text), d.desc(Desc::Number));
+        let fields = vec![("name".into(), text), ("n".into(), number)];
+        let record = d.desc(Desc::Record {
+            name: "E".into(),
+            fields,
+        });
+        d.desc(Desc::List(record))
+    }
+
+    #[test]
+    fn a_list_of_records_shows_each_in_parentheses() {
+        let out = shown_heap(|h, d| {
+            let a = h.block(&[W::T(2), W::N(10000)]);
+            let b = h.block(&[W::T(3), W::N(20000)]);
+            (h.list(&[W::S(a), W::S(b)]), records(d))
+        });
+        assert_eq!(
+            out,
+            "list of (E with name \"x\", n 1), (E with name \"y\", n 2)"
+        );
+    }
+
+    #[test]
+    fn an_empty_list_names_its_record_item_type() {
+        assert_eq!(
+            shown_heap(|h, d| (h.list(&[]), records(d))),
+            "empty list of E"
+        );
     }
 }

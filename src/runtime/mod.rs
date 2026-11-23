@@ -8,6 +8,8 @@
 mod asm;
 mod core;
 mod equal;
+#[cfg(test)]
+mod heap_tests;
 mod input;
 #[cfg(test)]
 mod input_tests;
