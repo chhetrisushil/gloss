@@ -1,0 +1,24 @@
+record Box
+  size as number
+
+feature start
+  set xs to list of 1, 2, 3
+  set ys to empty list of number
+  for each x in xs
+    for each i from 1 to 30
+      append x to ys
+  show count of ys, " ", last of ys
+  set names to list of "ann", "bo"
+  for each n in names
+    show n
+  set flags to list of yes, no
+  for each f in flags
+    show f
+  set boxes to list of (Box with size 1), (Box with size 2)
+  for each b in boxes
+    add 10 to size of b
+  for each b in boxes
+    show b
+  set none to empty list of text
+  for each n in none
+    show "never"
