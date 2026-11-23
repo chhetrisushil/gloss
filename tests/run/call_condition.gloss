@@ -1,0 +1,8 @@
+feature big
+  needs n as number
+  give n is greater than 5
+
+feature start
+  for each i from 4 to 7
+    if big with i
+      show i
