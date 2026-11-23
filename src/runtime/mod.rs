@@ -7,6 +7,7 @@
 
 mod asm;
 mod core;
+mod equal;
 mod input;
 #[cfg(test)]
 mod input_tests;
@@ -81,6 +82,7 @@ fn text_bytes(i: u32) -> Vec<u8> {
 /// Every runtime routine.
 pub fn routines() -> Vec<Function> {
     let mut all = core::routines();
+    all.extend(equal::routines());
     all.extend(output::routines());
     all.extend(input::routines());
     all.extend(lists::routines());
