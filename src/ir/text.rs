@@ -1,6 +1,6 @@
 //! The text form of the IR, which lowering tests compare against.
 
-use super::{Cond, Data, Function, Global, Inst, IntOp, Label, Module, Prim, Reg, Shift};
+use super::{Cond, Data, Function, Inst, IntOp, Label, Module, Prim, Reg, Shift};
 
 /// Prints a function: a header line, then one line per instruction.
 pub fn function_text(f: &Function) -> String {
@@ -42,14 +42,7 @@ fn data(d: &Data) -> String {
     match d {
         Data::Text(n) => format!("text {n}"),
         Data::Desc(n) => format!("desc {n}"),
-        Data::Global(Global::HeapNext) => "heap_next".to_string(),
-        Data::Global(Global::HeapEnd) => "heap_end".to_string(),
-        Data::Global(Global::StackLimit) => "stack_limit".to_string(),
-        Data::Global(Global::OutLen) => "out_len".to_string(),
-        Data::Global(Global::OutBuf) => "out_buf".to_string(),
-        Data::Global(Global::InLen) => "in_len".to_string(),
-        Data::Global(Global::InPos) => "in_pos".to_string(),
-        Data::Global(Global::InBuf) => "in_buf".to_string(),
+        Data::Global(g) => g.name().to_string(),
     }
 }
 
