@@ -89,10 +89,10 @@ impl Memory {
         }
     }
 
-    /// Hands out `len` fresh zeroed bytes, or gives 0 when `len` is negative or above 1 TiB.
+    /// Hands out `len` fresh zeroed bytes, or gives 0 when `len` is not from 1 byte to 1 TiB, as mmap fails on 0.
     /// Unwritten bytes read as zero, so the block needs no filling.
     pub fn map(&mut self, len: i64) -> u64 {
-        if !(0..=MAP_LIMIT).contains(&len) {
+        if !(1..=MAP_LIMIT).contains(&len) {
             return 0;
         }
         let start = self.mapped.last().map_or(MAP_BASE, |&(_, end)| end);

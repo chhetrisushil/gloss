@@ -915,3 +915,62 @@ fn stack_size_is_8_mebibytes() {
     let m = single(vec![System(Prim::StackSize), Return]);
     assert_eq!(call(&m, "f", &[]), 8 * 1024 * 1024);
 }
+
+const POISON: i64 = 0x5EAD_5EAD_5EAD_5EAD;
+
+/// Runs `op` expecting it to jump; gives `a`, or `b` when `read_b` is set, at the jump.
+fn after_failure(op: Inst, a: i64, b: i64, read_b: bool) -> i64 {
+    let mut failed = vec![Mark(Label(1))];
+    if read_b {
+        failed.push(Move { to: A, from: B });
+    }
+    failed.push(Return);
+    let mut body = vec![Const(A, a), Const(B, b), op, Const(A, 0), Return];
+    body.extend(failed);
+    call(&single(body), "f", &[])
+}
+
+#[test]
+fn a_failed_number_jump_poisons_a_and_leaves_b() {
+    let l = Label(1);
+    let ops = [
+        (NumAdd { range: l }, i64::MAX, 5),
+        (NumSub { range: l }, i64::MIN, 5),
+        (NumNeg { range: l }, i64::MIN, 5),
+        (NumMul { range: l }, i64::MAX, 2 * SCALE),
+        (NumDiv { zero: l, range: l }, 5, 0),
+        (NumDiv { zero: l, range: l }, i64::MAX, 1),
+        (NumRem { zero: l }, 5, 0),
+    ];
+    for (op, a, b) in ops {
+        assert_eq!(after_failure(op.clone(), a, b, false), POISON, "{op:?}");
+        assert_eq!(after_failure(op.clone(), a, b, true), b, "{op:?}");
+    }
+}
+
+#[test]
+fn exit_keeps_the_low_8_bits_of_the_status() {
+    for (given, status) in [(256, 0), (-1, 255), (2, 2)] {
+        let mut body = push_const(given).to_vec();
+        body.push(System(Prim::Exit));
+        assert_eq!(run(&single(body), "f", b"").status, status);
+    }
+}
+
+#[test]
+fn map_of_nothing_gives_0() {
+    let mut body = push_const(0).to_vec();
+    body.extend([System(Prim::Map), Return]);
+    assert_eq!(call(&single(body), "f", &[]), 0);
+}
+
+#[test]
+fn read_checks_only_the_bytes_it_copies() {
+    let mut body = read_into_in_buf(8192);
+    body.push(Return);
+    let outcome = run(&single(body), "f", b"hi");
+    assert_eq!(outcome.status, 0);
+    let mut count = read_into_in_buf(8192);
+    count.extend([Push(A), System(Prim::Exit)]);
+    assert_eq!(run(&single(count), "f", b"hi").status, 2);
+}
