@@ -18,8 +18,9 @@ fn objdump_agrees_with_the_encoder_on_every_instruction() {
         return;
     }
     let Some(runner) = runner() else {
-        run_support::skip();
-        return;
+        panic!(
+            "GLOSS_OBJDUMP=1 asks for the check, but there is no x86-64 Linux runner (set GLOSS_RUNNER)"
+        );
     };
     let xs = sweep::sweep();
     let enc = gloss::target::x86_64::encode::encode(&xs).expect("the sweep encodes");
