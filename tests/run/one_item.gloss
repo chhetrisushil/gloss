@@ -1,0 +1,3 @@
+feature start
+  set xs to list of 5
+  show item 2 of xs
