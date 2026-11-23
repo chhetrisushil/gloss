@@ -1,0 +1,12 @@
+record Box
+  size as number
+
+feature start
+  set a to list of 4, 9, 2
+  set b to list of "x", "y"
+  set c to list of yes, no, yes, no, yes
+  set d to list of (Box with size 1), (Box with size 2)
+  set e to empty list of number
+  set f to empty list of Box
+  show count of a, " ", count of b, " ", count of c, " ", count of d
+  show count of e, " ", count of f

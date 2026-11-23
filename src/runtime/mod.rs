@@ -10,6 +10,7 @@ mod core;
 mod input;
 #[cfg(test)]
 mod input_tests;
+mod lists;
 mod numbers;
 mod output;
 mod parse;
@@ -70,6 +71,7 @@ pub fn routines() -> Vec<Function> {
     let mut all = core::routines();
     all.extend(output::routines());
     all.extend(input::routines());
+    all.extend(lists::routines());
     all.extend(numbers::routines());
     all.extend(parse::routines());
     all.extend(places::routines());
