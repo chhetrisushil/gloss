@@ -79,6 +79,7 @@ fn every_global_prints_its_name() {
         (Global::InLen, "in_len"),
         (Global::InPos, "in_pos"),
         (Global::InBuf, "in_buf"),
+        (Global::NumBuf, "num_buf"),
     ];
     for (g, name) in names {
         let x = X::Lea(R::Rax, Mem::Rip(Sym::Global(g)));

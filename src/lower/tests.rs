@@ -85,9 +85,19 @@ fn slots_are_unique_names_without_inputs() {
 fn show_of_a_number_lowers_to_out_number_with_the_line() {
     let m = lowered("feature start\n  show -7.5\n").unwrap();
     let f = m.functions.iter().find(|f| f.name == "f_start").unwrap();
-    assert!(
-        function_text(f)
-            .contains("line 2\n  a = -75000\n  push a\n  a = 2\n  push a\n  call out_number\n")
+    assert!(function_text(f).contains("line 2\n  a = -75000\n  push a\n  call out_number\n"));
+    assert!(m.functions.iter().any(|f| f.name == "number_format"));
+}
+
+#[test]
+fn a_mixed_show_lowers_each_item_in_order() {
+    let m = lowered("feature start\n  show \"a\", 1, \"b\", -2.5\n").unwrap();
+    let f = m.functions.iter().find(|f| f.name == "f_start").unwrap();
+    assert_eq!(
+        function_text(f),
+        "function f_start, 0 params, 0 slots\n  enter 0\nline 2\n  a = address of text 0\n  \
+         push a\n  call out_text\n  a = 10000\n  push a\n  call out_number\n  \
+         a = address of text 1\n  push a\n  call out_text\n  a = -25000\n  push a\n  \
+         call out_number\n  a = address of text 2\n  push a\n  call out_text\n  return\n"
     );
-    assert!(m.functions.iter().any(|f| f.name == "number_text"));
 }

@@ -43,8 +43,6 @@ impl Lowerer<'_> {
             ExprKind::Number(_) | ExprKind::Negate(_) => {
                 self.expr(item)?;
                 self.emit(Inst::Push(Reg::A));
-                self.emit(Inst::Const(Reg::A, i64::from(item.line)));
-                self.emit(Inst::Push(Reg::A));
                 self.call("out_number");
                 Ok(())
             }

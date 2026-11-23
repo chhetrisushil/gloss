@@ -76,10 +76,15 @@ pub enum Global {
     InLen,
     InPos,
     InBuf,
+    /// Scratch for formatting a number as a text; see `NUMBER_BUF_BYTES`.
+    NumBuf,
 }
 
 /// The size in bytes of `Global::OutBuf` and of `Global::InBuf`.
 pub const IO_BUF_BYTES: usize = 4096;
+
+/// The size in bytes of `Global::NumBuf`: a length and the longest number text.
+pub const NUMBER_BUF_BYTES: usize = 32;
 
 impl Global {
     /// The snake-case name both the IR text and the machine code text print.
@@ -93,6 +98,7 @@ impl Global {
             Global::InLen => "in_len",
             Global::InPos => "in_pos",
             Global::InBuf => "in_buf",
+            Global::NumBuf => "num_buf",
         }
     }
 }

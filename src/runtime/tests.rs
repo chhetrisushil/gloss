@@ -2,7 +2,7 @@ use super::add_reachable;
 use crate::ir::{
     Data, Function, Global, Inst,
     Inst::*,
-    IntOp, Module, Prim,
+    IntOp, Label, Module, Prim,
     Reg::{A, B},
 };
 use crate::irsim::{self, Faults, Outcome};
@@ -405,7 +405,7 @@ fn xorshift(state: &mut u64) -> u64 {
 }
 
 #[test]
-fn number_text_equals_number_show_for_5000_values() {
+fn number_format_equals_number_show_for_5000_values() {
     let mut values = vec![
         i64::MIN,
         i64::MAX,
@@ -418,6 +418,10 @@ fn number_text_equals_number_show_for_5000_values() {
         -10000,
         10001,
         -10001,
+        -5000,
+        10,
+        50500,
+        10001,
     ];
     let mut state = 0x9E37_79B9_7F4A_7C15;
     while values.len() < 5000 {
@@ -427,8 +431,12 @@ fn number_text_equals_number_show_for_5000_values() {
     }
     let mut body = Vec::new();
     for v in &values {
-        body.extend([Const(A, *v), Push(A), Const(A, 7), Push(A)]);
-        body.extend([Call("number_text".into()), Push(A), Call("out_text".into())]);
+        body.extend([Const(A, *v), Push(A)]);
+        body.extend([
+            Call("number_format".into()),
+            Push(A),
+            Call("out_text".into()),
+        ]);
         body.extend(out_text(0));
     }
     body.push(Call("flush".into()));
@@ -443,13 +451,44 @@ fn number_text_equals_number_show_for_5000_values() {
 
 #[test]
 fn err_number_writes_to_standard_error() {
-    let body = vec![
-        Const(A, -75_000),
-        Push(A),
-        Const(A, 7),
-        Push(A),
-        Call("err_number".into()),
-    ];
+    let body = vec![Const(A, -75_000), Push(A), Call("err_number".into())];
     let o = run(&program(body, &[]));
     assert_eq!((o.stdout.len(), o.stderr), (0, b"-7.5".to_vec()));
+}
+
+#[test]
+fn err_number_in_a_failure_message_needs_no_memory() {
+    // With an empty heap any allocation would map a piece and move heap_next, and a failed
+    // map would add a second failure message. Neither happens.
+    let mut body = vec![Const(A, 3), Push(A), Const(A, 7), Push(A)];
+    body.extend([Call("fail_begin".into()), Const(A, 12_345), Push(A)]);
+    body.extend([Call("err_number".into()), Call("fail_end".into())]);
+    let o = run(&program(body, &[]));
+    assert_eq!(o.status, 2);
+    assert_eq!(o.stderr, b"line 3: failure 7: 1.2345\n");
+}
+
+#[test]
+fn out_number_never_moves_the_heap() {
+    // Slot 1 counts down from 100000; slot 2 keeps the first heap_next.
+    let mut body = vec![Const(A, 100_000), StoreSlot(1, A)];
+    body.extend([
+        Mark(Label(1)),
+        LoadSlot(A, 1),
+        Push(A),
+        Call("out_number".into()),
+    ]);
+    body.extend([LoadSlot(A, 1), AddImm(A, -1), StoreSlot(1, A), Const(B, 0)]);
+    body.extend([Compare, JumpIf(crate::ir::Cond::Gt, Label(1))]);
+    body.extend([
+        AddressOf(A, Data::Global(Global::HeapNext)),
+        Load {
+            to: A,
+            base: A,
+            offset: 0,
+        },
+    ]);
+    body.extend([StoreSlot(2, A), Return]);
+    let m = returning(2, body);
+    assert_eq!(irsim::call(&m, "main", &[]), 0);
 }
