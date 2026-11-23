@@ -314,3 +314,47 @@ fn build_and_format_refuse_a_source_not_ending_in_gloss() {
         assert_eq!(std::fs::read_to_string(&p).unwrap(), program);
     }
 }
+
+#[test]
+fn the_usage_lists_the_options() {
+    let (code, _, err) = gloss(&[]);
+    assert_eq!(code, 3);
+    assert!(
+        err.ends_with("\noptions: --allow <file> (build, trace)\n"),
+        "{err}"
+    );
+}
+
+#[test]
+fn allow_needs_a_file_name() {
+    let p = temp_file("allowname", "feature start\n  show 1\n");
+    let (code, out, err) = gloss(&["build", p.to_str().unwrap(), "--allow"]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert!(err.starts_with("usage: gloss"), "{err}");
+}
+
+#[test]
+fn format_refuses_allow() {
+    let p = temp_file("fmtallow", "feature start\n  show 1\n");
+    let (code, out, err) = gloss(&["format", p.to_str().unwrap(), "--allow", "a.csv"]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert!(err.starts_with("usage: gloss"), "{err}");
+}
+
+#[test]
+fn allow_may_repeat_after_the_file() {
+    let p = temp_file("allowtwice", "feature start\n  show 1\n");
+    let a = [
+        "build",
+        p.to_str().unwrap(),
+        "--allow",
+        "a.csv",
+        "--allow",
+        "b.csv",
+    ];
+    let (_, _, err) = gloss(&a);
+    assert!(!err.contains("usage:"), "{err}");
+    let (code, _, err) = gloss(&["build", p.to_str().unwrap(), "--other", "a.csv"]);
+    assert_eq!(code, 3);
+    assert!(err.starts_with("usage: gloss"), "{err}");
+}
