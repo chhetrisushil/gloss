@@ -1,0 +1,23 @@
+feature start
+  set xs to list of 1, 2, 3, 4, 5, 6
+  set ws to list of "a", "b"
+  set total to 0
+  for each x in xs
+    if x is 2
+      skip
+    if x is 5
+      stop
+    add x to total
+  show total
+  for each x in xs
+    for each w in ws
+      show x, w, " "
+    if x is 2
+      stop
+  set big to empty list of number
+  for each i from 1 to 100
+    append i to big
+  set sum to 0
+  for each b in big
+    add b to sum
+  show sum, count of big

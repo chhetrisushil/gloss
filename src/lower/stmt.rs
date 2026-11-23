@@ -105,6 +105,11 @@ impl Lowerer<'_> {
                 to,
                 body,
             } => self.count(s.line, var, from, to, body),
+            StmtKind::ForEachIn { var, list, body } => {
+                self.line = s.line;
+                self.emit(Inst::Line(s.line));
+                self.for_each(var, list, body)
+            }
             StmtKind::Give(value) => {
                 self.line = s.line;
                 self.emit(Inst::Line(s.line));

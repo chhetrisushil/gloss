@@ -1,0 +1,19 @@
+feature is_even
+  needs n as number
+  give remainder of n by 2 is 0
+
+feature count_even
+  needs numbers as list of number
+  set found to 0
+  for each n in numbers
+    if is_even with n
+      add 1 to found
+  give found
+
+feature report
+  needs numbers as list of number
+  show "Even numbers: ", (count_even with numbers)
+
+feature start
+  set numbers to list of 4, 9, 2, 7
+  run report with numbers
