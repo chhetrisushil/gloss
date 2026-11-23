@@ -1,3 +1,7 @@
 /target
 .superpowers/
 .worktrees/
+/examples/*
+!/examples/*.gloss
+!/examples/*.out
+!/examples/README.md
