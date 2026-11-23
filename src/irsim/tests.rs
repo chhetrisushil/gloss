@@ -912,9 +912,9 @@ fn a_program_that_returns_has_status_0() {
 }
 
 #[test]
-fn stack_size_is_8_mebibytes() {
+fn stack_size_is_1_mebibyte() {
     let m = single(vec![System(Prim::StackSize), Return]);
-    assert_eq!(call(&m, "f", &[]), 8 * 1024 * 1024);
+    assert_eq!(call(&m, "f", &[]), 1024 * 1024);
 }
 
 const POISON: i64 = 0x5EAD_5EAD_5EAD_5EAD;
