@@ -46,11 +46,41 @@ fn align_up(n: u64) -> u64 {
     n.div_ceil(PAGE) * PAGE
 }
 
-fn patched_code(img: &Image) -> Result<Vec<u8>, String> {
-    match img.fixups.first() {
-        Some(f) => Err(format!("fixup to {:?} is not patched yet", f.target)),
-        None => Ok(img.code.clone()),
+fn target_address(img: &Image, sym: &Sym) -> Result<u64, String> {
+    let missing = || format!("no address for {sym:?}");
+    match sym {
+        Sym::Text(_) | Sym::Desc(_) => {
+            let off = img.symbols.get(sym).ok_or_else(missing)?;
+            Ok(RODATA_BASE + *off as u64)
+        }
+        Sym::Global(g) => {
+            let off = img.globals.get(g).ok_or_else(missing)?;
+            Ok(DATA_BASE + *off as u64)
+        }
+        Sym::Label(_) => Err(format!("label {sym:?} is still unresolved")),
     }
+}
+
+fn patched_code(img: &Image) -> Result<Vec<u8>, String> {
+    let mut code = img.code.clone();
+    for f in &img.fixups {
+        let bad = || {
+            format!(
+                "fixup to {:?} at {}..{} is outside the code",
+                f.target, f.at, f.end
+            )
+        };
+        let field_end =
+            f.at.checked_add(4)
+                .filter(|e| *e <= f.end && f.end <= code.len());
+        let field_end = field_end.ok_or_else(bad)?;
+        let end = CODE_BASE + (HEADERS + f.end) as u64;
+        let disp = target_address(img, &f.target)? as i64 - end as i64;
+        let disp =
+            i32::try_from(disp).map_err(|_| format!("{:?} is out of rel32 reach", f.target))?;
+        code[f.at..field_end].copy_from_slice(&disp.to_le_bytes());
+    }
+    Ok(code)
 }
 
 /// Appends little-endian fields (value, width in bytes).
@@ -106,6 +136,16 @@ pub fn write(img: &Image) -> Result<Vec<u8>, String> {
     let code = patched_code(img)?;
     let code_end = (HEADERS + code.len()) as u64;
     let rodata_len = img.rodata.len() as u64;
+    if code_end > RODATA_BASE - CODE_BASE {
+        return Err(format!(
+            "{code_end} bytes of code overlap the read-only data"
+        ));
+    }
+    if rodata_len > DATA_BASE - RODATA_BASE {
+        return Err(format!(
+            "{rodata_len} bytes of read-only data overlap the data segment"
+        ));
+    }
     let rodata_off = align_up(code_end);
     let data_off = align_up(rodata_off + rodata_len);
     let segments = [
