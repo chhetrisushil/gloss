@@ -49,7 +49,7 @@ pub fn setcc(out: &mut Vec<u8>, c: Cc, r: R) {
     out.extend_from_slice(&[0x0f, 0x90 | cc_nibble(c), 0b11_000_000 | (code(r) & 7)]);
 }
 
-fn cc_nibble(c: Cc) -> u8 {
+pub fn cc_nibble(c: Cc) -> u8 {
     match c {
         Cc::O => 0x0,
         Cc::B => 0x2,

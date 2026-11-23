@@ -110,14 +110,6 @@ fn push_and_pop() {
 }
 
 #[test]
-fn unfinished_instructions_are_errors() {
-    assert_eq!(
-        encode(&[X::Jmp("l".into())]).unwrap_err(),
-        "cannot encode jmp l yet"
-    );
-}
-
-#[test]
 fn register_arithmetic() {
     let alu = |op| bytes(X::Alu(op, R::Rax, R::Rcx));
     assert_eq!(alu(AluOp::Add), [0x48, 0x01, 0xc8]);

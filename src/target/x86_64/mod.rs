@@ -3,6 +3,9 @@
 pub mod emit;
 pub mod encode;
 mod encode_alu;
+mod encode_flow;
+#[cfg(test)]
+mod encode_flow_tests;
 #[cfg(test)]
 mod encode_tests;
 pub mod inst;

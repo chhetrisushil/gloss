@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 use super::emit::{code, mem_base, modrm_mem, rex};
 use super::encode_alu as alu;
-use super::inst::{Mem, R, Sym, X, text};
+use super::encode_flow as flow;
+use super::inst::{Mem, R, Sym, X};
 
 /// A 32-bit field at `at`, relative to `end`, the end of its instruction.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,6 +31,7 @@ pub fn encode(xs: &[X]) -> Result<Encoded, String> {
     for x in xs {
         one(&mut e, x)?;
     }
+    flow::resolve(&mut e)?;
     Ok(e)
 }
 
@@ -96,9 +98,11 @@ fn one(e: &mut Encoded, x: &X) -> Result<(), String> {
         X::Setcc(c, r) => alu::setcc(&mut e.bytes, *c, *r),
         X::Ret => e.bytes.push(0xc3),
         X::Syscall => e.bytes.extend_from_slice(&[0x0f, 0x05]),
-        X::Jcc(..) | X::Jmp(_) | X::Call(_) | X::Label(_) | X::Comment(_) => {
-            return Err(format!("cannot encode {} yet", text(x)));
-        }
+        X::Jcc(c, l) => flow::branch(e, &[0x0f, 0x80 | alu::cc_nibble(*c)], l),
+        X::Jmp(l) => flow::branch(e, &[0xe9], l),
+        X::Call(l) => flow::branch(e, &[0xe8], l),
+        X::Label(l) => flow::label(e, l)?,
+        X::Comment(_) => {}
     }
     Ok(())
 }
