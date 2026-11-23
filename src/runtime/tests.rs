@@ -237,6 +237,29 @@ fn alloc_gives_aligned_increasing_blocks_across_a_piece_boundary() {
 }
 
 #[test]
+fn a_block_that_exactly_fills_the_rest_of_a_piece_stays_in_it() {
+    // The first piece is 64 MiB; after 8 bytes, 64 MiB - 8 fit exactly, right after them.
+    let mut body = alloc(8, 1);
+    body.extend(alloc((64 << 20) - 8, 2));
+    body.extend([LoadSlot(A, 2), LoadSlot(B, 1), Int(IntOp::Sub), Return]);
+    assert_eq!(irsim::call(&returning(2, body), "main", &[]), 8);
+}
+
+#[test]
+fn blocks_around_the_piece_size_never_overlap_the_next() {
+    for bytes in [(64 << 20) - 1, 64 << 20, (64 << 20) + 1] {
+        let mut body = alloc(bytes, 1);
+        body.extend(alloc(8, 2));
+        body.extend([LoadSlot(A, 2), LoadSlot(B, 1), Int(IntOp::Sub), Return]);
+        let gap = irsim::call(&returning(2, body), "main", &[]);
+        assert!(
+            gap >= (bytes + 7) & !7,
+            "{bytes}: next block {gap} bytes on"
+        );
+    }
+}
+
+#[test]
 fn alloc_hands_out_aligned_nonzero_addresses() {
     let mut body = alloc(1, 1);
     body.extend([LoadSlot(A, 1), Const(B, 7), Int(IntOp::And), Return]);
