@@ -78,6 +78,9 @@ pub enum Global {
     InBuf,
 }
 
+/// The size in bytes of `Global::OutBuf` and of `Global::InBuf`.
+pub const IO_BUF_BYTES: usize = 4096;
+
 impl Global {
     /// The snake-case name both the IR text and the machine code text print.
     pub fn name(self) -> &'static str {

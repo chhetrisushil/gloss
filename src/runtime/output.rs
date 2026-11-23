@@ -6,8 +6,8 @@ use crate::ir::Cond::{Ge, Le, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Data, Function, Global, Inst::*, IntOp, Prim};
 
-/// The size of `Global::OutBuf`, which the backends and `irsim` lay out.
-const OUT_BUF: i64 = 4096;
+/// The size of `Global::OutBuf`.
+const OUT_BUF: i64 = crate::ir::IO_BUF_BYTES as i64;
 
 /// `write_all(fd, addr, len)`: writes every byte, looping on short writes; a result that is
 /// not positive ends the program with status 2.

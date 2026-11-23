@@ -6,7 +6,7 @@ use super::arith;
 use super::encode::encode;
 use super::inst::{Sym, X};
 use super::lower::lower_function;
-use crate::ir::{Global, Module};
+use crate::ir::{Global, IO_BUF_BYTES, Module};
 use crate::target::elf::{Image, write};
 
 /// The globals in declaration order, as `irsim` lays them out.
@@ -23,7 +23,7 @@ const GLOBALS: [Global; 8] = [
 
 fn global_size(g: Global) -> usize {
     match g {
-        Global::OutBuf | Global::InBuf => 4096,
+        Global::OutBuf | Global::InBuf => IO_BUF_BYTES,
         Global::HeapNext
         | Global::HeapEnd
         | Global::StackLimit
