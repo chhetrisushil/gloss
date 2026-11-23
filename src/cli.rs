@@ -7,15 +7,56 @@ use crate::diag::Diagnostic;
 use crate::source::Source;
 use crate::{format_source, parse_source};
 
-const USAGE: &str = "usage: gloss <command> <file.gloss>\ncommands: build, test, format, trace, explain, flowchart\n";
+const USAGE: &str = "usage: gloss <command> <file.gloss>\ncommands: build, test, format, trace, explain, flowchart\noptions: --allow <file> (build, trace)\n";
+
+/// Where questions to the person at the terminal go, and where their answers come from.
+pub trait Prompt {
+    /// Whether standard input is a terminal a person can answer at.
+    fn is_terminal(&self) -> bool;
+    /// Shows `question` and reads one line; `None` at the end of input.
+    fn ask(&mut self, question: &str) -> Option<String>;
+}
+
+/// What `gloss build` was told beyond the source file.
+pub struct BuildOptions {
+    /// The files named by `--allow`, in the order given.
+    pub allow: Vec<String>,
+}
+
+/// The commands that take `--allow` (the USAGE text names the same two).
+const ALLOW_COMMANDS: [&str; 2] = ["build", "trace"];
+
+/// The arguments after the command: the file, then any number of `--allow <file>`.
+/// A name that is empty or starts with `-` is not a file name.
+fn parse_args(args: &[String]) -> Option<(&str, &str, Vec<String>)> {
+    let (command, file) = (args.first()?, args.get(1)?);
+    let mut allow = Vec::new();
+    let mut rest = args[2..].iter();
+    while let Some(arg) = rest.next() {
+        if arg != "--allow" || !ALLOW_COMMANDS.contains(&command.as_str()) {
+            return None;
+        }
+        let name = rest.next()?;
+        if name.is_empty() || name.starts_with('-') {
+            return None;
+        }
+        allow.push(name.clone());
+    }
+    Some((command, file, allow))
+}
 
 /// Runs one command; returns the exit status (0 success, 3 anything else).
-pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let (Some(command), Some(file), None) = (args.first(), args.get(1), args.get(2)) else {
+pub fn run(
+    args: &[String],
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+    _prompt: &mut dyn Prompt,
+) -> i32 {
+    let Some((command, file, allow)) = parse_args(args) else {
         let _ = err.write_all(USAGE.as_bytes());
         return 3;
     };
-    let milestone = match command.as_str() {
+    let milestone = match command {
         "build" | "format" => 0,
         "test" => 4,
         "trace" => 5,
@@ -35,7 +76,7 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     }
     let name = Path::new(file)
         .file_name()
-        .map_or(file.clone(), |n| n.to_string_lossy().into());
+        .map_or(file.to_string(), |n| n.to_string_lossy().into());
     // The program's executable is named by dropping `.gloss`; without it the two could clash.
     if name.strip_suffix(".gloss").is_none_or(str::is_empty) {
         let _ = writeln!(err, "the source file must end in .gloss");
@@ -49,13 +90,21 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
         }
     };
     if command == "build" {
-        build(Path::new(file), &name, &text, out, err)
+        let options = BuildOptions { allow };
+        build(Path::new(file), &name, &text, &options, out, err)
     } else {
         format(file, &name, &text, out, err)
     }
 }
 
-fn build(path: &Path, name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+fn build(
+    path: &Path,
+    name: &str,
+    text: &str,
+    _options: &BuildOptions,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> i32 {
     let (mut diagnostics, checked) = crate::check_program(text);
     let clashes = executable_clashes(name, text, &diagnostics);
     diagnostics.extend(clashes);
@@ -159,4 +208,75 @@ fn write_atomically(path: &Path, bytes: &[u8], mode: Option<u32>) -> std::io::Re
         let _ = std::fs::remove_file(&temp);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// In 3a nothing may ask a question, so any call fails the test.
+    struct FakePrompt {
+        terminal: bool,
+    }
+
+    impl Prompt for FakePrompt {
+        fn is_terminal(&self) -> bool {
+            self.terminal
+        }
+        fn ask(&mut self, question: &str) -> Option<String> {
+            panic!("unexpected question: {question}");
+        }
+    }
+
+    fn run_with(a: &[&str]) -> (i32, String) {
+        let args: Vec<String> = a.iter().map(|s| s.to_string()).collect();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = run(
+            &args,
+            &mut out,
+            &mut err,
+            &mut FakePrompt { terminal: true },
+        );
+        (code, String::from_utf8(err).unwrap())
+    }
+
+    fn usage_error(a: &[&str]) {
+        let (code, err) = run_with(a);
+        assert_eq!((code, err.as_str()), (3, USAGE), "{a:?}");
+    }
+
+    #[test]
+    fn allow_without_a_name_is_a_usage_error() {
+        usage_error(&["build", "x.gloss", "--allow"]);
+    }
+
+    #[test]
+    fn allow_needs_a_real_file_name() {
+        usage_error(&["build", "x.gloss", "--allow", ""]);
+        usage_error(&["build", "x.gloss", "--allow", "--allow", "x.csv"]);
+        usage_error(&["build", "x.gloss", "--allow", "-q"]);
+    }
+
+    #[test]
+    fn allow_has_one_spelling_and_follows_the_file() {
+        usage_error(&["build", "x.gloss", "--allow=x.csv"]);
+        usage_error(&["build", "--allow", "x.csv", "x.gloss"]);
+    }
+
+    #[test]
+    fn allow_on_format_is_a_usage_error() {
+        usage_error(&["format", "x.gloss", "--allow", "a.csv"]);
+    }
+
+    #[test]
+    fn a_stray_word_is_a_usage_error() {
+        usage_error(&["build", "x.gloss", "a.csv"]);
+    }
+
+    #[test]
+    fn trace_accepts_allow() {
+        let (code, err) = run_with(&["trace", "x.gloss", "--allow", "a.csv"]);
+        assert_eq!(code, 3);
+        assert!(err.contains("not built yet"), "{err}");
+    }
 }
