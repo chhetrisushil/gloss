@@ -1,0 +1,9 @@
+feature start
+  for each i from 1 to 3
+    for each j from 1 to 3
+      if j is 2
+        skip
+      if j is 3
+        stop
+      show i * 10 + j
+    show "row"

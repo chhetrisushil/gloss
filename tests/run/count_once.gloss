@@ -1,0 +1,6 @@
+feature start
+  set n to 3
+  for each i from 1 to n
+    add 1 to n
+    show i
+  show n
