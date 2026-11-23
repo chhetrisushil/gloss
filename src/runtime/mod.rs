@@ -9,6 +9,7 @@ mod asm;
 mod core;
 mod numbers;
 mod output;
+mod parse;
 mod places;
 #[cfg(test)]
 mod tests;
@@ -30,6 +31,7 @@ pub fn routines() -> Vec<Function> {
     let mut all = core::routines();
     all.extend(output::routines());
     all.extend(numbers::routines());
+    all.extend(parse::routines());
     all.extend(places::routines());
     all.extend(text::routines());
     all
