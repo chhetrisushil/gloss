@@ -1,6 +1,6 @@
 use std::io::{BufRead, IsTerminal, Write};
 
-/// The person at the terminal: questions go to standard output, answers come from standard input.
+/// The person at the terminal: questions go to standard error (the list stays on standard output), answers come from standard input.
 struct Stdin;
 
 impl gloss::cli::Prompt for Stdin {
@@ -13,9 +13,9 @@ impl gloss::cli::Prompt for Stdin {
         if !self.is_terminal() {
             return None;
         }
-        let mut stdout = std::io::stdout();
-        let _ = stdout.write_all(question.as_bytes());
-        let _ = stdout.flush();
+        let mut stderr = std::io::stderr();
+        let _ = stderr.write_all(question.as_bytes());
+        let _ = stderr.flush();
         let mut line = String::new();
         match std::io::stdin().lock().read_line(&mut line) {
             Ok(0) | Err(_) => None,

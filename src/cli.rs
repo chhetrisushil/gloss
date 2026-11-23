@@ -50,7 +50,7 @@ pub fn run(
     args: &[String],
     out: &mut dyn Write,
     err: &mut dyn Write,
-    _prompt: &mut dyn Prompt,
+    prompt: &mut dyn Prompt,
 ) -> i32 {
     let Some((command, file, allow)) = parse_args(args) else {
         let _ = err.write_all(USAGE.as_bytes());
@@ -91,7 +91,7 @@ pub fn run(
     };
     if command == "build" {
         let options = BuildOptions { allow };
-        build(Path::new(file), &name, &text, &options, out, err)
+        build(Path::new(file), &name, &text, &options, prompt, out, err)
     } else {
         format(file, &name, &text, out, err)
     }
@@ -101,7 +101,8 @@ fn build(
     path: &Path,
     name: &str,
     text: &str,
-    _options: &BuildOptions,
+    options: &BuildOptions,
+    prompt: &mut dyn Prompt,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> i32 {
@@ -114,6 +115,21 @@ fn build(
     }
     if diagnostics.iter().any(|d| d.is_error()) {
         return 3;
+    }
+    let entries = checked
+        .as_ref()
+        .map(|c| c.permissions())
+        .unwrap_or_default();
+    if crate::approve::check_flags(&entries, &options.allow, err).is_err() {
+        return 3;
+    }
+    if !entries.is_empty() {
+        let _ = out.write_all(crate::permissions::render(&entries).as_bytes());
+        let approved =
+            crate::approve::approve(path, name, &entries, &options.allow, prompt, out, err);
+        if let Err(status) = approved {
+            return status;
+        }
     }
     let bytes = match checked.map(|c| c.executable()) {
         Some(Ok(bytes)) => bytes,
@@ -180,7 +196,11 @@ fn format(path: &str, name: &str, text: &str, out: &mut dyn Write, err: &mut dyn
 /// source. A symlink is followed (the real file is replaced, the link stays a link), a
 /// read-only file is refused, and the original's permissions are kept. With a `mode`, the
 /// file gets that mode instead, and need not exist yet.
-fn write_atomically(path: &Path, bytes: &[u8], mode: Option<u32>) -> std::io::Result<()> {
+pub(crate) fn write_atomically(
+    path: &Path,
+    bytes: &[u8],
+    mode: Option<u32>,
+) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let (real, permissions) = match mode {
         Some(mode) => (path.to_path_buf(), std::fs::Permissions::from_mode(mode)),
@@ -196,9 +216,22 @@ fn write_atomically(path: &Path, bytes: &[u8], mode: Option<u32>) -> std::io::Re
             "the file is read-only",
         ));
     }
-    let temp = real.with_file_name(format!(".gloss-format-{}.tmp", std::process::id()));
+    // O_EXCL, so a link planted at the temporary name is never followed.
+    let (mut file, temp) = (0..100)
+        .find_map(|n| {
+            let name = format!(".gloss-write-{}-{n}.tmp", std::process::id());
+            let temp = real.with_file_name(name);
+            let opened = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp);
+            match opened {
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
+                other => Some(other.map(|f| (f, temp))),
+            }
+        })
+        .unwrap_or_else(|| Err(std::io::Error::other("no free temporary file name")))?;
     let result = (|| {
-        let mut file = std::fs::File::create(&temp)?;
         file.write_all(bytes)?;
         file.set_permissions(permissions)?;
         file.sync_all()?;

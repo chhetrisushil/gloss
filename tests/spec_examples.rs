@@ -292,12 +292,13 @@ fn every_complete_spec_program_builds_and_runs() {
         let name = format!("block{index}");
         let (out, dir, exe) = build(&name, block);
         if has_table(block) {
-            // Table programs arrive in milestone 3 (D22).
-            assert_eq!(out.status.code(), Some(3), "{name}: {out:?}");
+            // A table program needs approval first (D25); there is no one to ask here.
+            assert_eq!(out.status.code(), Some(4), "{name}: {out:?}");
             let said = String::from_utf8_lossy(&out.stderr);
+            assert!(said.starts_with("Not approved: "), "{name}: {said}");
             assert!(
-                said.contains("tables arrive in milestone 3"),
-                "{name}: {said}"
+                !exe.exists(),
+                "{name}: an unapproved build wrote an executable"
             );
             continue;
         }

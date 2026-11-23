@@ -1,3 +1,4 @@
+pub mod approve;
 pub mod ast;
 pub mod chars;
 pub mod check;
