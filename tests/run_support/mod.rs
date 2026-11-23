@@ -69,6 +69,17 @@ pub fn run_env(
     deadline: Duration,
     vars: &[(&str, String)],
 ) -> Option<Ran> {
+    run_limited(path, stdin, deadline, vars, None)
+}
+
+/// Like `run_env`, with `ulimit -v <kib>` applied in the shell that execs the program.
+pub fn run_limited(
+    path: &Path,
+    stdin: &[u8],
+    deadline: Duration,
+    vars: &[(&str, String)],
+    kib: Option<u64>,
+) -> Option<Ran> {
     let Some(prefix) = runner() else {
         skip();
         return None;
@@ -87,16 +98,38 @@ pub fn run_env(
         let _ = std::fs::remove_file(&files.1);
         files
     });
+    // The command line after the runner prefix. The paths and the limit are positional
+    // arguments of a fixed script, never interpolated into it.
+    let limit = kib.map(|k| k.to_string());
+    let redirect = if files.is_some() {
+        r#" >"$1" 2>"$2""#
+    } else {
+        ""
+    };
+    let mut tail: Vec<&std::ffi::OsStr> = vec![path.as_os_str()];
+    if let Some((o, e)) = &files {
+        tail.extend([o.as_os_str(), e.as_os_str()]);
+    }
+    let script = match &limit {
+        Some(l) => {
+            let n = if files.is_some() { 3 } else { 1 };
+            tail.push(l.as_ref());
+            Some(format!(r#"ulimit -v "${n}"; exec "$0"{redirect}"#))
+        }
+        None => files.is_some().then(|| format!(r#"exec "$0"{redirect}"#)),
+    };
+    if let Some(script) = &script {
+        tail.splice(0..0, ["sh".as_ref(), "-c".as_ref(), script.as_ref()]);
+    }
     let mut cmd = match prefix.split_first() {
         Some((program, args)) => {
             let mut c = Command::new(program);
-            c.args(args);
-            if let Some((o, e)) = &files {
-                c.args(["sh", "-c", r#"exec "$0" >"$1" 2>"$2""#])
-                    .args([path, o, e]);
-            } else {
-                c.arg(path);
-            }
+            c.args(args).args(&tail);
+            c
+        }
+        None if script.is_some() => {
+            let mut c = Command::new(tail[0]);
+            c.args(&tail[1..]);
             c
         }
         None => Command::new(path),

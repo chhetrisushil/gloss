@@ -14,7 +14,14 @@ fn every_run_case_gives_the_expected_output_in_irsim() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/run");
     let cases = sweep(&dir).unwrap();
     assert!(cases.len() >= MIN_CASES, "too few run cases");
+    // irsim has no address-space limit, so a case with a `.ulimit` file cannot run here; each
+    // skip is counted and must match the files, so a case cannot vanish silently.
+    let mut skipped = 0;
     for case in cases {
+        if case.with_extension("ulimit").is_file() {
+            skipped += 1;
+            continue;
+        }
         let beside = |ext: &str| std::fs::read(case.with_extension(ext)).ok();
         let text = std::fs::read_to_string(&case).unwrap();
         let src = Source::new(&text);
@@ -31,6 +38,20 @@ fn every_run_case_gives_the_expected_output_in_irsim() {
         );
         assert_eq!((o.status, o.stdout, o.stderr), want, "{case:?}");
     }
+    let limited = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter(|e| {
+            e.as_ref()
+                .unwrap()
+                .path()
+                .extension()
+                .is_some_and(|x| x == "ulimit")
+        })
+        .count();
+    assert_eq!(
+        skipped, limited,
+        "every .ulimit case is skipped, and only those"
+    );
 }
 
 #[test]
