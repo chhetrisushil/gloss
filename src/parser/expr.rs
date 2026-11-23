@@ -118,7 +118,7 @@ impl Parser<'_> {
         let followed_by_of = self.peek_at(1) == Some(&Tok::Kw(Kw::Of));
         if let Some(fact) = self.built_in_fact_next() {
             self.pos += 2;
-            let of = Box::new(self.nested(Self::fact)?);
+            let of = Box::new(self.nested(Self::signed)?);
             return Ok(self.mk(line, K::Fact { fact, of }));
         }
         let kind = match self.peek() {
@@ -194,13 +194,13 @@ impl Parser<'_> {
         if !self.eat_kw(Kw::Of) {
             return Err(self.err("remainder needs of, as in remainder of n by 2"));
         }
-        let of = self.nested(Self::fact)?;
+        let of = self.nested(Self::signed)?;
         if !self.eat_kw(Kw::By) {
             return Err(self.err("remainder needs by after its first value"));
         }
         Ok(K::Remainder {
             of: Box::new(of),
-            by: Box::new(self.nested(Self::fact)?),
+            by: Box::new(self.nested(Self::signed)?),
         })
     }
 
@@ -313,6 +313,16 @@ mod tests {
 
     fn perr(t: &str) -> String {
         parse_expr_str(t).unwrap_err().problem
+    }
+
+    #[test]
+    fn negated_operands_after_of_and_by() {
+        assert_eq!(sx("whole of -3.5"), "(whole (- 3.5))");
+        assert_eq!(sx("whole of -x"), "(whole (- x))");
+        assert_eq!(sx("remainder of -7 by 2"), "(remainder (- 7) 2)");
+        assert_eq!(sx("remainder of x by -y"), "(remainder x (- y))");
+        assert_eq!(perr("whole of --x"), perr("--x"));
+        assert!(perr("whole of -a / b").contains("can be read two ways"));
     }
 
     #[test]

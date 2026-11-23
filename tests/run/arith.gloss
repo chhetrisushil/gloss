@@ -3,6 +3,6 @@ feature start
   show 7 / 2
   show 1 / 3 * 3
   show -(2 / 3)
-  show whole of (-3.5)
-  show remainder of (-7) by 2
+  show whole of -3.5
+  show remainder of -7 by 2
   show remainder of 7.5 by 2
