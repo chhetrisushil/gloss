@@ -5,8 +5,8 @@ mod run_support;
 use std::time::Duration;
 
 use gloss::ir::Global;
-use gloss::target::x86_64::inst::{Mem, R, Sym, X};
-use run_support::{TempDir, executable, run, run_within};
+use gloss::target::x86_64::inst::{AluOp, Mem, R, Sym, X};
+use run_support::{TempDir, executable, read_back, run, run_within, runner};
 
 const MIB: usize = 1 << 20;
 
@@ -81,4 +81,85 @@ fn a_program_killed_by_a_signal_is_reported_not_a_panic() {
             }
         }
     }
+}
+
+fn writes_a_mebibyte(dir: &TempDir) -> std::path::PathBuf {
+    let mut xs = vec![
+        X::MovRI(R::Rax, 1),
+        X::MovRI(R::Rdi, 1),
+        X::Lea(R::Rsi, Mem::Rip(Sym::Text(0))),
+        X::MovRI(R::Rdx, MIB as i64),
+        X::Syscall,
+    ];
+    xs.extend(syscall(60, 0));
+    executable(dir, &xs, vec![b'z'; MIB], 0)
+}
+
+#[test]
+#[ignore = "stress: 1600 runs through the runner; cargo test -- --ignored"]
+fn a_mebibyte_is_never_truncated_in_1600_runs() {
+    let dir = TempDir::new("stress");
+    let path = writes_a_mebibyte(&dir);
+    if runner().is_none() {
+        run_support::skip();
+        return;
+    }
+    let short: usize = std::thread::scope(|s| {
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                s.spawn(|| {
+                    (0..200)
+                        .filter(|_| {
+                            let (_, out, _) = run(&path, b"").unwrap().unwrap();
+                            out.len() != MIB
+                        })
+                        .count()
+                })
+            })
+            .collect();
+        threads.into_iter().map(|t| t.join().unwrap()).sum()
+    });
+    println!("1600 runs, {short} short");
+    assert_eq!(short, 0);
+}
+
+#[test]
+fn under_orb_stdout_stderr_and_status_come_back_exactly() {
+    if runner().and_then(|r| r.first().cloned()).as_deref() != Some("orb") {
+        return run_support::skip();
+    }
+    let dir = TempDir::new("orb-capture");
+    // write(1, "out!", 4); write(2, "err??", 5); exit(5)
+    let xs = vec![
+        X::MovRI(R::Rax, 1),
+        X::MovRI(R::Rdi, 1),
+        X::Lea(R::Rsi, Mem::Rip(Sym::Text(0))),
+        X::MovRI(R::Rdx, 4),
+        X::Syscall,
+        X::MovRI(R::Rax, 1),
+        X::MovRI(R::Rdi, 2),
+        X::Lea(R::Rsi, Mem::Rip(Sym::Text(0))),
+        X::AluI(AluOp::Add, R::Rsi, 4),
+        X::MovRI(R::Rdx, 5),
+        X::Syscall,
+        X::MovRI(R::Rax, 60),
+        X::MovRI(R::Rdi, 5),
+        X::Syscall,
+    ];
+    let path = executable(&dir, &xs, b"out!err??".to_vec(), 0);
+    assert_eq!(
+        run(&path, b"").unwrap().unwrap(),
+        (5, b"out!".to_vec(), b"err??".to_vec())
+    );
+}
+
+#[test]
+fn a_missing_output_file_is_an_error_naming_it_not_empty_output() {
+    let dir = TempDir::new("read-back");
+    let (o, e) = (dir.0.join("o"), dir.0.join("e"));
+    std::fs::write(&o, b"a").unwrap();
+    let msg = read_back(&o, &e).unwrap_err();
+    assert!(msg.contains(e.to_str().unwrap()), "{msg}");
+    std::fs::write(&e, b"b").unwrap();
+    assert_eq!(read_back(&o, &e).unwrap(), (b"a".to_vec(), b"b".to_vec()));
 }

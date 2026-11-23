@@ -72,10 +72,22 @@ pub fn run_program(m: &Module, stdin: &[u8], deadline: Duration) -> Option<Resul
     let path = dir.0.join("prog");
     std::fs::write(&path, x86_64_linux().executable(m).expect("builds")).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Under `orb` (the runner's first word, exactly; a wrapped runner such as `env orb ...` is
+    // not covered) the program writes stdout and stderr to files in its shared folder, read
+    // back once it has exited: `orb` drops the tail of piped output when the program exits
+    // while output is in flight. Mirrors `tests/run_support`.
+    let files = (prefix.first().map(String::as_str) == Some("orb"))
+        .then(|| (path.with_extension("stdout"), path.with_extension("stderr")));
     let mut cmd = match prefix.split_first() {
         Some((program, args)) => {
             let mut c = Command::new(program);
-            c.args(args).arg(&path);
+            c.args(args);
+            if let Some((o, e)) = &files {
+                c.args(["sh", "-c", r#"exec "$0" >"$1" 2>"$2""#])
+                    .args([&path, o, e]);
+            } else {
+                c.arg(&path);
+            }
             c
         }
         None => Command::new(&path),
@@ -112,7 +124,25 @@ pub fn run_program(m: &Module, stdin: &[u8], deadline: Duration) -> Option<Resul
         std::thread::sleep(Duration::from_millis(5));
     };
     let _ = feeder.join();
-    let (out, err) = (out.join().expect("stdout"), err.join().expect("stderr"));
+    let (mut out, mut err) = (out.join().expect("stdout"), err.join().expect("stderr"));
+    if let (Some((o, e)), Some(_)) = (&files, status) {
+        let read = |file: &Path| {
+            std::fs::read(file).map_err(|why| {
+                let runner_err = String::from_utf8_lossy(&err);
+                format!(
+                    "cannot read the program's output file {}: {why}; runner stderr: {runner_err}",
+                    file.display()
+                )
+            })
+        };
+        match (read(o), read(e)) {
+            (Ok(o), Ok(e)) => {
+                out.extend(o);
+                err.extend(e);
+            }
+            (Err(msg), _) | (_, Err(msg)) => return Some(Err(msg)),
+        }
+    }
     Some(match status.map(|s| s.code()) {
         None => Err(format!("timed out after {deadline:?}")),
         Some(None) => Err("ended by a signal".to_string()),
