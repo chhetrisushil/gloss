@@ -207,6 +207,17 @@ fn the_runtime_entry_and_failure_paths_agree() {
         slots: 0,
         body,
     });
+    let listing = m.text(b"list\n");
+    m.functions.push(Function {
+        name: "permissions_text".into(),
+        params: 0,
+        slots: 0,
+        body: vec![
+            Inst::Enter(0),
+            Inst::AddressOf(A, Data::Text(listing)),
+            Inst::Return,
+        ],
+    });
     let called = [
         "_start",
         "out_text",

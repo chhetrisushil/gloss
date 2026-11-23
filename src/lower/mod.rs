@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use crate::ast::program::{FeatureDecl, Program};
 use crate::check::TypeInfo;
 use crate::diag::Diagnostic;
-use crate::ir::{Function, Inst, Label, Module, Reg};
+use crate::ir::{Data, Function, Inst, Label, Module, Reg};
 use crate::runtime;
 use crate::source::Source;
 
@@ -184,17 +184,49 @@ fn assign_slots(types: &TypeInfo, feature: &str) -> BTreeMap<String, u32> {
     slots
 }
 
+/// `permissions_text`: leaves in `a` the address of text `text`, the program's permission list.
+fn permissions_text(text: u32) -> Function {
+    Function {
+        name: "permissions_text".to_string(),
+        params: 0,
+        slots: 0,
+        body: vec![
+            Inst::Enter(0),
+            Inst::AddressOf(Reg::A, Data::Text(text)),
+            Inst::Return,
+        ],
+    }
+}
+
 /// Lowers a checked program to an IR module, with the runtime it reaches.
 pub fn lower(program: &Program, types: &TypeInfo, src: &Source) -> Result<Module, Diagnostic> {
     if program.tables().next().is_some() {
         return Err(Diagnostic::program("tables arrive in milestone 3"));
     }
+    lower_program(program, types, src)
+}
+
+/// `lower` without the refusal of tables, for tests of what already works with them.
+/// Task 7a removes this and the refusal in `lower`.
+#[cfg(test)]
+pub(crate) fn lower_allowing_tables(
+    program: &Program,
+    types: &TypeInfo,
+    src: &Source,
+) -> Result<Module, Diagnostic> {
+    lower_program(program, types, src)
+}
+
+fn lower_program(program: &Program, types: &TypeInfo, src: &Source) -> Result<Module, Diagnostic> {
     let mut module = Module::default();
     let mut called = vec!["_start".to_string()];
     for feature in program.features() {
         let f = lower_feature(&mut module, src, program, types, feature, &mut called)?;
         module.functions.push(f);
     }
+    let list = crate::permissions::render(&crate::permissions::list(program));
+    let text = module.text(list.as_bytes());
+    module.functions.push(permissions_text(text));
     size_stack_checks(&mut module);
     runtime::add_reachable(&mut module, &called);
     Ok(module)
