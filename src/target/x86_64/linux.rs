@@ -16,6 +16,8 @@ const MAP_PRIVATE_ANONYMOUS: i64 = 0x22;
 const CLOSE: i64 = 3;
 const FSYNC: i64 = 74;
 const FSTAT: i64 = 5;
+const FORK: i64 = 57;
+const WAIT4: i64 = 61;
 const FCHMOD: i64 = 91;
 const RENAMEAT: i64 = 264;
 const OPENAT2: i64 = 437;
@@ -55,7 +57,8 @@ pub fn system(prim: Prim, unique: &str, out: &mut Vec<X>) {
             call(FCHMOD, out);
         }
         Prim::Rename => rename(out),
-        Prim::Fork | Prim::Wait => panic!("Fork and Wait arrive in task 3"),
+        Prim::Fork => call(FORK, out),
+        Prim::Wait => wait(unique, out),
     }
 }
 
@@ -164,6 +167,36 @@ fn mode(unique: &str, out: &mut Vec<X>) {
         X::AluI(AluOp::And, R::Rax, PERMISSION_BITS),
         X::Label(failed),
         X::AluI(AluOp::Add, R::Rsp, STAT_SIZE),
+    ]);
+}
+
+/// `wait4(pid, &status, 0, 0)` with the status word in 8 bytes of stack. An error stays as it
+/// is; an exit gives `(w >> 8) & 0xff`, a signal `256 + (w & 0x7f)`.
+fn wait(unique: &str, out: &mut Vec<X>) {
+    let (signal, done) = (format!("{unique}_signal"), format!("{unique}_done"));
+    out.extend([
+        X::Pop(R::Rdi),
+        X::AluI(AluOp::Sub, R::Rsp, 8),
+        X::MovRR(R::Rsi, R::Rsp),
+        X::MovRI(R::Rdx, 0),
+        X::MovRI(R::R10, 0),
+    ]);
+    call(WAIT4, out);
+    out.extend([
+        X::AluI(AluOp::Cmp, R::Rax, FIRST_ERROR),
+        X::Jcc(Cc::Ae, done.clone()),
+        X::MovRM(R::Rdx, Mem::Base(R::Rsp, 0)),
+        X::MovRR(R::Rax, R::Rdx),
+        X::AluI(AluOp::And, R::Rax, 0x7f),
+        X::Jcc(Cc::Ne, signal.clone()),
+        X::MovRR(R::Rax, R::Rdx),
+        X::Shr(R::Rax, 8),
+        X::AluI(AluOp::And, R::Rax, 0xff),
+        X::Jmp(done.clone()),
+        X::Label(signal),
+        X::AluI(AluOp::Add, R::Rax, 256),
+        X::Label(done),
+        X::AluI(AluOp::Add, R::Rsp, 8),
     ]);
 }
 

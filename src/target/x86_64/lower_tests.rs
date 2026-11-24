@@ -536,7 +536,41 @@ fn entering_with_no_slots_zeroes_nothing() {
 }
 
 #[test]
-#[should_panic(expected = "arrive in task 3")]
-fn fork_and_wait_are_not_lowered_yet() {
-    one(Inst::System(Prim::Fork));
+fn fork_is_syscall_57_with_b_kept() {
+    let fork = ["movabs rax, 57", "push rcx", "syscall", "pop rcx"].map(String::from);
+    assert_eq!(one(Inst::System(Prim::Fork)), fork);
+}
+
+#[test]
+fn wait_is_wait4_into_8_bytes_of_stack_and_decodes_the_status() {
+    let w = one(Inst::System(Prim::Wait));
+    let jae = w.iter().find(|l| l.starts_with("jae ")).expect("jae");
+    let done = jae.strip_prefix("jae ").unwrap().to_string();
+    let signal = done.replace("_done", "_signal");
+    let want = [
+        "pop rdi",
+        "sub rsp, 8",
+        "mov rsi, rsp",
+        "movabs rdx, 0",
+        "movabs r10, 0",
+        "movabs rax, 61",
+        "push rcx",
+        "syscall",
+        "pop rcx",
+        "cmp rax, -4096",
+        &format!("jae {done}"),
+        "mov rdx, [rsp+0]",
+        "mov rax, rdx",
+        "and rax, 127",
+        &format!("jne {signal}"),
+        "mov rax, rdx",
+        "shr rax, 8",
+        "and rax, 255",
+        &format!("jmp {done}"),
+        &format!("{signal}:"),
+        "add rax, 256",
+        &format!("{done}:"),
+        "add rsp, 8",
+    ];
+    assert_eq!(w, want.map(String::from));
 }
