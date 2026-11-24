@@ -71,12 +71,13 @@ const MISSING: u32 = 32;
 const IS_EMPTY: u32 = 33;
 const SPACE_QUOTE: u32 = 34;
 const NOT_NUMBER: u32 = 35;
+const NOT_YES_NO: u32 = 36;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 36] = [
+const TEXTS: [&[u8]; 37] = [
     b"line ",
     b": failure ",
     b": ",
@@ -113,6 +114,7 @@ const TEXTS: [&[u8]; 36] = [
     b" is empty",
     b" \"",
     b"\" is not a number",
+    b"\" is not yes or no",
 ];
 
 /// The bytes of the runtime text `i`.

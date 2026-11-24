@@ -1,7 +1,7 @@
 //! Turning a cell of a table file into the value of a field.
 
 use super::asm::Asm;
-use crate::ir::Cond::{Ge, Ne};
+use crate::ir::Cond::{Eq, Ge, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Data, Function, Global, Inst::*, IntOp};
 
@@ -84,8 +84,28 @@ fn cell_number() -> Function {
     s.finish("cell_number", 5, 2)
 }
 
+/// `cell_truth(cell, name, shown, line, row)`: 1 for exactly `yes`, 0 for exactly `no`; any
+/// other cell is failure 6, `<name> "<cell>" is not yes or no`.
+fn cell_truth() -> Function {
+    let mut s = Asm::default();
+    for (word, value) in [(super::YES, 1), (super::NO, 0)] {
+        let other = s.label();
+        s.push_arg(1);
+        s.push_text(word);
+        s.call("text_equal");
+        s.i(Const(B, 0));
+        s.jump_if(Eq, other);
+        s.i(Const(A, value));
+        s.i(Return);
+        s.i(Mark(other));
+    }
+    begin(&mut s);
+    quoted(&mut s, super::NOT_YES_NO);
+    s.finish("cell_truth", 5, 0)
+}
+
 pub fn routines() -> Vec<Function> {
-    vec![cell_number()]
+    vec![cell_number(), cell_truth()]
 }
 
 #[cfg(test)]
@@ -116,6 +136,20 @@ mod tests {
         assert_eq!(status, 2, "for {cell:?}");
         let head = "line 7: failure 6: e.csv line 9: amount ";
         err.strip_prefix(head).expect(&err).to_string()
+    }
+
+    #[test]
+    fn a_truth_cell_is_exactly_yes_or_no() {
+        assert_eq!(convert("cell_truth", "yes"), (0, "1".to_string()));
+        assert_eq!(convert("cell_truth", "no"), (0, "0".to_string()));
+        let line = "line 7: failure 6: e.csv line 9: amount";
+        for cell in ["maybe", "Yes", "NO", "yes ", " no", "y", "", "1", "true"] {
+            let want = format!("{line} \"{cell}\" is not yes or no\n");
+            assert_eq!(convert("cell_truth", cell), (2, want), "for {cell:?}");
+        }
+        let long = "y".repeat(50);
+        let want = format!("{line} \"{}\u{2026}\" is not yes or no\n", "y".repeat(40));
+        assert_eq!(convert("cell_truth", &long), (2, want));
     }
 
     #[test]
