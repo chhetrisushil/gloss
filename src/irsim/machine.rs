@@ -29,6 +29,7 @@ pub enum Ended {
 }
 
 /// One active call.
+#[derive(Clone)]
 pub struct Frame {
     pub func: usize,
     pub pc: usize,
@@ -40,6 +41,7 @@ pub struct Frame {
     return_sp: u64,
 }
 
+#[derive(Clone)]
 pub struct Machine<'m> {
     pub module: &'m Module,
     pub memory: Memory,
@@ -70,6 +72,10 @@ pub struct Machine<'m> {
     pub files: super::Files,
     /// The descriptors `Open` handed out, from 3 up.
     pub fds: std::collections::BTreeMap<i64, super::system::OpenFile>,
+    /// The exit status of each child `Fork` ran that `Wait` has not collected, by pid.
+    pub children: std::collections::BTreeMap<i64, i32>,
+    /// The pid the next `Fork` hands out.
+    pub next_pid: i64,
 }
 
 fn label_positions(function: &Function) -> HashMap<Label, usize> {
@@ -104,6 +110,8 @@ impl<'m> Machine<'m> {
             file_reads: 0,
             files: super::Files::default(),
             fds: std::collections::BTreeMap::new(),
+            children: std::collections::BTreeMap::new(),
+            next_pid: 100,
         }
     }
 
