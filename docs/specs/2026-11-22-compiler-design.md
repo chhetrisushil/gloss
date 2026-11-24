@@ -331,10 +331,10 @@ The milestone ledger (every ruling R2–R49 and the review record) is kept at `~
 **Tests:** 518 pass and 1 is ignored (the stress test): 415 unit tests and 103 integration tests, including the CLI, 97 run cases (real and `irsim`), the examples, the spec guard, the 2000-result number reference, the objdump check (opt-in, so it skips by default), and the differential tests of backend against `irsim`. Encoder sweeps against `objdump` found 0 mismatches over more than 40,000 instructions; the number routines agreed on 220,000 generated pairs.
 
 **Known limits and deferred items:**
-- **M3 and M4:** tables (refused, D22), `load`, `save`, `clear`, `expect` and `input`. Run-time failures 6–8 are worded in M3. The permission list must show file names unambiguously (carried from M1).
+- **M3 and M4** (superseded in M3: see As built — Milestone 3): tables (refused, D22), `load`, `save`, `clear`, `expect` and `input`. Run-time failures 6–8 are worded in M3. The permission list must show file names unambiguously (carried from M1).
 - **Memory:** nothing is freed. A run under Rosetta needs a `ulimit -v` above about 800 MB, so the out-of-memory case uses 1 GiB (M2-R35), unverified on native x86-64.
 - **Stack:** `irsim` models a 1 MiB stack (smaller than the real 8 MiB default, to keep `too_deep` cheap), so the depth at which failure 10 triggers differs from a real run; the message is the same. The stack limit is capped at 1 GiB.
-- **Mac runs:** every run under `orb` is Rosetta. The `tests/scaling.rs` reverse-chain test once took 10.5 s under heavy compile load (bound 10 s), and the difftest once failed in a cold run that could not be reproduced; both are WATCH items. Once, a runaway `dhcpcd` inside the machine kept OrbStack at 100% CPU and slowed the run tests about 20 times; if run tests crawl, check the machine's processes first.
+- **Mac runs** (superseded in M3: now QEMU, see As built — Milestone 3): every run under `orb` is Rosetta. The `tests/scaling.rs` reverse-chain test once took 10.5 s under heavy compile load (bound 10 s), and the difftest once failed in a cold run that could not be reproduced; both are WATCH items. Once, a runaway `dhcpcd` inside the machine kept OrbStack at 100% CPU and slowed the run tests about 20 times; if run tests crawl, check the machine's processes first.
 - **Failure messages** quote the expression as `gloss format` writes it (M2-R23).
 - **Reviews:** the encoder, ELF writer, runtime memory, input and descriptor code each had a first review on the top tier.
 
@@ -371,11 +371,11 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 - **D22:** lifted in task 7a, not in the last task. D23 was amended to say so (plan ruling P1).
 - **D27:** accepted deviation from the language spec §8: builds of programs with no tables print `Built x` and no list.
 - **D14 (200-line PRs):** tasks over the cap were split into sequential PRs, never trimmed (M3-R5, M3-R7, M3-R19). Task 9 is 35 PRs.
-- **D2 and D17:** the machine runs under QEMU (`orb config set rosetta false`), not Rosetta, because Rosetta has no `openat2` (M3-R13). Memory-limit runs skip visibly under QEMU.
-- **D24:** the escape is unpadded upper-case hex, as the owner's example shows (M3-R1), and a file name may not contain `"` (M3-R2).
+- **D2 and D17:** the machine runs under QEMU (`orb config set rosetta false`), not Rosetta, because Rosetta has no `openat2` (owner's decision, 2026-11-24, during task 5b). Memory-limit runs skip visibly under QEMU (M3-R13).
 - **D26:** failure 6 gained a row, `a quote is out of place` (M3-R22).
-- **D29:** `table_save` takes 8 arguments, the extra one being the folder name as shown. The case `table_save_link` was added.
+- **D29:** the case `table_save_link` was added.
 - **§4.7:** `save` opens the folder with `O_RDONLY | O_DIRECTORY`, not `O_PATH` (M3-R8). The wording is fixed above.
+- **Plan:** `table_save` takes 8 arguments, not the plan's 7; the extra one is the folder name as shown in messages.
 - **Plan rulings:** P2: a `save` in a test block does not make a table read and replace. P3: `--allow` for a file the program does not declare is a compile error, status 3, so a typo cannot approve nothing.
 
 **Rulings** (final state; later rulings are noted against the ones they supersede):
@@ -401,7 +401,7 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 - M3-R9, superseded in part by M3-R10: `irsim` rename mirrors `renameat` on a folder descriptor (single-component names, a link at the target is replaced, a link at the source is moved).
 - M3-R10: a `Probe` descriptor of a folder is a valid directory descriptor for open and rename, as on Linux; a read or create descriptor gives `ENOTDIR`.
 - M3-R11: the remaining `irsim`/Linux fit fixes went in a seventh branch, not folded into branches at 187–200 lines.
-- M3-R12: fix `irsim` and Linux edge disagreements, missing lowering tests and the ENOSYS skip now; carry the single-name check, FIFO and hard-link concerns into tasks 8 and 9.
+- M3-R12: fix now the ENOSYS skip (I1), the missing real-folder `Open` difftest (I2), `irsim` and Linux edge disagreements and missing lowering tests; M5 (host symbolic links) was settled by running under QEMU; carry the single-name check, FIFO and hard-link concerns into tasks 8 and 9.
 - M3-R20: the save order is tested by an `irsim` event log of `sync` and `rename`, which fails if the folder sync moves before the rename.
 
 *Tables and lowering*
@@ -414,7 +414,7 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 - M3-R23: `load` skips one leading UTF-8 byte order mark, as Excel and Notepad write one. `save` does not write it back.
 - M3-R24: a FIFO at the table path blocks `load` forever. Accepted (see below).
 
-**Tests:** 664 pass and 1 is ignored (the stress test): 541 unit tests and 123 integration tests in 24 files. They include 142 run cases (`MIN_CASES`), each run as a real executable and under `irsim`, 11 examples (`MIN_EXAMPLES`), and run cases for every failure 6–8 message with exact `.err` and status 2. The 4 permission cases ran as a non-root user, and CI (`ubuntu-latest`, non-root) ran them too. Under QEMU the memory-limit runs skip. The objdump check is opt-in. CI found two clippy lints that the local toolchain (1.87) lacked; the local toolchain is now 1.100 (stable).
+**Tests:** 664 pass and 1 is ignored (the stress test): 541 unit tests and 123 integration tests in 24 files. They include 142 run cases (`MIN_CASES`), each run as a real executable and under `irsim`, 11 examples (`MIN_EXAMPLES`), and run cases for every failure 6–8 message with exact `.err` and status 2. The 4 permission cases ran as a non-root user, and CI run 45405019166 (`ubuntu-latest`, non-root) printed `permission cases: 4 ran, 0 skipped`. Under QEMU the memory-limit runs skip. The objdump check is opt-in. CI found two clippy lints that the local toolchain (1.87) lacked; the local toolchain is now 1.100 (stable).
 
 **Known limits and accepted risks:**
 - **Save and a same-user attacker (M3-R17c).** All need someone who can already write the table's folder, which §8 does not defend against:
@@ -425,6 +425,8 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 - **Sync errors after the rename.** If the folder sync or a close fails after the rename, the message says `cannot be written` although the table was replaced.
 - **Mode 300 folders (M3-R8).** A folder that is write and search only cannot be opened `O_RDONLY`, so a save into it is refused.
 - **Memory:** nothing is freed, as in M2. Memory-limit runs skip under QEMU, so the out-of-memory case is checked only by CI.
+- **Save, probe fall-through.** When the probe open of the target fails in a way other than not found, `save` falls through to the write; refusing on `ESCAPES` there would be optional hardening.
+- **`EBUSY` constant.** The `EBUSY` constant sits outside the target module, following the `irsim` errno pattern.
 - **BOM:** a loaded and saved file loses its byte order mark (M3-R23).
 - **Deferred:** test fixtures and pretend files (M4), `trace`'s `--allow` (M5).
 - **Reviews:** the approval logic, `.allow` parsing, open and save paths, symbolic-link handling, safe writing, the new encoder primitives and the CSV reader each had a first review on the top tier.
