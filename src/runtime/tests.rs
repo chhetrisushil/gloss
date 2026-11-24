@@ -974,3 +974,79 @@ fn err_int_writes_through_write_all() {
     assert_eq!(o.stdout, b"212121", "3 calls, fd 2 and length 1 each");
     assert!(o.stderr.is_empty());
 }
+
+/// Calls `routine(text 0's bytes, len[, indent])`.
+fn report_call(routine: &str, text: &[u8], indent: Option<i64>, faults: Faults) -> Outcome {
+    let mut body = write_text(1, text.len() as i64);
+    body.pop();
+    body.remove(0);
+    body.remove(0);
+    if let Some(n) = indent {
+        body.extend([Const(A, n), Push(A)]);
+    }
+    body.push(Call(routine.into()));
+    run_with(&program(body, &[text]), faults)
+}
+
+#[test]
+fn report_lines_indents_every_line() {
+    for (text, want) in [
+        (&b"a\nb\n"[..], "      a\n      b\n"),
+        (b"a\nb", "      a\n      b\n"),
+        (b"", ""),
+        (b"\n", "      \n"),
+    ] {
+        let o = report_call("report_lines", text, Some(6), Faults::default());
+        assert_eq!(
+            (o.status, String::from_utf8(o.stdout).unwrap()),
+            (0, want.into())
+        );
+    }
+    let o = report_call("report_lines", b"x", Some(8), Faults::default());
+    assert_eq!(o.stdout, b"        x\n");
+}
+
+#[test]
+fn report_bytes_delivers_every_byte_through_short_writes() {
+    let faults = Faults {
+        short_write: Some(7),
+        ..Faults::default()
+    };
+    let text: Vec<u8> = (0..5000u32).map(|i| (i % 251) as u8).collect();
+    let o = report_call("report_bytes", &text, None, faults);
+    assert_eq!((o.status, o.stdout), (0, text));
+}
+
+#[test]
+fn report_text_bypasses_the_output_buffer() {
+    // The buffered text is never flushed here, so only the report reaches descriptor 1.
+    let mut body = out_text(1);
+    body.extend([
+        AddressOf(A, Data::Text(0)),
+        Push(A),
+        Call("report_text".into()),
+    ]);
+    assert_eq!(run(&program(body, &[b"abc", b"buffered"])).stdout, b"abc");
+}
+
+#[test]
+fn a_failed_report_write_ends_the_process_with_status_2() {
+    let faults = Faults {
+        failing_fds: vec![1],
+        ..Faults::default()
+    };
+    assert_eq!(report_call("report_bytes", b"abc", None, faults).status, 2);
+}
+
+#[test]
+fn report_lines_keeps_blank_lines_and_takes_indent_0_and_long_input() {
+    let o = report_call("report_lines", b"a\n\nb", Some(6), Faults::default());
+    assert_eq!(o.stdout, b"      a\n      \n      b\n");
+    let o = report_call("report_lines", b"x\ny", Some(0), Faults::default());
+    assert_eq!(o.stdout, b"x\ny\n");
+    let lines: Vec<String> = (0..300).map(|i| format!("line {i}")).collect();
+    let text = lines.join("\n");
+    let want: String = lines.iter().map(|l| format!("    {l}\n")).collect();
+    let o = report_call("report_lines", text.as_bytes(), Some(4), Faults::default());
+    assert_eq!((o.status, String::from_utf8(o.stdout).unwrap()), (0, want));
+}
