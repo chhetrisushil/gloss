@@ -58,12 +58,13 @@ const NOT_EXIST: u32 = 22;
 const THROUGH_LINK: u32 = 23;
 const CANNOT_READ: u32 = 24;
 const NOT_FOUND_NOTICE: u32 = 25;
+const NOT_UTF8: u32 = 26;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 26] = [
+const TEXTS: [&[u8]; 27] = [
     b"line ",
     b": failure ",
     b": ",
@@ -90,6 +91,7 @@ const TEXTS: [&[u8]; 26] = [
     b" is reached through a symbolic link",
     b" cannot be read",
     b" not found; starting with an empty table\n",
+    b" is not UTF-8 text (line ",
 ];
 
 /// The bytes of the runtime text `i`.
