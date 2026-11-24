@@ -111,8 +111,7 @@ fn model(setup: &Setup) -> Files {
             .collect::<BTreeMap<_, _>>(),
         folders: setup.folders.iter().map(|f| f.to_string()).collect(),
         links: setup.links.iter().map(|(l, _)| l.to_string()).collect(),
-        synced: Vec::new(),
-        log: Vec::new(),
+        ..Files::default()
     }
 }
 
@@ -297,6 +296,31 @@ pub fn programs() {
     ];
     check("sync folder", &a, &steps, &[FD, 0, ENOTDIR, EBADF], real);
     folder_cases(real);
+    mode_cases(real);
+}
+
+/// `Mode` reads the permission bits through any kind of descriptor, a probe included.
+fn mode_cases(real: bool) {
+    let setup = Setup {
+        files: vec![("a.txt", "x"), ("sub/x", "in")],
+        folders: vec!["sub"],
+        ..Setup::default()
+    };
+    let steps = [
+        open(OpenMode::Probe, "a.txt"),
+        fd_step(Prim::Mode),
+        fd_step(Prim::Close),
+        open(OpenMode::Folder, "sub"),
+        fd_step(Prim::Mode),
+        step(Prim::Mode, vec![Arg::Int(77)]),
+    ];
+    check(
+        "mode",
+        &setup,
+        &steps,
+        &[FD, 0o644, 0, FD, 0o755, EBADF],
+        real,
+    );
 }
 
 /// Opens and renames relative to a folder descriptor, as `save` does: "beneath" is the

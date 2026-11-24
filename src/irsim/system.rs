@@ -60,6 +60,7 @@ impl Machine<'_> {
                 };
             }
             Prim::Sync => self.sync(),
+            Prim::Mode => self.mode(),
             Prim::Rename => self.rename(),
         }
         None
@@ -204,6 +205,21 @@ impl Machine<'_> {
                 .map(|()| OpenFile::Create(Target::Path(full))),
             _ => Err(NOT_FOUND),
         }
+    }
+
+    /// `fstat`: the permission bits of what the descriptor is on, probes included.
+    fn mode(&mut self) {
+        let fd = self.pop();
+        self.a = match self.fds.get(&fd) {
+            Some(
+                OpenFile::Read(Target::Path(path), _)
+                | OpenFile::Folder(path)
+                | OpenFile::Create(Target::Path(path))
+                | OpenFile::Probe(path),
+            ) => i64::from(self.files.mode_of(path)),
+            Some(_) => 0o644,
+            None => EBADF,
+        };
     }
 
     fn sync(&mut self) {

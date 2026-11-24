@@ -15,6 +15,7 @@ const PROT_READ_WRITE: i64 = 3;
 const MAP_PRIVATE_ANONYMOUS: i64 = 0x22;
 const CLOSE: i64 = 3;
 const FSYNC: i64 = 74;
+const FSTAT: i64 = 5;
 const RENAMEAT: i64 = 264;
 const OPENAT2: i64 = 437;
 const O_RDONLY: i64 = 0;
@@ -30,6 +31,11 @@ const RESOLVE_BENEATH: i64 = 0x08;
 const CREATE_PERMISSIONS: i64 = 0o644;
 /// `sizeof(struct open_how)`: `u64` flags, mode and resolve.
 const OPEN_HOW_SIZE: i64 = 24;
+/// `sizeof(struct stat)` on x86-64, and where `st_mode` sits in it.
+const STAT_SIZE: i32 = 144;
+const ST_MODE: i32 = 24;
+/// The permission bits of `st_mode`, with setuid, setgid and sticky.
+const PERMISSION_BITS: i32 = 0o7777;
 /// The kernel reports an error as a result in `-4095..=-1`.
 const FIRST_ERROR: i32 = -4096;
 
@@ -44,6 +50,7 @@ pub fn system(prim: Prim, unique: &str, out: &mut Vec<X>) {
         Prim::Open(mode) => open(mode, out),
         Prim::Close => single(CLOSE, out),
         Prim::Sync => single(FSYNC, out),
+        Prim::Mode => mode(unique, out),
         Prim::Rename => rename(out),
     }
 }
@@ -123,6 +130,26 @@ fn open(mode: OpenMode, out: &mut Vec<X>) {
 fn single(number: i64, out: &mut Vec<X>) {
     out.push(X::Pop(R::Rdi));
     call(number, out);
+}
+
+/// `fstat(fd, &stat)` into `sizeof(struct stat)` bytes of stack; the permission bits are the
+/// low 12 bits of `st_mode`, at offset 24. An error is passed on as it is.
+fn mode(unique: &str, out: &mut Vec<X>) {
+    let failed = format!("{unique}_failed");
+    out.extend([
+        X::Pop(R::Rdi),
+        X::AluI(AluOp::Sub, R::Rsp, STAT_SIZE),
+        X::MovRR(R::Rsi, R::Rsp),
+    ]);
+    call(FSTAT, out);
+    out.extend([
+        X::AluI(AluOp::Cmp, R::Rax, FIRST_ERROR),
+        X::Jcc(Cc::Ae, failed.clone()),
+        X::MovRM(R::Rax, Mem::Base(R::Rsp, ST_MODE)),
+        X::AluI(AluOp::And, R::Rax, PERMISSION_BITS),
+        X::Label(failed),
+        X::AluI(AluOp::Add, R::Rsp, STAT_SIZE),
+    ]);
 }
 
 /// `renameat(folder, from, folder, to)`.
