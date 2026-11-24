@@ -865,3 +865,67 @@ fn grow_text_copies_len_bytes_for_len_up_to_twice_the_room() {
         );
     }
 }
+
+#[test]
+fn the_real_backend_is_unchanged() {
+    use super::{Backend, routines, routines_for, test_backend};
+    let real = routines_for(Backend::Real);
+    assert_eq!(real, routines());
+    let mut expected: Vec<Function> = real
+        .iter()
+        .filter(|f| !test_backend::REPLACED.contains(&f.name.as_str()))
+        .cloned()
+        .collect();
+    expected.extend(test_backend::routines());
+    assert_eq!(routines_for(Backend::Test), expected);
+    let original = super::output::routines()
+        .into_iter()
+        .find(|f| f.name == "write_all")
+        .unwrap();
+    let kept = real.iter().find(|f| f.name == "write_all").unwrap();
+    assert_eq!(kept, &original);
+}
+
+#[test]
+fn a_replaced_routine_is_swapped_by_name() {
+    use super::{Backend, routines, routines_for, routines_swapping};
+    let stub = Function {
+        name: "flush".into(),
+        params: 0,
+        slots: 0,
+        body: vec![Return],
+    };
+    let swapped = routines_swapping(Backend::Test, &["flush"], vec![stub.clone()]);
+    let flushes: Vec<&Function> = swapped.iter().filter(|f| f.name == "flush").collect();
+    assert_eq!(flushes, vec![&stub]);
+    let real = routines_for(Backend::Real);
+    assert_eq!(
+        routines_swapping(Backend::Real, &["flush"], vec![stub]),
+        routines()
+    );
+    assert_ne!(
+        real.iter().find(|f| f.name == "flush").unwrap().body,
+        vec![Return]
+    );
+}
+
+fn stub_named(name: &str) -> Function {
+    Function {
+        name: name.into(),
+        params: 0,
+        slots: 0,
+        body: vec![Return],
+    }
+}
+
+#[test]
+#[should_panic(expected = "does not replace it")]
+fn an_extra_that_collides_with_a_real_routine_it_does_not_replace_is_refused() {
+    super::routines_swapping(super::Backend::Test, &[], vec![stub_named("flush")]);
+}
+
+#[test]
+#[should_panic(expected = "not a real routine")]
+fn a_replaced_name_that_is_no_real_routine_is_refused() {
+    super::routines_swapping(super::Backend::Test, &["flsuh"], vec![]);
+}

@@ -28,6 +28,7 @@ mod places;
 mod save;
 mod shown;
 mod table_read;
+mod test_backend;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -133,7 +134,45 @@ fn text_bytes(i: u32) -> Vec<u8> {
     }
 }
 
-/// Every runtime routine.
+/// Which routines a module is built from: the real ones, or a test build's, where
+/// `test_backend` replaces some.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Backend {
+    Real,
+    Test,
+}
+
+/// The routines of `backend`: the real ones, and for `Test` those in `test_backend::REPLACED`
+/// swapped for `test_backend::routines()`.
+pub fn routines_for(backend: Backend) -> Vec<Function> {
+    routines_swapping(backend, &test_backend::REPLACED, test_backend::routines())
+}
+
+/// `routines_for` with the replaced names and the replacements given. `Real` ignores both.
+fn routines_swapping(backend: Backend, replaced: &[&str], extra: Vec<Function>) -> Vec<Function> {
+    let mut all = routines();
+    for name in replaced {
+        assert!(
+            all.iter().any(|f| f.name == *name),
+            "`{name}` is replaced but is not a real routine: a typo would swap nothing"
+        );
+    }
+    for f in &extra {
+        assert!(
+            replaced.contains(&f.name.as_str()) || !all.iter().any(|r| r.name == f.name),
+            "test routine `{}` has a real routine's name but does not replace it: \
+             add_reachable takes the first of a name and would silently use the real one",
+            f.name
+        );
+    }
+    if backend == Backend::Test {
+        all.retain(|f| !replaced.contains(&f.name.as_str()));
+        all.extend(extra);
+    }
+    all
+}
+
+/// Every real runtime routine.
 pub fn routines() -> Vec<Function> {
     let mut all = core::routines();
     all.extend(args::routines());
@@ -162,7 +201,12 @@ pub fn routines() -> Vec<Function> {
 /// Adds to `m` the routines named in `called`, and those they call, once each. Names that
 /// are not runtime routines are ignored.
 pub fn add_reachable(m: &mut Module, called: &[String]) {
-    let all = routines();
+    add_reachable_for(m, called, Backend::Real);
+}
+
+/// `add_reachable`, taking the routines from `backend`.
+pub fn add_reachable_for(m: &mut Module, called: &[String], backend: Backend) {
+    let all = routines_for(backend);
     let mut pending: Vec<String> = called.to_vec();
     while let Some(name) = pending.pop() {
         if m.functions.iter().any(|f| f.name == name) {
