@@ -355,7 +355,7 @@ pub(super) mod tests {
     };
     use crate::irsim::Outcome;
 
-    /// Runs `after` with a cursor over `input` in slot 1 of a function `t`; `shown` is text 0
+    /// Runs `after` with a cursor over `input` in slot 1 of a function `t` (slots 2 to 4 are free); `shown` is text 0
     /// (`e.csv`), a line feed is text 1 and a space text 2; the descriptors are text, list of
     /// text, number, truth and the record `Expense` with fields `name`, `amount` and `paid`.
     pub(in crate::runtime) fn with_cursor(input: &[u8], after: Vec<Inst>) -> Outcome {
@@ -370,7 +370,7 @@ pub(super) mod tests {
             fields,
         });
         let [_shown, _lf, _space, text] = [&b"e.csv"[..], b"\n", b" ", input].map(|t| m.text(t));
-        let mut body = vec![Enter(1), AddressOf(A, Data::Text(text)), Push(A)];
+        let mut body = vec![Enter(4), AddressOf(A, Data::Text(text)), Push(A)];
         body.extend([
             Const(A, 7),
             Push(A),
@@ -389,7 +389,7 @@ pub(super) mod tests {
         m.functions.push(Function {
             name: "t".into(),
             params: 0,
-            slots: 1,
+            slots: 4,
             body,
         });
         add_reachable(&mut m, &called);

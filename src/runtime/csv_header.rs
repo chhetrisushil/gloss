@@ -18,7 +18,7 @@ const FOUND: u32 = 8;
 const SEEN: u32 = 9;
 
 /// `a = word at a + offset`.
-fn load_at(s: &mut Asm, offset: i32) {
+pub(super) fn load_at(s: &mut Asm, offset: i32) {
     s.i(Load {
         to: A,
         base: A,
@@ -35,13 +35,13 @@ fn word_at(s: &mut Asm, base: u32, index: u32) {
 }
 
 /// The word `index` of the block in slot `base`, into `a`.
-fn get(s: &mut Asm, base: u32, index: u32) {
+pub(super) fn get(s: &mut Asm, base: u32, index: u32) {
     word_at(s, base, index);
     load_at(s, 0);
 }
 
 /// Sets that word to the value in slot `value`.
-fn set(s: &mut Asm, base: u32, index: u32, value: u32) {
+pub(super) fn set(s: &mut Asm, base: u32, index: u32, value: u32) {
     word_at(s, base, index);
     s.i(LoadSlot(B, value));
     s.i(Store {

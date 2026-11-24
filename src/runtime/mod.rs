@@ -27,6 +27,7 @@ mod parse;
 mod places;
 mod save;
 mod shown;
+mod table_read;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -145,6 +146,7 @@ pub fn routines() -> Vec<Function> {
     all.extend(places::routines());
     all.extend(save::routines());
     all.extend(shown::routines());
+    all.extend(table_read::routines());
     all.extend(text::routines());
     all.extend(utf8::routines());
     all.extend(values::routines());
