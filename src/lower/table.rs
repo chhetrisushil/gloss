@@ -65,23 +65,15 @@ impl Lowerer<'_> {
         }
     }
 
-    /// `clear t`: a new empty list replaces the table's (a list a caller copied earlier keeps
-    /// its rows), and the loaded flag becomes 1.
-    pub fn clear_table(&mut self, index: usize) {
-        let fresh = self.new_temp();
-        self.emit(Inst::Const(Reg::A, ROOM));
-        self.emit(Inst::Push(Reg::A));
-        self.emit(Inst::Const(Reg::A, i64::from(self.line)));
-        self.emit(Inst::Push(Reg::A));
-        self.call("list_new");
-        self.emit(Inst::StoreSlot(fresh, Reg::A));
+    /// Makes the list in `slot` the table's and sets the loaded flag to 1.
+    fn install_list(&mut self, index: usize, slot: u32) {
         self.emit(Inst::AddressOf(Reg::A, Data::Global(Global::Tables)));
         self.emit(Inst::Load {
             to: Reg::A,
             base: Reg::A,
             offset: 0,
         });
-        self.emit(Inst::LoadSlot(Reg::B, fresh));
+        self.emit(Inst::LoadSlot(Reg::B, slot));
         let at = ENTRY * index as i32;
         self.emit(Inst::Store {
             base: Reg::A,
@@ -94,6 +86,44 @@ impl Lowerer<'_> {
             offset: at + 8,
             from: Reg::B,
         });
+    }
+
+    /// `clear t`: a new empty list replaces the table's (a list a caller copied earlier keeps
+    /// its rows), and the loaded flag becomes 1.
+    pub fn clear_table(&mut self, index: usize) {
+        let fresh = self.new_temp();
+        self.emit(Inst::Const(Reg::A, ROOM));
+        self.emit(Inst::Push(Reg::A));
+        self.emit(Inst::Const(Reg::A, i64::from(self.line)));
+        self.emit(Inst::Push(Reg::A));
+        self.call("list_new");
+        self.emit(Inst::StoreSlot(fresh, Reg::A));
+        self.install_list(index, fresh);
+    }
+
+    /// `load t`: `table_read` builds a new list from the file, with the path and its display
+    /// form as compile-time texts. Only when it has read the whole file is the list stored as
+    /// the table's, and the loaded flag set; a failure ends the program before that.
+    pub fn read_table(&mut self, index: usize) -> Result<(), Diagnostic> {
+        let table = self
+            .program
+            .tables()
+            .nth(index)
+            .expect("a table of that index");
+        save_names(&table.path)
+            .map_err(|message| Diagnostic::error(self.src, self.line, &message))?;
+        self.push_text(&[table.path.as_bytes(), b"\0"].concat());
+        self.push_text(crate::permissions::display_name(&table.path).as_bytes());
+        let desc = self.record_desc(&table.record);
+        self.emit(Inst::AddressOf(Reg::A, Data::Desc(desc)));
+        self.emit(Inst::Push(Reg::A));
+        self.emit(Inst::Const(Reg::A, i64::from(self.line)));
+        self.emit(Inst::Push(Reg::A));
+        self.call("table_read");
+        let fresh = self.new_temp();
+        self.emit(Inst::StoreSlot(fresh, Reg::A));
+        self.install_list(index, fresh);
+        Ok(())
     }
 
     /// `save t`: failure 8 when the table's loaded flag is 0, then `table_save`, with the folder,

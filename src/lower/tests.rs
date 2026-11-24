@@ -458,3 +458,19 @@ fn save_lowers_to_the_flag_check_and_a_table_save_call_with_its_texts() {
     }
     assert!(m.functions.iter().any(|f| f.name == "table_save"));
 }
+
+#[test]
+fn load_lowers_to_a_table_read_call_and_stores_the_list_only_after_it() {
+    let text = "record Row\n  n as number\n\ntable rows of Row in \"data/rows.csv\"\n\nfeature start\n  \
+                load rows\n";
+    let m = lowered(text).unwrap();
+    let f = m.functions.iter().find(|f| f.name == "f_start").unwrap();
+    let text = function_text(f);
+    assert_eq!(text.matches("call table_read").count(), 1, "{text}");
+    let (read, stored) = (text.find("call table_read"), text.find("[a] = b"));
+    assert!(read.unwrap() < stored.unwrap(), "{text}");
+    for want in [&b"data/rows.csv\0"[..], b"data/rows.csv"] {
+        assert!(m.texts.iter().any(|t| t == want), "{want:?}");
+    }
+    assert!(m.functions.iter().any(|f| f.name == "table_read"));
+}
