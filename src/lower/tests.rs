@@ -407,3 +407,47 @@ fn a_program_without_tables_prints_nothing_else() {
     assert_eq!(o.stdout, crate::permissions::render(&[]).into_bytes());
     assert_eq!(o.status, 0);
 }
+
+#[test]
+fn a_saved_table_path_is_a_folder_and_two_plain_names() {
+    use super::table::{SaveNames, save_names};
+    let names = |folder: &str, name: &str| SaveNames {
+        folder: folder.into(),
+        name: name.into(),
+        temp: format!("{name}.gloss-new"),
+    };
+    assert_eq!(save_names("e.csv"), Ok(names(".", "e.csv")));
+    assert_eq!(save_names("data/e.csv"), Ok(names("data", "e.csv")));
+    assert_eq!(save_names("a/b/e.csv"), Ok(names("a/b", "e.csv")));
+    for bad in [
+        "/e.csv",
+        "/a/e.csv",
+        "../e.csv",
+        "a/../e.csv",
+        "a//e.csv",
+        "a/",
+        "",
+        "a\0b",
+    ] {
+        assert!(save_names(bad).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
+fn save_lowers_to_the_flag_check_and_a_table_save_call_with_its_texts() {
+    let text = "record Row\n  n as number\n\ntable rows of Row in \"data/rows.csv\"\n\nfeature start\n  \
+                clear rows\n  save rows\n";
+    let m = lowered(text).unwrap();
+    let f = m.functions.iter().find(|f| f.name == "f_start").unwrap();
+    let text = function_text(f);
+    assert_eq!(text.matches("call table_save").count(), 1, "{text}");
+    for want in [
+        &b"data\0"[..],
+        b"rows.csv\0",
+        b"rows.csv.gloss-new\0",
+        b"data/rows.csv",
+    ] {
+        assert!(m.texts.iter().any(|t| t == want), "{want:?}");
+    }
+    assert!(m.functions.iter().any(|f| f.name == "table_save"));
+}
