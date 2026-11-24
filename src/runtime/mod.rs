@@ -9,6 +9,7 @@ mod args;
 mod asm;
 mod copy;
 mod core;
+mod csv_write;
 mod equal;
 #[cfg(test)]
 mod heap_tests;
@@ -90,6 +91,7 @@ pub fn routines() -> Vec<Function> {
     let mut all = core::routines();
     all.extend(args::routines());
     all.extend(copy::routines());
+    all.extend(csv_write::routines());
     all.extend(equal::routines());
     all.extend(output::routines());
     all.extend(input::routines());
