@@ -3,9 +3,10 @@
 //! virtual-memory limit in KiB, applied with `ulimit -v` in the shell that runs the program),
 //! `.args` (one argument per line), `.allow` (copied beside the source), `.files/` (seeded into
 //! the program's current folder, `work/`), `.links` (`link -> target` lines, made inside
-//! `work/`), `.mode` (`path octal-mode` lines, applied to `work/` after seeding; skipped, and
-//! counted, when the runner's user is root) and `.after/` (the files that must be left in `work/`, besides the links; without
-//! it `work/` must end up as `.files/` was).
+//! `work/`), `.mode` (`path octal-mode` lines, applied to `work/` after seeding, deepest path
+//! first; skipped, and counted, when the runner's user is root) and `.after/` (the files that
+//! must be left in `work/`, besides the links; without it `work/` must end up as `.files/`
+//! was).
 
 mod run_support;
 
@@ -110,32 +111,79 @@ fn the_folder_listing_sees_files_links_and_nested_folders() {
     );
 }
 
-/// Gives every `.mode` path of `work` back a mode that can be read, listed and removed.
-fn restore_modes(work: &Path, modes: &[(String, u32)]) {
-    for (path, _) in modes {
-        let path = work.join(path);
-        let mode = if path.is_dir() { 0o755 } else { 0o644 };
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode));
+/// Applies the `.mode` lines of a case to `work`, deepest path first so a nested path is
+/// reached before its folder is closed; on drop (also when a panic unwinds) gives every path
+/// back a mode that can be read, listed and removed, shallowest first.
+struct Modes {
+    work: PathBuf,
+    paths: Vec<String>,
+}
+
+impl Modes {
+    /// The guard is built before the first chmod, so a failing chmod still restores.
+    fn apply(work: &Path, modes: &[(String, u32)]) -> Modes {
+        let depth = |p: &str| p.matches('/').count();
+        let mut sorted = modes.to_vec();
+        sorted.sort_by_key(|(p, _)| std::cmp::Reverse(depth(p)));
+        let guard = Modes {
+            work: work.to_path_buf(),
+            paths: sorted.iter().map(|(p, _)| p.clone()).collect(),
+        };
+        for (path, mode) in &sorted {
+            let mode = std::fs::Permissions::from_mode(*mode);
+            std::fs::set_permissions(work.join(path), mode).unwrap();
+        }
+        guard
+    }
+}
+
+impl Drop for Modes {
+    fn drop(&mut self) {
+        for path in self.paths.iter().rev() {
+            let path = self.work.join(path);
+            let mode = if path.is_dir() { 0o755 } else { 0o644 };
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode));
+        }
     }
 }
 
 #[test]
-fn the_mode_lines_are_paths_with_octal_modes_and_restoring_makes_them_usable() {
+fn the_mode_lines_are_paths_with_octal_modes() {
     let dir = TempDir::new("modes");
     let case = dir.0.join("a.gloss");
     std::fs::write(case.with_extension("mode"), "d e.csv 000\nd 500\n").unwrap();
-    let modes = case_modes(&case);
-    assert_eq!(
-        modes,
-        [("d e.csv".to_string(), 0), ("d".to_string(), 0o500)]
-    );
-    std::fs::create_dir(dir.0.join("d")).unwrap();
-    std::fs::write(dir.0.join("d/e.csv"), "x").unwrap();
-    for (path, mode) in [("d/e.csv", 0), ("d", 0o500)] {
-        std::fs::set_permissions(dir.0.join(path), std::fs::Permissions::from_mode(mode)).unwrap();
+    let want = [("d e.csv".to_string(), 0), ("d".to_string(), 0o500)];
+    assert_eq!(case_modes(&case), want);
+}
+
+#[test]
+fn nested_modes_apply_deepest_first_and_dropping_the_guard_restores_them() {
+    for lines in [
+        [("d".to_string(), 0), ("d/e.csv".to_string(), 0)],
+        [("d/e.csv".to_string(), 0), ("d".to_string(), 0)],
+    ] {
+        let dir = TempDir::new("nested-modes");
+        std::fs::create_dir(dir.0.join("d")).unwrap();
+        std::fs::write(dir.0.join("d/e.csv"), "x").unwrap();
+        let guard = Modes::apply(&dir.0, &lines);
+        let closed = std::fs::metadata(dir.0.join("d")).unwrap().permissions();
+        assert_eq!(closed.mode() & 0o777, 0);
+        drop(guard);
+        assert_eq!(std::fs::read(dir.0.join("d/e.csv")).unwrap(), b"x");
     }
-    restore_modes(&dir.0, &[("d".into(), 0o500), ("d/e.csv".into(), 0)]);
-    assert_eq!(std::fs::read(dir.0.join("d/e.csv")).unwrap(), b"x");
+}
+
+#[test]
+fn a_panic_leaves_the_modes_restored() {
+    let dir = TempDir::new("panic-modes");
+    std::fs::write(dir.0.join("f"), "x").unwrap();
+    let lines = [("f".to_string(), 0)];
+    let caught = std::panic::catch_unwind(|| {
+        let _guard = Modes::apply(&dir.0, &lines);
+        panic!("a run fails while the modes are set");
+    });
+    assert!(caught.is_err());
+    assert_eq!(std::fs::read(dir.0.join("f")).unwrap(), b"x");
 }
 
 #[test]
@@ -186,12 +234,10 @@ fn every_run_case_builds_and_runs() {
             let _ = writeln!(std::io::stderr(), "SKIP {name}: the runner's user is root");
             continue;
         }
-        for (path, mode) in &modes {
-            let mode = std::fs::Permissions::from_mode(*mode);
-            std::fs::set_permissions(work.join(path), mode).unwrap();
-        }
+        let guard = Modes::apply(&work, &modes);
         let result = run_case(&dir.0.join(name), &input, DEADLINE, &work, &args, kib);
-        restore_modes(&work, &modes);
+        // Restored before the folder is read; the guard also restores if the run panics.
+        drop(guard);
         let Some(result) = result else {
             continue;
         };
