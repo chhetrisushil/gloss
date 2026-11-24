@@ -11,6 +11,7 @@ mod copy;
 mod core;
 mod csv_write;
 mod equal;
+mod file_read;
 #[cfg(test)]
 mod heap_tests;
 mod input;
@@ -55,12 +56,13 @@ const CANNOT_WRITE: u32 = 20;
 const ITS_FOLDER: u32 = 21;
 const NOT_EXIST: u32 = 22;
 const THROUGH_LINK: u32 = 23;
+const CANNOT_READ: u32 = 24;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 24] = [
+const TEXTS: [&[u8]; 25] = [
     b"line ",
     b": failure ",
     b": ",
@@ -85,6 +87,7 @@ const TEXTS: [&[u8]; 24] = [
     b" (its folder ",
     b" does not exist)",
     b" is reached through a symbolic link",
+    b" cannot be read",
 ];
 
 /// The bytes of the runtime text `i`.
@@ -103,6 +106,7 @@ pub fn routines() -> Vec<Function> {
     all.extend(copy::routines());
     all.extend(csv_write::routines());
     all.extend(equal::routines());
+    all.extend(file_read::routines());
     all.extend(output::routines());
     all.extend(input::routines());
     all.extend(lists::routines());
