@@ -12,6 +12,11 @@ const EIO: i64 = -5;
 /// What a test's `failing_open` gives: Linux's permission error.
 const EACCES: i64 = -13;
 
+/// The folder of a normalised path; empty for the current folder.
+fn parent(path: &str) -> &str {
+    path.rsplit_once('/').map_or("", |(folder, _)| folder)
+}
+
 /// A descriptor `Open` handed out.
 pub enum OpenFile {
     /// Read only, with how much has been read.
@@ -190,6 +195,9 @@ impl Machine<'_> {
             }
             OpenMode::Probe if self.files.exists(&full) => Ok(OpenFile::Probe(full)),
             OpenMode::Create if slash => Err(EISDIR),
+            OpenMode::Create if self.faults.read_only_folders.contains(parent(&full)) => {
+                Err(EACCES)
+            }
             OpenMode::Create => self
                 .files
                 .create(&full)

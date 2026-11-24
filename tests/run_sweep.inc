@@ -5,7 +5,7 @@
 const MIN_CASES: usize = 137;
 
 /// The `.gloss` programs in `dir`, sorted; an error naming every file that is not part of a
-/// case: an extension other than gloss, out, in, err, status, ulimit, allow, args, links
+/// case: an extension other than gloss, out, in, err, status, ulimit, allow, args, links, mode
 /// (files) or files, after (folders), or no `<stem>.gloss`, or a folder where a file belongs
 /// or the reverse.
 fn sweep(dir: &Path) -> Result<Vec<PathBuf>, String> {
@@ -17,7 +17,7 @@ fn sweep(dir: &Path) -> Result<Vec<PathBuf>, String> {
         match path.extension().and_then(|x| x.to_str()) {
             Some("gloss") => programs.push(path),
             Some("files" | "after") if owned && path.is_dir() => {}
-            Some("out" | "in" | "err" | "status" | "ulimit" | "links" | "allow" | "args")
+            Some("out" | "in" | "err" | "status" | "ulimit" | "links" | "allow" | "args" | "mode")
                 if owned && path.is_file() => {}
             _ => orphans.push(path.display().to_string()),
         }
@@ -59,6 +59,15 @@ fn read_tree(root: &Path) -> Tree {
 fn case_lines(case: &Path, ext: &str) -> Vec<String> {
     let text = std::fs::read_to_string(case.with_extension(ext)).unwrap_or_default();
     text.lines().map(String::from).collect()
+}
+
+/// The `path mode` lines of `<case>.mode`, the mode in octal; applied after the folder is seeded.
+fn case_modes(case: &Path) -> Vec<(String, u32)> {
+    let parse = |l: String| {
+        let (path, mode) = l.rsplit_once(' ').expect("a `path mode` line");
+        (path.to_string(), u32::from_str_radix(mode, 8).expect("an octal mode"))
+    };
+    case_lines(case, "mode").into_iter().map(parse).collect()
 }
 
 /// The files the program's folder must hold after the run: `.after/` (else `.files/`) plus the

@@ -27,6 +27,26 @@ fn left_behind(files: &Files, links: &[String]) -> Tree {
     tree
 }
 
+/// The faults that stand for `.mode` lines: a file without read permission is refused by
+/// `Open` (one such file per case); a folder without write permission refuses to create files.
+fn mode_faults(files: &Files, modes: &[(String, u32)]) -> Faults {
+    let mut faults = Faults::default();
+    for (path, mode) in modes {
+        if files.files.contains_key(path) && mode & 0o444 == 0 {
+            assert!(
+                faults.failing_open.is_none(),
+                "one unreadable file per case"
+            );
+            faults.failing_open = Some(path.clone());
+        } else if files.folders.contains(path) && mode & 0o222 == 0 {
+            faults.read_only_folders.insert(path.clone());
+        } else {
+            panic!("{path} {mode:o}: irsim models only an unreadable file and a read-only folder");
+        }
+    }
+    faults
+}
+
 #[test]
 fn a_stray_file_or_link_is_reported() {
     let links = ["l -> a".to_string()];
@@ -80,14 +100,8 @@ fn every_run_case_gives_the_expected_output_in_irsim() {
         let args = case_lines(&case, "args");
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let input = beside("in").unwrap_or_default();
-        let o = run_with(
-            &module,
-            "_start",
-            &input,
-            &args,
-            Faults::default(),
-            &mut files,
-        );
+        let faults = mode_faults(&files, &case_modes(&case));
+        let o = run_with(&module, "_start", &input, &args, faults, &mut files);
         let left = left_behind(&o.files, &targets);
         if let Err(problem) = compare_trees(&left, &expected_tree(&case)) {
             panic!("{case:?}: the files differ: {problem}");

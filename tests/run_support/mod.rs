@@ -74,6 +74,20 @@ pub fn limits_hold(prefix: &[String]) -> bool {
     })
 }
 
+/// Whether `id -u` says the runner's user is root, which ignores permission bits: a case that
+/// relies on a mode 000 file or a read-only folder cannot fail there.
+pub fn runs_as_root(prefix: &[String]) -> bool {
+    let mut words = prefix.iter().map(String::as_str).chain(["id", "-u"]);
+    let program = words.next().expect("the command has a program");
+    let id = Command::new(program).args(words).output();
+    id.expect("the runner starts").stdout.trim_ascii() == b"0"
+}
+
+/// Whether this process runs as root.
+pub fn running_as_root() -> bool {
+    runs_as_root(&[])
+}
+
 /// Runs `path` with `stdin`; `None` (after the skip message) when there is no runner.
 pub fn run(path: &Path, stdin: &[u8]) -> Option<Ran> {
     run_within(path, stdin, DEADLINE)
