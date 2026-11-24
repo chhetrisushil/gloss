@@ -303,6 +303,20 @@ impl Drop for TempDir {
     }
 }
 
+/// Copies the files of `from` into `to`, creating folders as needed.
+pub fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let path = entry.unwrap().path();
+        let dest = to.join(path.file_name().unwrap());
+        if path.is_dir() {
+            copy_tree(&path, &dest);
+        } else {
+            std::fs::copy(&path, &dest).unwrap();
+        }
+    }
+}
+
 /// Writes an executable (mode 0755) whose code is `xs`. `Sym::Text(0)` is the start of
 /// `rodata` and `Global::OutBuf` the start of a data segment of `data_size` bytes.
 pub fn executable(dir: &TempDir, xs: &[X], rodata: Vec<u8>, data_size: usize) -> PathBuf {
