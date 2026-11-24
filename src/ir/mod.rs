@@ -137,6 +137,8 @@ pub enum Global {
     /// The stack pointer at program entry, saved by the target's entry code before `_start`
     /// runs: it points at `argc`, then argv, envp and the auxiliary vector (Linux layout).
     EntrySp,
+    /// The state of a `gloss test` run; see `TEST_STATE_BYTES`.
+    TestState,
 }
 
 /// The size in bytes of `Global::OutBuf` and of `Global::InBuf`.
@@ -144,6 +146,9 @@ pub const IO_BUF_BYTES: usize = 4096;
 
 /// The size in bytes of `Global::NumBuf`: a length and the longest number text.
 pub const NUMBER_BUF_BYTES: usize = 32;
+
+/// The size in bytes of `Global::TestState`.
+pub const TEST_STATE_BYTES: usize = 2048;
 
 impl Global {
     /// The snake-case name both the IR text and the machine code text print.
@@ -160,6 +165,7 @@ impl Global {
             Global::NumBuf => "num_buf",
             Global::EntrySp => "entry_sp",
             Global::Tables => "tables",
+            Global::TestState => "test_state",
         }
     }
 }
