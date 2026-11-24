@@ -131,6 +131,8 @@ pub fn inst_text(inst: &Inst) -> String {
         Inst::System(Prim::Mode) => "  system mode".to_string(),
         Inst::System(Prim::SetMode) => "  system set_mode".to_string(),
         Inst::System(Prim::Rename) => "  system rename".to_string(),
+        Inst::System(Prim::Fork) => "  system fork".to_string(),
+        Inst::System(Prim::Wait) => "  system wait".to_string(),
     }
 }
 
@@ -178,6 +180,8 @@ mod tests {
             Inst::System(Prim::Mode),
             Inst::System(Prim::SetMode),
             Inst::System(Prim::Rename),
+            Inst::System(Prim::Fork),
+            Inst::System(Prim::Wait),
         ];
         Function {
             name: "f".to_string(),
@@ -211,6 +215,8 @@ L3:
   system mode
   system set_mode
   system rename
+  system fork
+  system wait
 ";
 
     #[test]
@@ -325,6 +331,8 @@ L3:
             Inst::System(Prim::Mode),
             Inst::System(Prim::SetMode),
             Inst::System(Prim::Rename),
+            Inst::System(Prim::Fork),
+            Inst::System(Prim::Wait),
         ];
         Function {
             name: "f".to_string(),
@@ -409,11 +417,27 @@ L3:
   system mode
   system set_mode
   system rename
+  system fork
+  system wait
 ";
 
     #[test]
     fn a_function_with_every_instruction_prints_exactly() {
         assert_eq!(function_text(&every_instruction()), EXPECTED);
+    }
+
+    #[test]
+    fn fork_and_wait_print_their_own_names() {
+        let one = |prim| {
+            function_text(&Function {
+                name: "f".to_string(),
+                params: 0,
+                slots: 0,
+                body: vec![Inst::System(prim)],
+            })
+        };
+        assert!(one(Prim::Fork).ends_with("  system fork\n"));
+        assert!(one(Prim::Wait).ends_with("  system wait\n"));
     }
 
     #[test]

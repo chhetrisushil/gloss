@@ -534,3 +534,9 @@ fn entering_with_no_slots_zeroes_nothing() {
         ["push rbp", "mov rbp, rsp", "sub rsp, 8", "mov [rbp-8], rcx"]
     );
 }
+
+#[test]
+#[should_panic(expected = "arrive in task 3")]
+fn fork_and_wait_are_not_lowered_yet() {
+    one(Inst::System(Prim::Fork));
+}

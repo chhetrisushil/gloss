@@ -63,6 +63,7 @@ impl Machine<'_> {
             Prim::Mode => self.mode(),
             Prim::SetMode => self.set_mode(),
             Prim::Rename => self.rename(),
+            Prim::Fork | Prim::Wait => panic!("Fork and Wait arrive in task 2"),
         }
         None
     }
