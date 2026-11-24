@@ -1,0 +1,10 @@
+record Row
+  name as text
+  qty as number
+
+table rows of Row in "data/e.csv"
+
+feature start
+  clear rows
+  append Row with name "tea", qty 2 to rows
+  save rows
