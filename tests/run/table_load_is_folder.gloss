@@ -1,0 +1,8 @@
+record Row
+  name as text
+
+table rows of Row in "t.csv"
+
+feature start
+  load rows
+  show count of rows
