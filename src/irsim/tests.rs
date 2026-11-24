@@ -1158,6 +1158,39 @@ fn only_open_descriptors_other_than_probes_can_be_synced() {
 }
 
 #[test]
+fn open_edge_inputs_follow_linux() {
+    let mut files = super::Files::default();
+    files.files.insert("f".to_string(), Vec::new());
+    let mut open = |dir: i64, path: &[u8]| {
+        let body = open_in(OpenMode::Read, Const(A, dir), 0);
+        run_on(&mut files, &[path], 0, body)
+    };
+    // The path is judged before the descriptor.
+    assert_eq!(open(77, b"/f\0"), ESCAPES);
+    assert_eq!(open(77, b"\0"), NOT_FOUND);
+    assert_eq!(open(77, b"f\0"), -9);
+    // Standard descriptors are not folders.
+    for fd in 0..3 {
+        assert_eq!(open(fd, b"f\0"), -20, "fd {fd}");
+    }
+    assert_eq!(open(CWD, b"f/.\0"), -20);
+}
+
+#[test]
+fn renaming_dot_or_dotdot_is_ebusy_and_standard_fds_are_not_folders() {
+    let rename = |dir: i64, first: &[u8], second: &[u8]| {
+        let mut body = push_const(dir).to_vec();
+        body.extend(push_text_n(0));
+        body.extend(push_text_n(1));
+        body.push(System(Prim::Rename));
+        run_on(&mut super::Files::default(), &[first, second], 0, body)
+    };
+    assert_eq!(rename(CWD, b".\0", b"x\0"), -16);
+    assert_eq!(rename(CWD, b"x\0", b"..\0"), -16);
+    assert_eq!(rename(1, b"x\0", b"y\0"), -20);
+}
+
+#[test]
 fn rename_needs_a_folder_descriptor_and_single_names() {
     let mut files = super::Files::default();
     files.files.insert("a".to_string(), Vec::new());
@@ -1173,7 +1206,9 @@ fn rename_needs_a_folder_descriptor_and_single_names() {
     body.extend(push_text_n(0));
     body.extend(push_text_n(0));
     body.push(System(Prim::Rename));
-    assert_eq!(run_on(&mut files, &[b"a\0"], 0, body), -9);
+    assert_eq!(run_on(&mut files, &[b"a\0"], 0, body.clone()), -9);
+    // An empty name is refused before the bad folder descriptor, as on Linux.
+    assert_eq!(run_on(&mut files, &[b"\0"], 0, body), -2);
 }
 
 /// `prim(fd, buf, len)`, with `fd` put in `a` by `fd`.

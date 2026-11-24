@@ -2,7 +2,7 @@
 
 use super::files::{EISDIR, ENOTDIR, join};
 use super::machine::{Ended, Machine, STACK_SIZE};
-use crate::ir::{CWD, NOT_FOUND, OpenMode, Prim};
+use crate::ir::{CWD, ESCAPES, NOT_FOUND, OpenMode, Prim};
 use std::{cell::RefCell, rc::Rc};
 
 /// What `Write` and `Read` give for a file descriptor the program does not have.
@@ -144,6 +144,8 @@ impl Machine<'_> {
             Some(OpenFile::Folder(path)) => Ok(path),
             Some(OpenFile::Probe(path)) if self.files.is_folder(path) => Ok(path),
             Some(_) => Err(ENOTDIR),
+            // Standard input, output and error are open files, never folders.
+            None if (0..3).contains(&dir) => Err(ENOTDIR),
             None => Err(EBADF),
         }
     }
@@ -163,6 +165,13 @@ impl Machine<'_> {
     }
 
     fn open_path(&mut self, dir: i64, path: &str, mode: OpenMode) -> Result<OpenFile, i64> {
+        // Linux rejects an absolute or empty path before it looks at the descriptor.
+        if path.starts_with('/') {
+            return Err(ESCAPES);
+        }
+        if path.is_empty() {
+            return Err(NOT_FOUND);
+        }
         let full = self.files.resolve(self.folder(dir)?, path)?;
         if self.faults.failing_open.as_deref() == Some(&full) {
             return Err(EACCES);
@@ -220,6 +229,10 @@ impl Machine<'_> {
     }
 
     fn rename_in(&mut self, dir: i64, from: &str, to: &str) -> Result<(), i64> {
+        // Like Linux, an empty name is refused before the folder is looked at.
+        if from.is_empty() || to.is_empty() {
+            return Err(NOT_FOUND);
+        }
         let folder = self.folder(dir)?.to_string();
         let (full_from, full_to) = (join(&folder, from), join(&folder, to));
         let replaced = self.files.files.get(&full_to).cloned();
