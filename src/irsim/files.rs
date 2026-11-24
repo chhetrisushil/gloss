@@ -23,8 +23,13 @@ pub struct Files {
 }
 
 impl Files {
-    fn is_folder(&self, path: &str) -> bool {
+    pub fn is_folder(&self, path: &str) -> bool {
         path.is_empty() || self.folders.contains(path)
+    }
+
+    /// Whether `path` names a file or a folder.
+    pub fn exists(&self, path: &str) -> bool {
+        self.files.contains_key(path) || self.is_folder(path)
     }
 
     /// Resolves `path` beneath the folder `base` without following links, as `openat2` with

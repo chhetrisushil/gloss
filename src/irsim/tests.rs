@@ -1,5 +1,8 @@
 use super::{call, run};
-use crate::ir::{Cond, Data, Function, Global, Inst, IntOp, Label, Module, Prim, Reg, Shift};
+use crate::ir::{
+    CWD, Cond, Data, ESCAPES, Function, Global, Inst, IntOp, LINK, Label, Module, NOT_FOUND,
+    OpenMode, Prim, Reg, Shift,
+};
 use crate::number::{NumFail, Number, SCALE};
 use Inst::*;
 use Reg::{A, B};
@@ -1015,4 +1018,92 @@ fn the_files_go_in_and_come_out_of_a_run() {
     let m = single(vec![Const(A, 0), Return]);
     let o = super::run_with(&m, "f", b"", &[], super::Faults::default(), &mut files);
     assert_eq!(o.files, files);
+}
+
+/// Pushes the address of text `n`'s bytes.
+fn push_text_n(n: u32) -> [Inst; 3] {
+    [AddressOf(A, Data::Text(n)), AddImm(A, 8), Push(A)]
+}
+
+/// Runs `body` on `files` and exits with `a`; gives that as a signed byte. The `texts` are
+/// paths, so they end with a NUL.
+fn run_on(files: &mut super::Files, texts: &[&[u8]], slots: u32, mut body: Vec<Inst>) -> i64 {
+    body.extend([Push(A), System(Prim::Exit)]);
+    let mut m = with_slots(slots, body);
+    for text in texts {
+        m.text(text);
+    }
+    let faults = super::Faults::default();
+    super::run_with(&m, "f", b"", &[], faults, files).status as u8 as i8 as i64
+}
+
+/// `Open(mode)` of text `n` in the current folder; the result is in `a`.
+fn open_text(mode: OpenMode, n: u32) -> Vec<Inst> {
+    let mut body = push_const(CWD).to_vec();
+    body.extend(push_text_n(n));
+    body.push(System(Prim::Open(mode)));
+    body
+}
+
+/// `prim(slot)` for a primitive with one argument.
+fn on_slot(prim: Prim, slot: u32) -> [Inst; 3] {
+    [LoadSlot(A, slot), Push(A), System(prim)]
+}
+
+#[test]
+fn descriptors_start_at_3_and_the_lowest_free_one_is_reused() {
+    let mut files = super::Files::default();
+    files.files.insert("a".to_string(), Vec::new());
+    let mut body = open_text(OpenMode::Read, 0);
+    body.push(StoreSlot(1, A));
+    body.extend(open_text(OpenMode::Probe, 0));
+    body.push(StoreSlot(2, A));
+    body.extend(on_slot(Prim::Close, 1));
+    body.extend(open_text(OpenMode::Read, 0));
+    body.extend([
+        Const(B, 16),
+        Int(IntOp::Mul),
+        LoadSlot(B, 2),
+        Int(IntOp::Add),
+    ]);
+    assert_eq!(run_on(&mut files, &[b"a\0"], 2, body), 3 * 16 + 4);
+    let mut body = vec![Const(A, 9), StoreSlot(1, A)];
+    body.extend(on_slot(Prim::Close, 1));
+    assert_eq!(run_on(&mut files, &[], 1, body), -9);
+}
+
+#[test]
+fn open_failures_are_the_ir_errors() {
+    let mut files = super::Files::default();
+    files.links.insert("l".to_string());
+    files.folders.insert("d".to_string());
+    files.folders.insert("d/m".to_string());
+    files.links.insert("d/m/l".to_string());
+    files.files.insert("f".to_string(), Vec::new());
+    let cases: [(OpenMode, &[u8], i64); 12] = [
+        (OpenMode::Read, b"gone\0", NOT_FOUND),
+        (OpenMode::Read, b"l\0", LINK),
+        (OpenMode::Read, b"d/m/l/x\0", LINK),
+        (OpenMode::Read, b"../x\0", ESCAPES),
+        (OpenMode::Create, b"no/x\0", NOT_FOUND),
+        (OpenMode::Create, b"f/x\0", -20),
+        (OpenMode::Read, b"f/x\0", -20),
+        (OpenMode::Folder, b"f\0", -20),
+        (OpenMode::Read, b"f/\0", -20),
+        (OpenMode::Create, b"d\0", -21),
+        (OpenMode::Create, b"new/\0", -21),
+        (OpenMode::Folder, b"d/m\0", 3),
+    ];
+    for (mode, path, want) in cases {
+        let got = run_on(&mut files, &[path], 0, open_text(mode, 0));
+        assert_eq!(got, want, "{}", String::from_utf8_lossy(path));
+    }
+    assert_eq!(
+        run_on(&mut files, &[b".\0"], 0, open_text(OpenMode::Folder, 0)),
+        3
+    );
+    assert_eq!(
+        run_on(&mut files, &[b"\0"], 0, open_text(OpenMode::Folder, 0)),
+        NOT_FOUND
+    );
 }

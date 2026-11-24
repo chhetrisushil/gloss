@@ -66,6 +66,8 @@ pub struct Machine<'m> {
     pub writes: u32,
     /// The file system the file primitives work on.
     pub files: super::Files,
+    /// The descriptors `Open` handed out, from 3 up.
+    pub fds: std::collections::BTreeMap<i64, super::system::OpenFile>,
 }
 
 fn label_positions(function: &Function) -> HashMap<Label, usize> {
@@ -98,6 +100,7 @@ impl<'m> Machine<'m> {
             stderr: Vec::new(),
             writes: 0,
             files: super::Files::default(),
+            fds: std::collections::BTreeMap::new(),
         }
     }
 
