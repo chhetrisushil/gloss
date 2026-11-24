@@ -162,7 +162,7 @@ fn indent<'a>(src: &Source, n: u32, text: &'a str) -> Result<(usize, &'a str), D
             "Tabs are not allowed; indent with two spaces",
         ));
     }
-    if spaces % 2 != 0 {
+    if !spaces.is_multiple_of(2) {
         return Err(Diagnostic::error(
             src,
             n,

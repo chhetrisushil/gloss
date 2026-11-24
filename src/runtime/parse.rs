@@ -241,7 +241,7 @@ mod tests {
         let mut state = 0x1234_5678_9ABC_DEF1;
         while all.len() < 2000 {
             let length = xorshift(&mut state) % 24;
-            let digits = xorshift(&mut state) % 3 != 0;
+            let digits = !xorshift(&mut state).is_multiple_of(3);
             let alphabet: &[u8] = if digits {
                 b"0123456789"
             } else {
