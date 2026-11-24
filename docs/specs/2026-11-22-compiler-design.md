@@ -196,7 +196,7 @@ Table paths are the only security boundary in M1. The checker rejects absolute p
 | 6 | Bytes that are not UTF-8 | `line N: failure 6: expenses.csv is not UTF-8 text (line 4)` |
 | 6 | A symbolic link on the path | `line N: failure 6: expenses.csv is reached through a symbolic link` |
 | 6 | Any other read error | `line N: failure 6: expenses.csv cannot be read` |
-| 7 | The folder does not exist | `line N: failure 7: expenses.csv cannot be written (its folder data does not exist)` |
+| 7 | The folder does not exist | `line N: failure 7: data/expenses.csv cannot be written (its folder data does not exist)` |
 | 7 | Any other write error | `line N: failure 7: expenses.csv cannot be written` |
 | 7 | A symbolic link on the path | `line N: failure 7: expenses.csv is reached through a symbolic link` |
 | 8 | Saved before a load or clear | `line N: failure 8: expenses is saved here but was not loaded or cleared first` |

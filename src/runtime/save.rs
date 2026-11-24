@@ -100,8 +100,10 @@ fn table_save() -> Function {
     s.push_slot(DIR);
     push_path(&mut s, 4);
     s.i(System(Prim::Open(OpenMode::Probe)));
-    s.i(Const(B, LINK));
-    s.jump_if(Eq, fail);
+    for code in [LINK, ESCAPES] {
+        s.i(Const(B, code));
+        s.jump_if(Eq, fail);
+    }
     s.i(Const(B, 0));
     s.jump_if(Lt, created);
     s.i(Push(A));
@@ -283,6 +285,19 @@ mod table_tests {
         let o = save(files, folder, "e.csv", faults);
         assert_eq!(o.status, 2);
         String::from_utf8(o.stderr).unwrap()
+    }
+
+    #[test]
+    fn a_name_that_leaves_the_folder_is_refused_as_a_link_at_the_probe() {
+        let mut files = files_with(&[], &[("e.csv", "old\n")]);
+        let o = save(&mut files, ".", "..", Faults::default());
+        let err = String::from_utf8(o.stderr).unwrap();
+        assert_eq!(o.status, 2);
+        assert_eq!(
+            err,
+            "line 7: failure 7: .. is reached through a symbolic link\n"
+        );
+        assert_eq!(files.files, files_with(&[], &[("e.csv", "old\n")]).files);
     }
 
     #[test]
