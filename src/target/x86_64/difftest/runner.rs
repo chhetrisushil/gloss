@@ -35,6 +35,11 @@ fn runner() -> Option<Vec<String>> {
     None
 }
 
+/// Whether programs run through `orb`, the runner's first word exactly (as in `run_in`).
+pub fn under_orb() -> bool {
+    runner().is_some_and(|r| r.first().map(String::as_str) == Some("orb"))
+}
+
 /// A folder under the target directory, which the Linux machine can see (the system
 /// temporary folder is not shared), removed on drop, also when a test panics.
 /// `CARGO_TARGET_TMPDIR` is only set for integration tests, so it is built here.
@@ -67,8 +72,18 @@ impl Drop for TempDir {
 /// Builds and runs `m` with `stdin`; `None` without a runner. `Err` says why the program
 /// did not exit: a timeout, or a signal.
 pub fn run_program(m: &Module, stdin: &[u8], deadline: Duration) -> Option<Result<Ran, String>> {
+    run_in(m, stdin, deadline, &TempDir::new())
+}
+
+/// Like `run_program`, with `dir` as the program's current folder (it also holds the
+/// executable `prog` and the output files `prog.stdout` and `prog.stderr`).
+pub fn run_in(
+    m: &Module,
+    stdin: &[u8],
+    deadline: Duration,
+    dir: &TempDir,
+) -> Option<Result<Ran, String>> {
     let prefix = runner()?;
-    let dir = TempDir::new();
     let path = dir.0.join("prog");
     std::fs::write(&path, x86_64_linux().executable(m).expect("builds")).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -93,6 +108,7 @@ pub fn run_program(m: &Module, stdin: &[u8], deadline: Duration) -> Option<Resul
         None => Command::new(&path),
     };
     let mut child = cmd
+        .current_dir(&dir.0)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
