@@ -25,6 +25,7 @@ mod numbers;
 mod output;
 mod parse;
 mod places;
+mod report;
 mod save;
 mod shown;
 mod table_read;
@@ -77,12 +78,13 @@ const NOT_YES_NO: u32 = 36;
 const HAS: u32 = 37;
 const CELLS_HEADER: u32 = 38;
 const MISPLACED: u32 = 39;
+const INDENT: u32 = 40;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 40] = [
+const TEXTS: [&[u8]; 41] = [
     b"line ",
     b": failure ",
     b": ",
@@ -123,6 +125,7 @@ const TEXTS: [&[u8]; 40] = [
     b"has ",
     b" cells; the header has ",
     b"a quote is out of place",
+    b"        ",
 ];
 
 /// The bytes of the runtime text `i`.
@@ -189,6 +192,7 @@ pub fn routines() -> Vec<Function> {
     all.extend(numbers::routines());
     all.extend(parse::routines());
     all.extend(places::routines());
+    all.extend(report::routines());
     all.extend(save::routines());
     all.extend(shown::routines());
     all.extend(table_read::routines());
