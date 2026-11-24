@@ -35,7 +35,7 @@ impl Lowerer<'_> {
     }
 
     /// A label that reports failure `code` at the current line: `<before><source><after>`.
-    fn fail_label(&mut self, code: i64, before: &str, source: &str, after: &str) -> Label {
+    pub fn fail_label(&mut self, code: i64, before: &str, source: &str, after: &str) -> Label {
         self.fail_label_with(code, [before, source, after], None)
     }
 

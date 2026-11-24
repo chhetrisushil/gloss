@@ -2,10 +2,47 @@
 //! in declaration order: the table's list, then its loaded flag.
 use super::Lowerer;
 use crate::ast::program::Program;
-use crate::ir::{Data, Function, Global, Inst, Reg};
+use crate::diag::Diagnostic;
+use crate::ir::{Cond, Data, Function, Global, Inst, Reg};
 
 /// The size in bytes of one table's entry in the block.
 const ENTRY: i32 = 16;
+/// The suffix of the temporary file `save` writes beside the table.
+const TEMP_SUFFIX: &str = ".gloss-new";
+
+/// A table path split for `save`: the folder (`.` for the current one), the file name, and the
+/// temporary name.
+#[derive(Debug, PartialEq)]
+pub struct SaveNames {
+    pub folder: String,
+    pub name: String,
+    pub temp: String,
+}
+
+/// Splits a table path at its last `/`. The checker already guarantees what the runtime
+/// relies on: the file name and the temporary name are one plain name each, and the folder is
+/// relative and has no `..`. This holds it, so a checker change cannot reach the file system.
+pub fn save_names(path: &str) -> Result<SaveNames, String> {
+    let (folder, name) = path.rsplit_once('/').unwrap_or((".", path));
+    let temp = format!("{name}{TEMP_SUFFIX}");
+    let plain = |part: &str| !part.is_empty() && !part.contains(['/', '\0']);
+    let safe = plain(name)
+        && plain(&temp)
+        && !folder.starts_with('/')
+        && !folder.contains('\0')
+        && folder.split('/').all(|c| !c.is_empty() && c != "..");
+    match safe {
+        true => Ok(SaveNames {
+            folder: folder.to_string(),
+            name: name.to_string(),
+            temp,
+        }),
+        false => Err(format!(
+            "internal error: the table path {path:?} is not safe to save"
+        )),
+    }
+}
+
 /// A table's list starts with room for this many rows, as `list of` does.
 const ROOM: i64 = 4;
 
@@ -56,6 +93,55 @@ impl Lowerer<'_> {
             offset: at + 8,
             from: Reg::B,
         });
+    }
+
+    /// `save t`: failure 8 when the table's loaded flag is 0, then `table_save`, with the folder,
+    /// file name, temporary name and display names as compile-time texts.
+    pub fn save_table(&mut self, index: usize) -> Result<(), Diagnostic> {
+        let table = self
+            .program
+            .tables()
+            .nth(index)
+            .expect("a table of that index");
+        let names = save_names(&table.path)
+            .map_err(|message| Diagnostic::error(self.src, self.line, &message))?;
+        let unloaded = self.fail_label(
+            8,
+            "",
+            &table.name,
+            " is saved here but was not loaded or cleared first",
+        );
+        self.emit(Inst::AddressOf(Reg::A, Data::Global(Global::Tables)));
+        for offset in [0, ENTRY * index as i32 + 8] {
+            self.emit(Inst::Load {
+                to: Reg::A,
+                base: Reg::A,
+                offset,
+            });
+        }
+        self.emit(Inst::Const(Reg::B, 0));
+        self.emit(Inst::Compare);
+        self.emit(Inst::JumpIf(Cond::Eq, unloaded));
+        self.load_table(index);
+        self.emit(Inst::Push(Reg::A));
+        let desc = self.record_desc(&table.record);
+        self.emit(Inst::AddressOf(Reg::A, Data::Desc(desc)));
+        self.emit(Inst::Push(Reg::A));
+        let shown = |s: &str| crate::permissions::display_name(s).into_bytes();
+        let nul = |s: &str| [s.as_bytes(), b"\0"].concat();
+        for text in [
+            nul(&names.folder),
+            nul(&names.name),
+            nul(&names.temp),
+            shown(&table.path),
+            shown(&names.folder),
+        ] {
+            self.push_text(&text);
+        }
+        self.emit(Inst::Const(Reg::A, i64::from(self.line)));
+        self.emit(Inst::Push(Reg::A));
+        self.call("table_save");
+        Ok(())
     }
 
     /// A slot holding the list `name` names: a variable's own slot, or a hidden one loaded
