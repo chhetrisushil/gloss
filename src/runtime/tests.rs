@@ -929,3 +929,48 @@ fn an_extra_that_collides_with_a_real_routine_it_does_not_replace_is_refused() {
 fn a_replaced_name_that_is_no_real_routine_is_refused() {
     super::routines_swapping(super::Backend::Test, &["flsuh"], vec![]);
 }
+
+/// A `write_all` that writes nothing itself: per call it puts `fd` and `len` (as digits) on
+/// standard output, so the output has two bytes per call.
+fn counting_write_all() -> Function {
+    let mut body = vec![Enter(0)];
+    for arg in [1, 3] {
+        body.extend([
+            LoadArg(A, arg),
+            AddImm(A, i32::from(b'0')),
+            Push(A),
+            Const(A, 1),
+            Push(A),
+            StackPointer(A),
+            AddImm(A, 8),
+            Push(A),
+            Const(A, 1),
+            Push(A),
+            System(Prim::Write),
+            Pop(B),
+        ]);
+    }
+    body.extend([Const(A, 0), Return]);
+    Function {
+        name: "write_all".into(),
+        params: 3,
+        slots: 0,
+        body,
+    }
+}
+
+#[test]
+fn err_int_writes_through_write_all() {
+    let body = vec![Const(A, -12), Push(A), Call("err_int".into())];
+    let mut m = program(body, &[]);
+    let at = m
+        .functions
+        .iter()
+        .position(|f| f.name == "write_all")
+        .expect("write_all must be in the module: err_int writes through it");
+    m.functions[at] = counting_write_all();
+    let o = run(&m);
+    assert_eq!(o.status, 0);
+    assert_eq!(o.stdout, b"212121", "3 calls, fd 2 and length 1 each");
+    assert!(o.stderr.is_empty());
+}

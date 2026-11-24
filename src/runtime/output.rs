@@ -169,7 +169,7 @@ fn err_text() -> Function {
     s.finish("err_text", 1, 0)
 }
 
-/// Writes the byte in `a` to standard error, from the stack.
+/// Writes the byte in `a` to standard error, through `write_all`, from the stack.
 fn emit_byte(s: &mut Asm) {
     s.i(Push(A));
     s.push_const(2);
@@ -177,7 +177,7 @@ fn emit_byte(s: &mut Asm) {
     s.i(AddImm(A, 8));
     s.i(Push(A));
     s.push_const(1);
-    s.i(System(Prim::Write));
+    s.call("write_all");
     s.i(Pop(B));
 }
 
