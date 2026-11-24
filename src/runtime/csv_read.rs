@@ -281,14 +281,47 @@ fn at_text_end(s: &mut Asm, to: Label) {
     s.jump_if(Ge, to);
 }
 
+/// Jumps to `to` when the rest of the text, from the cursor, is exactly `tail`: the last line.
+fn rest_is(s: &mut Asm, tail: &[u8], to: Label) {
+    let no = s.label();
+    cursor_word(s, POS);
+    s.i(AddImm(A, tail.len() as i32));
+    s.i(Move { to: B, from: A });
+    cursor_word(s, 0);
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.jump_if(Ne, no);
+    for (at, byte) in tail.iter().enumerate() {
+        cursor_word(s, POS);
+        s.i(Move { to: B, from: A });
+        cursor_word(s, 0);
+        s.i(Int(IntOp::Add));
+        s.i(LoadByte {
+            to: A,
+            base: A,
+            offset: 8 + at as i32,
+        });
+        s.i(Const(B, i64::from(*byte)));
+        s.jump_if(Ne, no);
+    }
+    s.i(Jump(to));
+    s.i(Mark(no));
+}
+
 /// `csv_next(cursor, shown, line)`: the next row as a list of cell texts, or 0 at the end of
 /// the text, leaving the row's first line in the cursor. A comma means another cell follows,
 /// even at the end of the text; a line feed, a CR LF pair or the end of the text ends the
-/// row. The end of the text right after a line break is the end, not an empty row.
+/// row. One final empty line (the text ends `\n` or `\r\n` after the last row's break)
+/// is ignored; the end of the text right after a line break is the end, not an empty row.
 fn csv_next() -> Function {
     let mut s = Asm::default();
     let [more, comma, one, done, end] = [(); 5].map(|_| s.label());
     at_text_end(&mut s, end);
+    rest_is(&mut s, b"\n", end);
+    rest_is(&mut s, b"\r\n", end);
     cursor_word(&mut s, NEXT_LINE);
     s.i(LoadArg(B, 1));
     s.i(Store {
@@ -618,8 +651,12 @@ pub(super) mod tests {
             ),
             ("", "| "),
             ("a\n", "list of \"a\"\n| 1 "),
-            ("\n", "list of \"\"\n| 1 "),
-            ("a\n\n", "list of \"a\"\nlist of \"\"\n| 1 2 "),
+            ("\n", "| "),
+            ("\r\n", "| "),
+            ("a\n\n", "list of \"a\"\n| 1 "),
+            ("a\r\n\r\n", "list of \"a\"\n| 1 "),
+            ("a\n\n\n", "list of \"a\"\nlist of \"\"\n| 1 2 "),
+            ("\n\n", "list of \"\"\n| 1 "),
             (
                 "a\n\nb",
                 "list of \"a\"\nlist of \"\"\nlist of \"b\"\n| 1 2 3 ",

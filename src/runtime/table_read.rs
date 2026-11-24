@@ -381,7 +381,7 @@ mod file_tests {
         let (o, shown, err) = load(None);
         let notice = "data/e.csv not found; starting with an empty table\n";
         assert_eq!((o.status, shown.as_str(), err.as_str()), (0, none, notice));
-        for content in ["", "name,amount,paid", "name,amount,paid\n"] {
+        for content in ["", "\n", "\r\n", "name,amount,paid", "name,amount,paid\n\n"] {
             let (o, shown, err) = load(Some(content));
             assert_eq!(
                 (o.status, shown.as_str(), err.as_str()),
@@ -412,7 +412,7 @@ mod file_tests {
             "2: has 4 cells; the header has 3\n"
         );
         assert_eq!(
-            refused(&format!("{head}\n")),
+            refused(&format!("{head}\nA,1,yes\n")),
             "2: has 1 cells; the header has 3\n"
         );
     }
