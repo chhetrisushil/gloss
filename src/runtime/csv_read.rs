@@ -1,7 +1,7 @@
 //! Reading CSV text (RFC 4180): a cursor over the text that gives one row at a time.
 
 use super::asm::Asm;
-use crate::ir::Cond::{Eq, Ge, Ne};
+use crate::ir::Cond::{Eq, Ge, Lt, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Data, Function, Inst::*, IntOp, Label};
 
@@ -12,7 +12,8 @@ const POS: i32 = 8;
 const NEXT_LINE: i32 = 16;
 const ROW_LINE: i32 = 24;
 
-/// `csv_cursor(text, line)`: a cursor at the start of `text`, whose first row is line 1.
+/// `csv_cursor(text, line)`: a cursor at the start of `text`, whose first row is line 1. One
+/// leading UTF-8 byte order mark (`EF BB BF`) is skipped, as editors add one.
 fn csv_cursor() -> Function {
     let mut s = Asm::default();
     s.push_const(CURSOR_BYTES);
@@ -32,8 +33,37 @@ fn csv_cursor() -> Function {
             from: B,
         });
     }
+    s.i(StoreSlot(1, A));
+    let plain = s.label();
+    s.i(LoadArg(A, 1));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(Const(B, 3));
+    s.jump_if(Lt, plain);
+    for (at, byte) in [0xEF, 0xBB, 0xBF].into_iter().enumerate() {
+        s.i(LoadArg(A, 1));
+        s.i(LoadByte {
+            to: A,
+            base: A,
+            offset: 8 + at as i32,
+        });
+        s.i(Const(B, byte));
+        s.jump_if(Ne, plain);
+    }
+    s.i(LoadSlot(A, 1));
+    s.i(Const(B, 3));
+    s.i(Store {
+        base: A,
+        offset: POS,
+        from: B,
+    });
+    s.i(Mark(plain));
+    s.i(LoadSlot(A, 1));
     s.i(Return);
-    s.finish("csv_cursor", 2, 0)
+    s.finish("csv_cursor", 2, 1)
 }
 
 /// `fail_row(line, shown, row)`: starts failure 6 for the row of the table file `shown`
@@ -665,6 +695,21 @@ pub(super) mod tests {
         let shown = String::from_utf8(o.stdout.clone()).unwrap();
         let lines = String::from_utf8(o.stderr.clone()).unwrap();
         (o, format!("{shown}| {lines}"))
+    }
+
+    #[test]
+    fn one_leading_byte_order_mark_is_skipped_and_no_other() {
+        let bom = "\u{FEFF}";
+        let (o, got) = rows(format!("{bom}a,b\n1,2\n").as_bytes());
+        let want = "list of \"a\", \"b\"\nlist of \"1\", \"2\"\n| 1 2 ";
+        assert_eq!((o.status, got.as_str()), (0, want));
+        assert_eq!(rows(bom.as_bytes()).1, "| ");
+        let twice = format!("list of \"{bom}a\"\n| 1 ");
+        assert_eq!(rows(format!("{bom}{bom}a").as_bytes()).1, twice);
+        assert_eq!(
+            rows(format!("a{bom}").as_bytes()).1,
+            format!("list of \"a{bom}\"\n| 1 ")
+        );
     }
 
     #[test]
