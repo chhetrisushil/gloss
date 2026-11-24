@@ -64,6 +64,8 @@ pub struct Machine<'m> {
     pub stderr: Vec<u8>,
     /// How many `Write` calls the program made.
     pub writes: u32,
+    /// The file system the file primitives work on.
+    pub files: super::Files,
 }
 
 fn label_positions(function: &Function) -> HashMap<Label, usize> {
@@ -95,6 +97,7 @@ impl<'m> Machine<'m> {
             args: Vec::new(),
             stderr: Vec::new(),
             writes: 0,
+            files: super::Files::default(),
         }
     }
 

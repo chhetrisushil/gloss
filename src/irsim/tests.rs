@@ -1007,3 +1007,12 @@ fn the_last_byte_of_the_final_descriptor_can_be_read() {
 fn one_byte_past_the_final_descriptor_panics() {
     call(&last_descriptor_byte(8 * 5), "f", &[]);
 }
+
+#[test]
+fn the_files_go_in_and_come_out_of_a_run() {
+    let mut files = super::Files::default();
+    files.files.insert("a".to_string(), b"a".to_vec());
+    let m = single(vec![Const(A, 0), Return]);
+    let o = super::run_with(&m, "f", b"", &[], super::Faults::default(), &mut files);
+    assert_eq!(o.files, files);
+}
