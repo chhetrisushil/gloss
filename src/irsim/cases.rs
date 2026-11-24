@@ -3,11 +3,44 @@
 use std::path::{Path, PathBuf};
 
 use crate::check::check;
-use crate::irsim::run;
+use crate::irsim::{Faults, Files, run_with};
 use crate::lower::lower;
 use crate::source::Source;
 
 include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/run_sweep.inc"));
+
+/// The name of the link a `.links` line `link -> target` makes.
+fn link_name(line: &str) -> &str {
+    line.split_once(" -> ").expect("a `link -> target` line").0
+}
+
+/// What the program left behind, listed like `read_tree` lists a real folder: the files, and
+/// each link as its `.links` line; a link the `.links` file does not give is `name -> ?`.
+fn left_behind(files: &Files, links: &[String]) -> Tree {
+    let mut tree: Tree = files.files.clone();
+    for name in &files.links {
+        let line = links.iter().find(|l| link_name(l) == name);
+        tree.insert(line.cloned().unwrap_or(format!("{name} -> ?")), Vec::new());
+    }
+    tree
+}
+
+#[test]
+fn a_stray_file_or_link_is_reported() {
+    let links = ["l -> a".to_string()];
+    let mut files = Files::default();
+    files.files.insert("a".into(), b"1".to_vec());
+    files.links.insert("l".into());
+    let want = left_behind(&files, &links);
+    assert_eq!(compare_trees(&left_behind(&files, &links), &want), Ok(()));
+    files.files.insert("a.gloss-new".into(), b"x".to_vec());
+    let err = compare_trees(&left_behind(&files, &links), &want);
+    assert_eq!(err, Err("extra: a.gloss-new".to_string()));
+    files.files.remove("a.gloss-new");
+    files.links.insert("m".into());
+    let err = compare_trees(&left_behind(&files, &links), &want);
+    assert_eq!(err, Err("extra: m -> ?".to_string()));
+}
 
 #[test]
 fn every_run_case_gives_the_expected_output_in_irsim() {
@@ -28,7 +61,35 @@ fn every_run_case_gives_the_expected_output_in_irsim() {
         let program = crate::parse_source(&src).expect("parses");
         let types = check(&program, &src).types.expect("checks clean");
         let module = lower(&program, &types, &src).expect("lowers");
-        let o = run(&module, "_start", &beside("in").unwrap_or_default());
+        // The seeded files, the links (a link's target is never reached in irsim, so it is
+        // remembered here to list the link as `link -> target` like the real run) and the args.
+        let mut files = Files::default();
+        let seeded = case.with_extension("files");
+        if seeded.is_dir() {
+            for (path, bytes) in read_tree(&seeded) {
+                for (i, _) in path.match_indices('/') {
+                    files.folders.insert(path[..i].to_string());
+                }
+                files.files.insert(path, bytes);
+            }
+        }
+        let targets: Vec<String> = case_lines(&case, "links");
+        files.links = targets.iter().map(|l| link_name(l).to_string()).collect();
+        let args = case_lines(&case, "args");
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let input = beside("in").unwrap_or_default();
+        let o = run_with(
+            &module,
+            "_start",
+            &input,
+            &args,
+            Faults::default(),
+            &mut files,
+        );
+        let left = left_behind(&o.files, &targets);
+        if let Err(problem) = compare_trees(&left, &expected_tree(&case)) {
+            panic!("{case:?}: the files differ: {problem}");
+        }
         let status =
             beside("status").map_or(0, |s| String::from_utf8(s).unwrap().trim().parse().unwrap());
         let want = (

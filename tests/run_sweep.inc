@@ -32,10 +32,8 @@ fn sweep(dir: &Path) -> Result<Vec<PathBuf>, String> {
 
 /// A folder's regular files, recursively, by relative path; a symbolic link is listed as
 /// the key `link -> target` with no bytes.
-#[allow(dead_code)] // each includer uses its own part
 type Tree = std::collections::BTreeMap<String, Vec<u8>>;
 
-#[allow(dead_code)] // each includer uses its own part
 fn read_tree(root: &Path) -> Tree {
     fn walk(root: &Path, dir: &Path, out: &mut Tree) {
         for entry in std::fs::read_dir(dir).expect("the folder lists") {
@@ -58,7 +56,6 @@ fn read_tree(root: &Path) -> Tree {
 }
 
 /// The lines of the file `<case>.<ext>` beside a case; none when it is absent.
-#[allow(dead_code)] // each includer uses its own part
 fn case_lines(case: &Path, ext: &str) -> Vec<String> {
     let text = std::fs::read_to_string(case.with_extension(ext)).unwrap_or_default();
     text.lines().map(String::from).collect()
@@ -66,7 +63,6 @@ fn case_lines(case: &Path, ext: &str) -> Vec<String> {
 
 /// The files the program's folder must hold after the run: `.after/` (else `.files/`) plus the
 /// links of `.links`, each listed as `link -> target`.
-#[allow(dead_code)] // each includer uses its own part
 fn expected_tree(case: &Path) -> Tree {
     let after = case.with_extension("after");
     let from = if after.is_dir() { after } else { case.with_extension("files") };
@@ -77,7 +73,6 @@ fn expected_tree(case: &Path) -> Tree {
 
 /// `Ok` when the trees are equal; otherwise a message naming every extra, missing and
 /// different file.
-#[allow(dead_code)] // each includer uses its own part
 fn compare_trees(got: &Tree, want: &Tree) -> Result<(), String> {
     let mut problems = Vec::new();
     for (name, bytes) in got {
