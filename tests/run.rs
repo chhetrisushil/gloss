@@ -7,7 +7,7 @@ mod run_support;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use run_support::{DEADLINE, TempDir, run_env, run_limited};
+use run_support::{DEADLINE, TempDir, run_case, run_env};
 
 include!("run_sweep.inc");
 
@@ -58,7 +58,10 @@ fn every_run_case_builds_and_runs() {
                 .unwrap_or_else(|e| panic!("{name}.ulimit: {e}"))
         });
         let input = beside(&case, "in").unwrap_or_default();
-        let Some(ran) = run_limited(&dir.0.join(name), &input, DEADLINE, &[], kib) else {
+        // The program runs in its own folder, `work/`, beside the executable.
+        let work = dir.0.join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        let Some(ran) = run_case(&dir.0.join(name), &input, DEADLINE, &work, &[], kib) else {
             continue;
         };
         let status = beside(&case, "status")
