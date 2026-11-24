@@ -34,19 +34,22 @@ impl Lowerer<'_> {
             return None;
         };
         let (position, list) = item_target(of)?;
-        let Some(Ty::List(item)) = self.vars.get(list) else {
-            return None;
+        let record = match (self.vars.get(list), self.table_index(list)) {
+            (Some(Ty::List(item)), _) => match &**item {
+                Ty::Record(record) => record.clone(),
+                _ => return None,
+            },
+            (None, Some(i)) => self.program.tables().nth(i)?.record.clone(),
+            _ => return None,
         };
-        let Ty::Record(record) = &**item else {
-            return None;
-        };
-        Some((position, list, self.field_offset(record, field)))
+        Some((position, list, self.field_offset(&record, field)))
     }
 
     /// The item type of `e`, when it is a list.
     pub fn list_item_type(&self, e: &Expr) -> Option<Ty> {
         match self.types.expr_types.get(e.id.0 as usize) {
             Some(Some(Ty::List(item))) => Some((**item).clone()),
+            Some(Some(Ty::Table { record, .. })) => Some(Ty::Record(record.clone())),
             _ => None,
         }
     }
@@ -58,6 +61,9 @@ impl Lowerer<'_> {
             Ty::List(item) => {
                 let item = self.type_desc(item);
                 self.module.desc(Desc::List(item))
+            }
+            Ty::Table { record, .. } => {
+                self.type_desc(&Ty::List(Box::new(Ty::Record(record.clone()))))
             }
             Ty::Text => self.module.desc(Desc::Text),
             Ty::Truth => self.module.desc(Desc::Truth),
@@ -226,7 +232,8 @@ impl Lowerer<'_> {
         let item = self.new_temp();
         self.store_value(value)?;
         self.emit(Inst::StoreSlot(item, Reg::A));
-        self.emit(Inst::LoadSlot(Reg::A, self.slots[list]));
+        let slot = self.list_slot(list);
+        self.emit(Inst::LoadSlot(Reg::A, slot));
         self.emit(Inst::Push(Reg::A));
         self.emit(Inst::LoadSlot(Reg::A, item));
         self.emit(Inst::Push(Reg::A));
@@ -247,7 +254,8 @@ impl Lowerer<'_> {
     ) -> Result<u32, Diagnostic> {
         let (value, at) = (self.new_temp(), self.new_temp());
         self.emit(Inst::StoreSlot(value, Reg::A));
-        self.item_address(self.slots[list], list, position)?;
+        let slot = self.list_slot(list);
+        self.item_address(slot, list, position)?;
         if let Some(offset) = field {
             self.load_a();
             self.emit(Inst::AddImm(Reg::A, offset));
@@ -283,7 +291,8 @@ impl Lowerer<'_> {
         let held = self.new_temp();
         self.store_value(value)?;
         self.emit(Inst::StoreSlot(held, Reg::A));
-        self.item_address(self.slots[list], list, position)?;
+        let slot = self.list_slot(list);
+        self.item_address(slot, list, position)?;
         self.emit(Inst::Move {
             to: Reg::B,
             from: Reg::A,

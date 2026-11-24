@@ -292,7 +292,9 @@ fn every_complete_spec_program_builds_and_runs() {
         let name = format!("block{index}");
         let (out, dir, exe) = build(&name, block);
         if has_table(block) {
-            // A table program needs approval first (D25); there is no one to ask here.
+            // A table program needs approval first (D25); there is no one to ask here, and this
+            // harness never approves. Status 4 "Not approved" with no executable is the correct
+            // D23 outcome, so spec table programs are never built here.
             assert_eq!(out.status.code(), Some(4), "{name}: {out:?}");
             let said = String::from_utf8_lossy(&out.stderr);
             assert!(said.starts_with("Not approved: "), "{name}: {said}");

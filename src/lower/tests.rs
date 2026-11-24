@@ -24,21 +24,13 @@ fn show_of_text_lowers_to_out_text_calls() {
 }
 
 #[test]
-fn a_program_with_a_table_is_refused() {
-    let text = "record Row\n  name as text\n\ntable rows of Row in \"rows.csv\"\n\nfeature start\n  show \"x\"\n";
-    let d = lowered(text).unwrap_err();
-    assert_eq!(d.problem, "tables arrive in milestone 3");
-    assert_eq!(d.line, None);
-}
-
-#[test]
 fn tables_init_gives_each_table_a_list_and_a_flag_of_zero() {
     let text = "record Row\n  name as text\n\ntable a of Row in \"a.csv\"\ntable b of Row in \"b.csv\"\n\n\
                 feature start\n  show \"ran\"\n";
     let src = Source::new(text);
     let program = crate::parse_source(&src).expect("parses");
     let types = check(&program, &src).types.expect("checks clean");
-    let m = super::lower_allowing_tables(&program, &types, &src).expect("lowers");
+    let m = super::lower(&program, &types, &src).expect("lowers");
     let init = m
         .functions
         .iter()
@@ -49,6 +41,32 @@ fn tables_init_gives_each_table_a_list_and_a_flag_of_zero() {
     assert!(text.contains("[b + 16] = a"), "{text}");
     let o = crate::irsim::run(&m, "_start", b"");
     assert_eq!((o.stdout, o.status), (b"ran\n".to_vec(), 0));
+}
+
+#[test]
+fn a_table_works_like_a_list() {
+    let text = "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\nfeature start\n  \
+                append Row with n 1 to rows\n  set n of item 1 of rows to 5\n  \
+                show count of rows, \" \", n of first of rows\n";
+    let m = lowered(text).unwrap();
+    let o = crate::irsim::run(&m, "_start", b"");
+    assert_eq!((o.stdout, o.status), (b"1 5\n".to_vec(), 0));
+}
+
+#[test]
+fn a_table_is_compared_by_its_rows_like_a_list() {
+    let text = "record Row\n  n as number\n\ntable rows of Row in \"a.csv\"\n\
+                table other of Row in \"b.csv\"\n\nfeature start\n  \
+                append Row with n 1 to rows\n  set y to rows\n  \
+                show (rows is y), (rows is not y), (y is rows), (y is not rows)\n  \
+                show (rows is other), (rows is not other)\n  \
+                append Row with n 1 to other\n  \
+                show (rows is other), (other is not rows)\n  \
+                show (rows is list of (Row with n 1)), (rows is not list of (Row with n 1))\n  \
+                show ((list of (Row with n 1)) is rows), (rows is empty list of Row)\n";
+    let o = crate::irsim::run(&lowered(text).unwrap(), "_start", b"");
+    let want = "yesnoyesno\nnoyes\nyesno\nyesno\nyesno\n";
+    assert_eq!((o.stdout, o.status), (want.as_bytes().to_vec(), 0));
 }
 
 #[test]
@@ -338,7 +356,7 @@ fn run_with_args(text: &str, args: &[&str]) -> crate::irsim::Outcome {
     let src = Source::new(text);
     let program = crate::parse_source(&src).expect("parses");
     let types = check(&program, &src).types.expect("checks clean");
-    let m = super::lower_allowing_tables(&program, &types, &src).expect("lowers");
+    let m = super::lower(&program, &types, &src).expect("lowers");
     let (faults, mut files) = (
         crate::irsim::Faults::default(),
         crate::irsim::Files::default(),

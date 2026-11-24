@@ -47,6 +47,7 @@ impl Lowerer<'_> {
     fn copy_unless_fresh(&mut self, e: &Expr) {
         let ty = match self.types.expr_types.get(e.id.0 as usize) {
             Some(Some(ty @ (Ty::Record(_) | Ty::List(_)))) => ty.clone(),
+            Some(Some(Ty::Table { record, .. })) => Ty::List(Box::new(Ty::Record(record.clone()))),
             _ => return,
         };
         if Self::is_fresh(e) {
