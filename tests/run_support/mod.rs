@@ -114,6 +114,32 @@ pub fn run_full(
     kib: Option<u64>,
     args: &[&str],
 ) -> Option<Ran> {
+    run_core(path, stdin, deadline, vars, kib, args, None)
+}
+
+/// Like `run_full` with no variables, with `folder` as the program's current folder (set
+/// with `current_dir` when run directly; under a runner the shell that runs the program
+/// `cd`s there first) and `ulimit -v <kib>` applied when given.
+pub fn run_case(
+    path: &Path,
+    stdin: &[u8],
+    deadline: Duration,
+    folder: &Path,
+    args: &[&str],
+    kib: Option<u64>,
+) -> Option<Ran> {
+    run_core(path, stdin, deadline, &[], kib, args, Some(folder))
+}
+
+fn run_core(
+    path: &Path,
+    stdin: &[u8],
+    deadline: Duration,
+    vars: &[(&str, String)],
+    kib: Option<u64>,
+    args: &[&str],
+    folder: Option<&Path>,
+) -> Option<Ran> {
     let Some(prefix) = runner() else {
         skip();
         return None;
@@ -136,43 +162,36 @@ pub fn run_full(
         let _ = std::fs::remove_file(&files.1);
         files
     });
-    // The command line after the runner prefix. The paths and the limit are positional
-    // arguments of a fixed script, never interpolated into it.
+    // The command line after the runner prefix. The paths, the limit, the folder and the
+    // arguments are positional arguments of a fixed script, never interpolated into it:
+    // the program, then the output files, the limit, the folder and the arguments.
     let limit = kib.map(|k| k.to_string());
-    // With arguments, the script moves its own positionals out of the way first.
-    let redirect = match (files.is_some(), args.is_empty()) {
-        (false, _) => "",
-        (true, true) => r#" >"$1" 2>"$2""#,
-        (true, false) => r#" >"$o" 2>"$e""#,
-    };
     let mut tail: Vec<&std::ffi::OsStr> = vec![path.as_os_str()];
+    let mut script = String::new();
     if let Some((o, e)) = &files {
         tail.extend([o.as_os_str(), e.as_os_str()]);
+        script.push_str(r#"o="$1"; e="$2"; "#);
     }
-    let own = usize::from(limit.is_some()) + 2 * usize::from(files.is_some());
-    let mut script = None;
     if let Some(l) = &limit {
+        script.push_str(&format!(r#"ulimit -v "${}"; "#, tail.len()));
         tail.push(l.as_ref());
-        let n = if files.is_some() { 3 } else { 1 };
-        script = Some(format!(r#"ulimit -v "${n}"; "#));
     }
+    if let Some(f) = folder {
+        script.push_str(&format!(r#"cd "${}" || exit 125; "#, tail.len()));
+        tail.push(f.as_os_str());
+    }
+    let own = tail.len() - 1;
     tail.extend(args.iter().map(std::ffi::OsStr::new));
-    // A limit alone still needs the `exec` that runs the program.
-    if script.is_some() || files.is_some() || !args.is_empty() {
-        let save = if files.is_some() && !args.is_empty() {
-            r#"o="$1"; e="$2"; "#
+    // A limit, a folder or output files still need the `exec` that runs the program.
+    if own > 0 || !args.is_empty() {
+        let redirect = if files.is_some() {
+            r#" >"$o" 2>"$e""#
         } else {
             ""
         };
-        let shift = if args.is_empty() {
-            String::new()
-        } else {
-            format!("shift {own}; ")
-        };
-        let all = if args.is_empty() { "" } else { r#" "$@""# };
-        let run = format!(r#"exec "$0"{all}{redirect}"#);
-        script = Some(format!("{}{save}{shift}{run}", script.unwrap_or_default()));
+        script.push_str(&format!(r#"shift {own}; exec "$0" "$@"{redirect}"#));
     }
+    let script = (!script.is_empty()).then_some(script);
     if let Some(script) = &script {
         tail.splice(0..0, ["sh".as_ref(), "-c".as_ref(), script.as_ref()]);
     }
@@ -189,6 +208,9 @@ pub fn run_full(
         }
         None => Command::new(path),
     };
+    if let (true, Some(folder)) = (prefix.is_empty(), folder) {
+        cmd.current_dir(folder);
+    }
     cmd.envs(vars.iter().map(|(k, v)| (k, v)));
     let names: Vec<&str> = vars.iter().map(|(k, _)| *k).collect();
     if !names.is_empty() {
