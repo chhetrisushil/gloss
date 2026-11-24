@@ -311,6 +311,42 @@ mod table_tests {
         assert_eq!(files.mode_of("d/e.csv"), 0o644);
     }
 
+    /// The descriptors still open when the program ended. A successful save closes every one
+    /// it opened; a failure 7 ends the program with the folder, and the file if it was
+    /// being written, still open: the exit closes them, and nothing opens a new one.
+    #[test]
+    fn a_save_leaves_no_descriptor_open_and_a_failure_only_the_ones_it_is_stopped_at() {
+        let fds = |files: &mut Files, folder: &str, faults: Faults| {
+            let o = save(files, folder, "e.csv", faults);
+            (o.status, o.open_fds)
+        };
+        let mut files = files_with(&[], &[]);
+        assert_eq!(fds(&mut files, ".", Faults::default()), (0, vec![]));
+        let mut files = files_with(&["d"], &[("d/e.csv", "old\n")]);
+        assert_eq!(fds(&mut files, "d", Faults::default()), (0, vec![]));
+        // Failure 7 at each step: the folder is missing, a link at the table, the new file
+        // is refused, the write fails, the rename onto a folder fails.
+        let mut files = files_with(&[], &[]);
+        assert_eq!(fds(&mut files, "gone", Faults::default()), (2, vec![]));
+        let mut files = files_with(&[], &[]);
+        files.links.insert("e.csv".into());
+        assert_eq!(fds(&mut files, ".", Faults::default()), (2, vec![3]));
+        let mut files = files_with(&["d"], &[]);
+        let read_only = Faults {
+            read_only_folders: ["d".to_string()].into(),
+            ..Faults::default()
+        };
+        assert_eq!(fds(&mut files, "d", read_only), (2, vec![3]));
+        let mut files = files_with(&[], &[("e.csv", "old\n")]);
+        let write = Faults {
+            failing_file_write: true,
+            ..Faults::default()
+        };
+        assert_eq!(fds(&mut files, ".", write), (2, vec![3, 4]));
+        let mut files = files_with(&["e.csv"], &[]);
+        assert_eq!(fds(&mut files, ".", Faults::default()), (2, vec![3]));
+    }
+
     fn refused(files: &mut Files, folder: &str, faults: Faults) -> String {
         let o = save(files, folder, "e.csv", faults);
         assert_eq!(o.status, 2);
