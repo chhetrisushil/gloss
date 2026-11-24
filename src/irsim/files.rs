@@ -24,6 +24,8 @@ pub struct Files {
     pub links: BTreeSet<String>,
     /// The paths passed to `Sync`, in order.
     pub synced: Vec<String>,
+    /// `sync <path>` and `rename <from> -> <to>`, in the order they happened.
+    pub log: Vec<String>,
 }
 
 impl Files {
