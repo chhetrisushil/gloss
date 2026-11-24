@@ -1,13 +1,17 @@
 //! Every `tests/run/<name>.gloss` is built by the real `gloss` binary and run on Linux.
 //! Beside it: `.out` (required), and optional `.in`, `.err`, `.status` and `.ulimit` (a
-//! virtual-memory limit in KiB, applied with `ulimit -v` in the shell that runs the program).
+//! virtual-memory limit in KiB, applied with `ulimit -v` in the shell that runs the program),
+//! `.args` (one argument per line), `.allow` (copied beside the source), `.files/` (seeded into
+//! the program's current folder, `work/`), `.links` (`link -> target` lines, made inside
+//! `work/`) and `.after/` (the files that must be left in `work/`, besides the links; without
+//! it `work/` must end up as `.files/` was).
 
 mod run_support;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use run_support::{DEADLINE, TempDir, run_case, run_env};
+use run_support::{DEADLINE, TempDir, copy_tree, run_case, run_env};
 
 include!("run_sweep.inc");
 
@@ -30,12 +34,77 @@ fn the_sweep_reports_an_orphan() {
     std::fs::write(dir.0.join("a.gloss"), "").unwrap();
     std::fs::write(dir.0.join("a.out"), "").unwrap();
     assert_eq!(sweep(&dir.0).unwrap().len(), 1);
-    for orphan in ["x.out", "b.GLOSS", "a.txt", "x.ulimit"] {
+    for orphan in [
+        "x.out", "b.GLOSS", "a.txt", "x.ulimit", "x.files", "y.links", "x.after", "x.allow",
+        "x.args",
+    ] {
         std::fs::write(dir.0.join(orphan), "").unwrap();
         let err = sweep(&dir.0).unwrap_err();
         assert!(err.contains(orphan), "{err}");
         std::fs::remove_file(dir.0.join(orphan)).unwrap();
     }
+}
+
+#[test]
+fn the_sweep_accepts_case_folders_and_rejects_plain_files_for_them() {
+    let dir = TempDir::new("sweep-folders");
+    std::fs::write(dir.0.join("a.gloss"), "").unwrap();
+    for file in ["a.out", "a.args", "a.allow", "a.links"] {
+        std::fs::write(dir.0.join(file), "").unwrap();
+    }
+    for folder in ["a.files", "a.after"] {
+        std::fs::create_dir(dir.0.join(folder)).unwrap();
+    }
+    assert_eq!(sweep(&dir.0).unwrap().len(), 1);
+    for folder in ["a.files", "a.after"] {
+        std::fs::remove_dir(dir.0.join(folder)).unwrap();
+        std::fs::write(dir.0.join(folder), "").unwrap();
+        let err = sweep(&dir.0).unwrap_err();
+        assert!(err.contains(folder), "{err}");
+    }
+}
+
+fn tree_of(files: &[(&str, &str)]) -> Tree {
+    files
+        .iter()
+        .map(|(n, b)| (n.to_string(), b.as_bytes().to_vec()))
+        .collect()
+}
+
+#[test]
+fn the_folder_comparison_reports_every_difference() {
+    let want = tree_of(&[("a", "1"), ("d/b", "2"), ("l -> a", "")]);
+    assert_eq!(compare_trees(&want.clone(), &want), Ok(()));
+    // A leftover `.gloss-new` must be seen.
+    let mut got = want.clone();
+    got.insert("a.gloss-new".into(), b"x".to_vec());
+    assert_eq!(compare_trees(&got, &want), Err("extra: a.gloss-new".into()));
+    let mut got = want.clone();
+    got.remove("d/b");
+    assert_eq!(compare_trees(&got, &want), Err("missing: d/b".into()));
+    let mut got = want.clone();
+    got.insert("a".into(), b"11".to_vec());
+    assert_eq!(compare_trees(&got, &want), Err("different bytes: a".into()));
+    let mut got = want.clone();
+    got.remove("l -> a");
+    got.insert("l -> b".into(), Vec::new());
+    let err = compare_trees(&got, &want).unwrap_err();
+    assert!(
+        err.contains("extra: l -> b") && err.contains("missing: l -> a"),
+        "{err}"
+    );
+}
+
+#[test]
+fn the_folder_listing_sees_files_links_and_nested_folders() {
+    let dir = TempDir::new("listing");
+    std::fs::create_dir_all(dir.0.join("d/e")).unwrap();
+    std::fs::write(dir.0.join("d/e/f"), "x").unwrap();
+    std::os::unix::fs::symlink("d/e/f", dir.0.join("l")).unwrap();
+    assert_eq!(
+        read_tree(&dir.0),
+        tree_of(&[("d/e/f", "x"), ("l -> d/e/f", "")])
+    );
 }
 
 #[test]
@@ -45,6 +114,10 @@ fn every_run_case_builds_and_runs() {
         let dir = TempDir::new(&format!("run-{name}"));
         let source = dir.0.join(format!("{name}.gloss"));
         std::fs::copy(&case, &source).unwrap();
+        // The build reads `<source>.allow`, so it must be in place first.
+        if case.with_extension("allow").is_file() {
+            std::fs::copy(case.with_extension("allow"), source.with_extension("allow")).unwrap();
+        }
         let built = Command::new(env!("CARGO_BIN_EXE_gloss"))
             .arg("build")
             .arg(&source)
@@ -61,7 +134,16 @@ fn every_run_case_builds_and_runs() {
         // The program runs in its own folder, `work/`, beside the executable.
         let work = dir.0.join("work");
         std::fs::create_dir_all(&work).unwrap();
-        let Some(ran) = run_case(&dir.0.join(name), &input, DEADLINE, &work, &[], kib) else {
+        if case.with_extension("files").is_dir() {
+            copy_tree(&case.with_extension("files"), &work);
+        }
+        for link in case_lines(&case, "links") {
+            let (name, target) = link.split_once(" -> ").expect("a `link -> target` line");
+            std::os::unix::fs::symlink(target, work.join(name)).unwrap();
+        }
+        let args = case_lines(&case, "args");
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let Some(ran) = run_case(&dir.0.join(name), &input, DEADLINE, &work, &args, kib) else {
             continue;
         };
         let status = beside(&case, "status")
@@ -72,6 +154,9 @@ fn every_run_case_builds_and_runs() {
             beside(&case, "err").unwrap_or_default(),
         );
         assert_eq!(ran.unwrap(), want, "{name}");
+        if let Err(problem) = compare_trees(&read_tree(&work), &expected_tree(&case)) {
+            panic!("{name}: the folder differs: {problem}");
+        }
     }
 }
 
