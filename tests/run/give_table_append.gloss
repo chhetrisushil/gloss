@@ -1,0 +1,15 @@
+record Row
+  t as text
+  n as number
+
+table rs of Row in "s.csv"
+
+feature rows
+  give rs
+
+feature start
+  load rs
+  for each r in rows
+    append Row with t "x", n 0 to rs
+    show t of r
+  show count of rs
