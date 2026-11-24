@@ -27,15 +27,13 @@ const O_CLOEXEC: i64 = 0o2000000;
 const O_PATH: i64 = 0o10000000;
 const RESOLVE_NO_SYMLINKS: i64 = 0x04;
 const RESOLVE_BENEATH: i64 = 0x08;
-/// The permissions of a created file.
-const CREATE_PERMISSIONS: i64 = 0o644;
 /// `sizeof(struct open_how)`: `u64` flags, mode and resolve.
 const OPEN_HOW_SIZE: i64 = 24;
 /// `sizeof(struct stat)` on x86-64, and where `st_mode` sits in it.
 const STAT_SIZE: i32 = 144;
 const ST_MODE: i32 = 24;
-/// The permission bits of `st_mode`, with setuid, setgid and sticky.
-const PERMISSION_BITS: i32 = 0o7777;
+/// The permission bits of `st_mode`: read, write and execute for owner, group and others.
+const PERMISSION_BITS: i32 = 0o777;
 /// The kernel reports an error as a result in `-4095..=-1`.
 const FIRST_ERROR: i32 = -4096;
 
@@ -111,16 +109,27 @@ fn stack_size(out: &mut Vec<X>) {
 /// The struct is built on the stack (flags at the lowest address) before `call` saves `rcx`,
 /// so `rdx` is its address; it is released after `rcx` comes back, and `rax` is untouched.
 fn open(mode: OpenMode, out: &mut Vec<X>) {
-    let (flags, permissions) = match mode {
-        OpenMode::Read => (O_RDONLY | O_CLOEXEC, 0),
-        OpenMode::Folder => (O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0),
-        OpenMode::Create => (O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, CREATE_PERMISSIONS),
-        OpenMode::Probe => (O_PATH | O_CLOEXEC, 0),
+    let flags = match mode {
+        OpenMode::Read => O_RDONLY | O_CLOEXEC,
+        OpenMode::Folder => O_RDONLY | O_DIRECTORY | O_CLOEXEC,
+        OpenMode::Create => O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
+        OpenMode::Probe => O_PATH | O_CLOEXEC,
     };
-    out.extend([X::Pop(R::Rsi), X::Pop(R::Rdi)]);
-    for field in [RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS, permissions, flags] {
-        out.extend([X::MovRI(R::R11, field), X::Push(R::R11)]);
+    // `Create` was given its permissions last; every other mode creates nothing.
+    if mode == OpenMode::Create {
+        out.push(X::Pop(R::R8));
     }
+    out.extend([X::Pop(R::Rsi), X::Pop(R::Rdi)]);
+    out.extend([
+        X::MovRI(R::R11, RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS),
+        X::Push(R::R11),
+    ]);
+    if mode == OpenMode::Create {
+        out.push(X::Push(R::R8));
+    } else {
+        out.extend([X::MovRI(R::R11, 0), X::Push(R::R11)]);
+    }
+    out.extend([X::MovRI(R::R11, flags), X::Push(R::R11)]);
     out.extend([X::MovRR(R::Rdx, R::Rsp), X::MovRI(R::R10, OPEN_HOW_SIZE)]);
     call(OPENAT2, out);
     out.push(X::AluI(AluOp::Add, R::Rsp, OPEN_HOW_SIZE as i32));
@@ -133,7 +142,7 @@ fn single(number: i64, out: &mut Vec<X>) {
 }
 
 /// `fstat(fd, &stat)` into `sizeof(struct stat)` bytes of stack; the permission bits are the
-/// low 12 bits of `st_mode`, at offset 24. An error is passed on as it is.
+/// low 9 bits of `st_mode`, at offset 24. An error is passed on as it is.
 fn mode(unique: &str, out: &mut Vec<X>) {
     let failed = format!("{unique}_failed");
     out.extend([

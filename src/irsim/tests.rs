@@ -1050,6 +1050,9 @@ fn run_on(files: &mut super::Files, texts: &[&[u8]], slots: u32, body: Vec<Inst>
 fn open_in(mode: OpenMode, dir: Inst, n: u32) -> Vec<Inst> {
     let mut body = vec![dir, Push(A)];
     body.extend(push_text_n(n));
+    if mode == OpenMode::Create {
+        body.extend([Const(A, 0o644), Push(A)]);
+    }
     body.push(System(Prim::Open(mode)));
     body
 }

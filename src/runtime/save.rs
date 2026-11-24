@@ -52,6 +52,9 @@ const DIR: u32 = 2;
 const FILE: u32 = 3;
 const IN_FOLDER: u32 = 4;
 const CODE: u32 = 5;
+const MODE: u32 = 6;
+/// The permissions of a table file that did not exist.
+const NEW_FILE_MODE: i64 = 0o644;
 
 /// Pushes the address of the NUL-terminated bytes of the text argument `n`.
 fn push_path(s: &mut Asm, n: u32) {
@@ -77,12 +80,13 @@ fn on_slot(s: &mut Asm, prim: Prim, slot: u32, fail: Label) {
 /// `list` (of records `desc`) as CSV. `folder`, `name` and `temp` are NUL-terminated texts,
 /// the temporary name being `name` and `.gloss-new`; `shown` and `folder_shown` are the
 /// display forms for failure 7. It opens the folder, looks at `name` (a symbolic link there is
-/// refused), writes `temp` and syncs it, renames it over `name`, then syncs the folder. A
+/// refused) and reads its permissions, writes `temp` with them and syncs it, renames it over `name`, then syncs the folder. A
 /// failure before the rename leaves `name` untouched. Slots: the text, the folder, the file
-/// descriptor, whether the folder is being opened, the error.
+/// descriptor, whether the folder is being opened, the error, the permissions of the new
+/// file.
 fn table_save() -> Function {
     let mut s = Asm::default();
-    let (fail, created, closed) = (s.label(), s.label(), s.label());
+    let (fail, created, closed, have_mode) = (s.label(), s.label(), s.label(), s.label());
     s.push_arg(1);
     s.push_arg(2);
     s.push_arg(8);
@@ -106,11 +110,19 @@ fn table_save() -> Function {
     }
     s.i(Const(B, 0));
     s.jump_if(Lt, created);
-    s.i(Push(A));
-    s.i(System(Prim::Close));
+    // The table exists: the new file keeps its permissions (the probe can be `fstat`ed).
+    s.i(StoreSlot(FILE, A));
+    on_slot(&mut s, Prim::Mode, FILE, fail);
+    s.i(StoreSlot(MODE, A));
+    on_slot(&mut s, Prim::Close, FILE, fail);
+    s.i(Jump(have_mode));
     s.i(Mark(created));
+    s.i(Const(A, NEW_FILE_MODE));
+    s.i(StoreSlot(MODE, A));
+    s.i(Mark(have_mode));
     s.push_slot(DIR);
     push_path(&mut s, 5);
+    s.push_slot(MODE);
     s.i(System(Prim::Open(OpenMode::Create)));
     s.i(StoreSlot(FILE, A));
     failed(&mut s, fail);
@@ -146,7 +158,7 @@ fn table_save() -> Function {
     s.push_slot(IN_FOLDER);
     s.call("save_fail");
     s.i(Mark(closed));
-    s.finish("table_save", 8, 5)
+    s.finish("table_save", 8, 6)
 }
 
 pub fn routines() -> Vec<Function> {
@@ -279,6 +291,24 @@ mod table_tests {
             "sync data",
         ];
         assert_eq!(files.log, log);
+    }
+
+    #[test]
+    fn a_saved_table_keeps_the_permissions_it_had_and_a_new_one_gets_0644() {
+        for mode in [0o600, 0o640, 0o444, 0o755] {
+            let mut files = files_with(&[], &[("e.csv", "old\n")]);
+            files.set_mode("e.csv", mode);
+            assert_eq!(save(&mut files, ".", "e.csv", Faults::default()).status, 0);
+            assert_eq!(files.mode_of("e.csv"), mode, "{mode:o}");
+        }
+        let mut files = files_with(&[], &[]);
+        save(&mut files, ".", "e.csv", Faults::default());
+        assert_eq!(files.mode_of("e.csv"), 0o644);
+        // A mode with group or other write bits is narrowed by the umask, as on Linux.
+        let mut files = files_with(&["d"], &[("d/e.csv", "old\n")]);
+        files.set_mode("d/e.csv", 0o666);
+        save(&mut files, "d", "e.csv", Faults::default());
+        assert_eq!(files.mode_of("d/e.csv"), 0o644);
     }
 
     fn refused(files: &mut Files, folder: &str, faults: Faults) -> String {

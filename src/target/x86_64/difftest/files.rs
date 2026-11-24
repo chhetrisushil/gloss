@@ -55,7 +55,17 @@ fn open(mode: OpenMode, path: &'static str) -> Step {
 
 /// `Open` relative to the folder descriptor `folder` (or `CWD`).
 fn open_in(mode: OpenMode, folder: i64, path: &'static str) -> Step {
-    step(Prim::Open(mode), vec![Arg::Int(folder), Arg::Text(path)])
+    let mut args = vec![Arg::Int(folder), Arg::Text(path)];
+    if mode == OpenMode::Create {
+        args.push(Arg::Int(0o644));
+    }
+    step(Prim::Open(mode), args)
+}
+
+/// `Create` with the given permissions.
+fn create_with(path: &'static str, permissions: i64) -> Step {
+    let args = vec![Arg::Int(CWD), Arg::Text(path), Arg::Int(permissions)];
+    step(Prim::Open(OpenMode::Create), args)
 }
 
 fn fd_step(prim: Prim) -> Step {
@@ -321,6 +331,20 @@ fn mode_cases(real: bool) {
         &[FD, 0o644, 0, FD, 0o755, EBADF],
         real,
     );
+    // A created file gets the permissions asked for, less the umask's; a file that exists
+    // keeps its own.
+    let steps = [
+        create_with("private", 0o600),
+        fd_step(Prim::Mode),
+        create_with("group", 0o640),
+        step(Prim::Mode, vec![Arg::Int(FD + 1)]),
+        create_with("wide", 0o666),
+        step(Prim::Mode, vec![Arg::Int(FD + 2)]),
+        create_with("a.txt", 0o600),
+        step(Prim::Mode, vec![Arg::Int(FD + 3)]),
+    ];
+    let wants = [FD, 0o600, FD + 1, 0o640, FD + 2, 0o644, FD + 3, 0o644];
+    check("created modes", &setup, &steps, &wants, real);
 }
 
 /// Opens and renames relative to a folder descriptor, as `save` does: "beneath" is the

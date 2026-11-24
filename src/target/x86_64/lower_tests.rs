@@ -265,12 +265,19 @@ fn open_builds_open_how_on_the_stack_and_keeps_b() {
             "add rsp, 24".to_string(),
         ]
     };
+    // `Create` pops its permissions first and passes them on in `open_how.mode`.
+    let create_how = |flags: i64| {
+        let mut words = how(flags, 0).to_vec();
+        words.insert(0, "pop r8".to_string());
+        words.splice(5..7, ["push r8".to_string()]);
+        words
+    };
     let open = |mode| one(Inst::System(Prim::Open(mode)));
     assert_eq!(open(OpenMode::Read), how(0o2000000, 0)); // O_RDONLY | O_CLOEXEC
     // O_RDONLY | O_DIRECTORY | O_CLOEXEC: not O_PATH, so the folder can be fsynced (R8).
     assert_eq!(open(OpenMode::Folder), how(0o2200000, 0));
-    // O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644
-    assert_eq!(open(OpenMode::Create), how(0o2001101, 0o644));
+    // O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC
+    assert_eq!(open(OpenMode::Create), create_how(0o2001101));
     assert_eq!(open(OpenMode::Probe), how(0o12000000, 0)); // O_PATH | O_CLOEXEC
 }
 
@@ -299,7 +306,7 @@ fn mode_reads_the_low_permission_bits_of_st_mode_from_fstat() {
     assert!(mode.contains(&"movabs rax, 5".to_string()));
     assert!(mode.contains(&"cmp rax, -4096".to_string()));
     assert!(mode.contains(&"mov rax, [rsp+24]".to_string()), "{mode:?}");
-    assert!(mode.contains(&"and rax, 4095".to_string()));
+    assert!(mode.contains(&"and rax, 511".to_string()));
     assert_eq!(mode.last().unwrap(), "add rsp, 144");
 }
 
