@@ -4,6 +4,8 @@
 
 mod cases;
 mod exec;
+mod files;
+pub use files::Files;
 mod machine;
 pub use machine::INITIAL_STACK_TOP;
 mod memory;
@@ -22,6 +24,8 @@ pub struct Outcome {
     pub status: i32,
     /// How many `Write` calls the program made.
     pub writes: u32,
+    /// The files when the program ended.
+    pub files: Files,
 }
 
 /// Faults a test can make `Write` show, as a real kernel sometimes does.
@@ -43,12 +47,22 @@ pub struct Faults {
 
 /// Runs the function `entry` as a program, feeding it `stdin`.
 pub fn run(m: &Module, entry: &str, stdin: &[u8]) -> Outcome {
-    run_with(m, entry, stdin, &[], Faults::default())
+    let (faults, mut files) = (Faults::default(), Files::default());
+    run_with(m, entry, stdin, &[], faults, &mut files)
 }
 
-/// Like `run`, with the program arguments (after `argv[0]`) and write faults.
-pub fn run_with(m: &Module, entry: &str, stdin: &[u8], args: &[&str], faults: Faults) -> Outcome {
+/// Like `run`, with the program arguments (after `argv[0]`), faults and the starting
+/// `files`, which hold the final state afterwards, too.
+pub fn run_with(
+    m: &Module,
+    entry: &str,
+    stdin: &[u8],
+    args: &[&str],
+    faults: Faults,
+    files: &mut Files,
+) -> Outcome {
     let mut machine = Machine::new(m);
+    machine.files = files.clone();
     machine.faults = faults;
     machine.stdin = stdin.to_vec();
     machine.args = args.iter().map(|a| a.to_string()).collect();
@@ -56,11 +70,13 @@ pub fn run_with(m: &Module, entry: &str, stdin: &[u8], args: &[&str], faults: Fa
         Ended::Returned(_) => 0,
         Ended::Exited(status) => status,
     };
+    *files = machine.files.clone();
     Outcome {
         stdout: machine.stdout,
         stderr: machine.stderr,
         status,
         writes: machine.writes,
+        files: machine.files,
     }
 }
 

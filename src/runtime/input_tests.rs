@@ -4,10 +4,11 @@ use super::tests::program;
 use crate::ir::Inst::*;
 use crate::ir::Reg::A;
 use crate::ir::{Data, Global, Inst, Prim};
-use crate::irsim::{self, Faults, Outcome};
+use crate::irsim::{self, Faults, Files, Outcome};
 
 fn run_with(body: Vec<Inst>, stdin: &[u8], faults: Faults) -> Outcome {
-    irsim::run_with(&program(body, &[b"x"]), "_start", stdin, &[], faults)
+    let m = program(body, &[b"x"]);
+    irsim::run_with(&m, "_start", stdin, &[], faults, &mut Files::default())
 }
 
 /// Runs `body` on `stdin`, which ends with the exit status in `a`.

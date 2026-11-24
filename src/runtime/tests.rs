@@ -5,7 +5,7 @@ use crate::ir::{
     IntOp, Label, Module, Prim,
     Reg::{A, B},
 };
-use crate::irsim::{self, Faults, Outcome};
+use crate::irsim::{self, Faults, Files, Outcome};
 
 /// A module whose `_start` is `body` followed by `exit 0`, with the runtime it calls.
 pub(super) fn program(body: Vec<Inst>, texts: &[&[u8]]) -> Module {
@@ -324,7 +324,7 @@ fn the_stack_limit_is_the_size_below_sp_plus_the_margin() {
 }
 
 fn run_with(m: &Module, faults: Faults) -> Outcome {
-    irsim::run_with(m, "_start", b"", &[], faults)
+    irsim::run_with(m, "_start", b"", &[], faults, &mut Files::default())
 }
 
 #[test]

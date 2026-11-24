@@ -308,7 +308,11 @@ fn run_with_args(text: &str, args: &[&str]) -> crate::irsim::Outcome {
     let program = crate::parse_source(&src).expect("parses");
     let types = check(&program, &src).types.expect("checks clean");
     let m = super::lower_allowing_tables(&program, &types, &src).expect("lowers");
-    crate::irsim::run_with(&m, "_start", b"", args, crate::irsim::Faults::default())
+    let (faults, mut files) = (
+        crate::irsim::Faults::default(),
+        crate::irsim::Files::default(),
+    );
+    crate::irsim::run_with(&m, "_start", b"", args, faults, &mut files)
 }
 
 fn list_of(text: &str) -> String {
