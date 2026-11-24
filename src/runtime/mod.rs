@@ -26,6 +26,7 @@ mod shown;
 #[cfg(test)]
 mod tests;
 mod text;
+mod utf8;
 mod values;
 
 use crate::ir::{Data, Function, Inst, Module};
@@ -111,6 +112,7 @@ pub fn routines() -> Vec<Function> {
     all.extend(save::routines());
     all.extend(shown::routines());
     all.extend(text::routines());
+    all.extend(utf8::routines());
     all.extend(values::routines());
     all
 }
