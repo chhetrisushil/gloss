@@ -292,9 +292,8 @@ fn every_complete_spec_program_builds_and_runs() {
         let name = format!("block{index}");
         let (out, dir, exe) = build(&name, block);
         if has_table(block) {
-            // A table program needs approval first (D25); there is no one to ask here, and this
-            // harness never approves. Status 4 "Not approved" with no executable is the correct
-            // D23 outcome, so spec table programs are never built here.
+            // A table program needs approval (D25). Without it nothing is built; with
+            // `--allow` for its file it builds, and only the build is checked here.
             assert_eq!(out.status.code(), Some(4), "{name}: {out:?}");
             let said = String::from_utf8_lossy(&out.stderr);
             assert!(said.starts_with("Not approved: "), "{name}: {said}");
@@ -302,6 +301,15 @@ fn every_complete_spec_program_builds_and_runs() {
                 !exe.exists(),
                 "{name}: an unapproved build wrote an executable"
             );
+            let file = dir.0.join(format!("{name}.gloss"));
+            let allowed = Command::new(env!("CARGO_BIN_EXE_gloss"))
+                .args(["build"])
+                .arg(&file)
+                .args(["--allow", "expenses.csv"])
+                .output()
+                .unwrap();
+            assert_eq!(allowed.status.code(), Some(0), "{name}: {allowed:?}");
+            assert!(exe.exists(), "{name}: the approved build wrote nothing");
             continue;
         }
         let first = block.lines().next().unwrap_or("");
@@ -469,15 +477,47 @@ fn every_run_time_failure_says_what_the_spec_says() {
             "{name}: standard output {shown:?}"
         );
     }
-    // Failures 6 to 8 are about table files, which arrive in milestone 3.
-    for n in 6..=8 {
+    // Failures 6 to 8 are about table files; the spec's row for each carries the design's
+    // messages (design spec section 6), the first in full and the rest as `...: <message>`.
+    for (n, message) in TABLE_FAILURES {
         let row = SPEC
             .lines()
             .find(|l| l.starts_with(&format!("| {n} |")))
             .unwrap();
+        let full = format!("`line 5: failure {n}: {message}`");
+        let later = format!("`…: {message}`");
         assert!(
-            row.ends_with("| Worded in milestone 3 |"),
-            "failure {n}: {row}"
+            row.contains(&full) || row.contains(&later),
+            "failure {n}: the spec row lacks {message:?}: {row}"
         );
     }
 }
+
+/// The design's messages for failures 6 to 8 (design spec section 6, D26), without the lead.
+const TABLE_FAILURES: &[(u8, &str)] = &[
+    (6, "expenses.csv line 7: amount \"12,50\" is not a number"),
+    (6, "expenses.csv line 7: amount is empty"),
+    (6, "expenses.csv line 7: paid \"maybe\" is not yes or no"),
+    (6, "expenses.csv line 7: has 4 cells; the header has 3"),
+    (
+        6,
+        "expenses.csv line 1: column amout is not a field of Expense",
+    ),
+    (6, "expenses.csv line 1: column amount is missing"),
+    (6, "expenses.csv line 1: column amount appears twice"),
+    (6, "expenses.csv line 9: a quoted cell is not closed"),
+    (6, "expenses.csv line 8: a quote is out of place"),
+    (6, "expenses.csv is not UTF-8 text (line 4)"),
+    (6, "expenses.csv is reached through a symbolic link"),
+    (6, "expenses.csv cannot be read"),
+    (
+        7,
+        "data/expenses.csv cannot be written (its folder data does not exist)",
+    ),
+    (7, "expenses.csv cannot be written"),
+    (7, "expenses.csv is reached through a symbolic link"),
+    (
+        8,
+        "expenses is saved here but was not loaded or cleared first",
+    ),
+];
