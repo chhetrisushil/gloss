@@ -193,6 +193,7 @@ Table paths are the only security boundary in M1. The checker rejects absolute p
 | 6 | A missing column | `line N: failure 6: expenses.csv line 1: column amount is missing` |
 | 6 | A repeated column | `line N: failure 6: expenses.csv line 1: column amount appears twice` |
 | 6 | A quoted cell left open | `line N: failure 6: expenses.csv line 9: a quoted cell is not closed` |
+| 6 | A quote out of place: text after a closing quote, or a `"` inside a cell that does not start with one | `line N: failure 6: expenses.csv line 8: a quote is out of place` |
 | 6 | Bytes that are not UTF-8 | `line N: failure 6: expenses.csv is not UTF-8 text (line 4)` |
 | 6 | A symbolic link on the path | `line N: failure 6: expenses.csv is reached through a symbolic link` |
 | 6 | Any other read error | `line N: failure 6: expenses.csv cannot be read` |

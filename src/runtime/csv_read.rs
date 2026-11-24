@@ -3,7 +3,7 @@
 use super::asm::Asm;
 use crate::ir::Cond::{Eq, Ge, Ne};
 use crate::ir::Reg::{A, B};
-use crate::ir::{Function, Inst::*, IntOp, Label};
+use crate::ir::{Data, Function, Inst::*, IntOp, Label};
 
 const CURSOR_BYTES: i64 = 32;
 // Words of a cursor: the text, the position in it (at 8), the line the next row starts on, and
@@ -61,6 +61,8 @@ const TEXT: u32 = 2;
 const AT: u32 = 3;
 const END: u32 = 4;
 const LINE: u32 = 5;
+const QUOTED: u32 = 6;
+const MESSAGE: u32 = 7;
 
 /// The byte of the text `delta` bytes after the position, into `a`.
 fn byte_at(s: &mut Asm, delta: i32) {
@@ -96,15 +98,17 @@ fn take(s: &mut Asm, step: i32) {
 
 /// `csv_read_cell(cursor, shown, line)`: reads the cell at the cursor and leaves the cursor on the
 /// `,`, the line break or the end of the text that follows it. A cell that starts with `"`
-/// runs to the closing `"`, `""` being one `"`, and may hold commas and line breaks; any
-/// text after the closing quote up to the next separator is kept as it is. Any other cell is
-/// taken as it is, up to `,`, `\n`, `\r\n` or the end of the text: a lone `\r` and a `"` in
-/// the middle belong to it. Nothing is trimmed. A quoted cell that reaches the end of the
-/// text is failure 6, on the line the row started on. Slots: the builder (the text so far,
-/// its length and its room), the text, the position, its length, the next row's line.
+/// runs to the closing `"`, `""` being one `"`, and may hold commas and line breaks. Any other
+/// cell is taken as it is, up to `,`, `\n`, `\r\n` or the end of the text; a lone `\r` belongs
+/// to it. Nothing is trimmed. A quoted cell that reaches the end of the text is failure 6
+/// (`a quoted cell is not closed`); so is text after a closing quote and a `"` inside a cell
+/// that did not start with one (`a quote is out of place`), both on the line the row started
+/// on. Slots: the builder, the text, the position, its length, the next row's line, whether
+/// the cell is quoted, and the message to fail with.
 fn csv_read_cell() -> Function {
     let mut s = Asm::default();
     let [quoted, quote, plain, tail, done, other, open] = [(); 7].map(|_| s.label());
+    let [misplaced, fail] = [(); 2].map(|_| s.label());
     s.push_const(24);
     s.push_arg(3);
     s.call("alloc");
@@ -150,6 +154,8 @@ fn csv_read_cell() -> Function {
     s.i(LoadSlot(A, AT));
     s.i(AddImm(A, 1));
     s.i(StoreSlot(AT, A));
+    s.i(Const(A, 1));
+    s.i(StoreSlot(QUOTED, A));
     s.i(Mark(quoted));
     at_end(&mut s, 0, open);
     byte_at(&mut s, 0);
@@ -176,6 +182,12 @@ fn csv_read_cell() -> Function {
     take(&mut s, 1);
     s.i(Jump(quoted));
     s.i(Mark(open));
+    s.i(AddressOf(A, Data::Text(super::UNCLOSED)));
+    s.i(Jump(fail));
+    s.i(Mark(misplaced));
+    s.i(AddressOf(A, Data::Text(super::MISPLACED)));
+    s.i(Mark(fail));
+    s.i(StoreSlot(MESSAGE, A));
     s.push_arg(3);
     s.push_arg(2);
     s.i(LoadArg(A, 1));
@@ -186,7 +198,7 @@ fn csv_read_cell() -> Function {
     });
     s.i(Push(A));
     s.call("fail_row");
-    s.push_text(super::UNCLOSED);
+    s.push_slot(MESSAGE);
     s.call("err_text");
     s.call("fail_end");
     s.i(Mark(tail));
@@ -203,7 +215,12 @@ fn csv_read_cell() -> Function {
     s.i(Const(B, i64::from(b'\n')));
     s.jump_if(Eq, done);
     s.i(Mark(plain));
+    s.i(LoadSlot(A, QUOTED));
+    s.i(Const(B, 0));
+    s.jump_if(Ne, misplaced);
     byte_at(&mut s, 0);
+    s.i(Const(B, i64::from(b'"')));
+    s.jump_if(Eq, misplaced);
     take(&mut s, 1);
     s.i(Jump(tail));
     s.i(Mark(done));
@@ -238,7 +255,7 @@ fn csv_read_cell() -> Function {
     });
     s.i(Move { to: A, from: B });
     s.i(Return);
-    s.finish("csv_read_cell", 3, 5)
+    s.finish("csv_read_cell", 3, 7)
 }
 
 const LIST: u32 = 1; // the slot of `csv_next`
@@ -524,7 +541,7 @@ pub(super) mod tests {
     #[test]
     fn a_plain_cell_runs_to_a_comma_a_line_break_or_the_end_and_is_never_trimmed() {
         // The input, the cell, and the position the cursor is left at.
-        let cases: [(&[u8], &str, usize); 12] = [
+        let cases: [(&[u8], &str, usize); 11] = [
             (b"abc,d", "abc", 3),
             (b"", "", 0),
             (b",x", "", 0),
@@ -533,7 +550,6 @@ pub(super) mod tests {
             (b"a\rb", "a\rb", 3),
             (b"a\r", "a\r", 2),
             (b"  a b ,c", "  a b ", 6),
-            (b"ab\"c,d", "ab\"c", 4),
             ("h\u{e9}llo,\u{1F600}".as_bytes(), "h\u{e9}llo", 6),
             (b"\xE2\x82\xAC", "\u{20ac}", 3),
             (b"x\r\r\n", "x\r", 2),
@@ -553,7 +569,7 @@ pub(super) mod tests {
     #[test]
     fn a_quoted_cell_holds_commas_quotes_and_line_breaks_and_counts_the_lines() {
         // The input, the cell, the position the cursor is left at, and its line.
-        let cases: [(&[u8], &str, usize, u32); 11] = [
+        let cases: [(&[u8], &str, usize, u32); 9] = [
             (b"\"a,b\",c", "a,b", 5, 1),
             (b"\"a\"\"b\"", "a\"b", 6, 1),
             (b"\"\"", "", 2, 1),
@@ -562,8 +578,6 @@ pub(super) mod tests {
             (b"\"a\nb\",c", "a\nb", 5, 2),
             (b"\"a\r\nb\"\r\nz", "a\r\nb", 6, 2),
             (b"\"\n\n\n\"", "\n\n\n", 5, 4),
-            (b"\"x\"y,z", "xy", 4, 1),
-            (b"\"x\" ,z", "x ", 4, 1),
             ("\"\u{e9},\u{fc}\"".as_bytes(), "\u{e9},\u{fc}", 7, 1),
         ];
         for (input, want, at, line) in cases {
@@ -576,6 +590,25 @@ pub(super) mod tests {
             );
             assert_eq!(seen, format!("{at} {line} "), "for {input:?}");
         }
+    }
+
+    #[test]
+    fn a_quote_out_of_place_is_failure_6_on_the_line_the_row_started_on() {
+        let want = "line 7: failure 6: e.csv line 9: a quote is out of place\n";
+        for input in [
+            &b"\"x\"y,z"[..],
+            b"\"x\" ,z",
+            b"ab\"c,d",
+            b"a\"",
+            b"\"x\"\r",
+            b"\"x\"\"\"y",
+        ] {
+            let (o, seen) = cell(input);
+            assert_eq!((o.status, seen.as_str()), (2, want), "for {input:?}");
+        }
+        // A lone CR is data, in a cell of either kind.
+        assert_eq!(cell(b"a\rb,c").1, "3 1 ");
+        assert_eq!(cell(b"\"a\rb\",c").1, "5 1 ");
     }
 
     #[test]
