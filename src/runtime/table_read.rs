@@ -277,6 +277,25 @@ mod tests {
             "Expense with name \"\", amount 0, paid no"
         );
     }
+
+    #[test]
+    fn a_bad_cell_ends_with_failure_6_on_the_line_of_the_row_and_the_first_one_is_named() {
+        let at = "line 7: failure 6: e.csv line 2: ";
+        let head = "name,amount,paid\n";
+        let cases = [
+            ("x,1x,yes", "amount \"1x\" is not a number"),
+            ("x,,yes", "amount is empty"),
+            ("x,1,maybe", "paid \"maybe\" is not yes or no"),
+            ("x,bad,maybe", "amount \"bad\" is not a number"),
+        ];
+        for (row, want) in cases {
+            let (status, shown, err) = record(&format!("{head}{row}\n"));
+            assert_eq!(
+                (status, shown.as_str(), err),
+                (2, "", format!("{at}{want}\n"))
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -288,7 +307,7 @@ mod file_tests {
 
     /// Loads the table file `e.csv` of `Expense` records and shows the list. Failures call
     /// the file `shown`.
-    fn load(content: Option<&str>) -> (Outcome, String, String) {
+    fn load_files(mut files: Files) -> (Outcome, String, String) {
         let mut descs = Module::default();
         let (text, number, truth) = (
             descs.desc(Desc::Text),
@@ -323,16 +342,20 @@ mod file_tests {
         body.extend([Call("show_value".into()), Call("flush".into())]);
         let mut m = program(body, &[b"e.csv\0", b"data/e.csv"]);
         m.descs = descs.descs;
+        let o = irsim::run_with(&m, "_start", b"", &[], Faults::default(), &mut files);
+        let text = |bytes: &[u8]| String::from_utf8(bytes.to_vec()).unwrap();
+        let (shown, err) = (text(&o.stdout), text(&o.stderr));
+        (o, shown, err)
+    }
+
+    fn load(content: Option<&str>) -> (Outcome, String, String) {
         let mut files = Files::default();
         if let Some(content) = content {
             files
                 .files
                 .insert("e.csv".into(), content.as_bytes().to_vec());
         }
-        let o = irsim::run_with(&m, "_start", b"", &[], Faults::default(), &mut files);
-        let text = |bytes: &[u8]| String::from_utf8(bytes.to_vec()).unwrap();
-        let (shown, err) = (text(&o.stdout), text(&o.stderr));
-        (o, shown, err)
+        load_files(files)
     }
 
     #[test]
@@ -366,5 +389,64 @@ mod file_tests {
                 "for {content:?}"
             );
         }
+    }
+
+    /// What a file that cannot be loaded makes the program write, and that it shows nothing.
+    fn refused(content: &str) -> String {
+        let (o, shown, err) = load(Some(content));
+        assert_eq!((o.status, shown.as_str()), (2, ""), "for {content:?}");
+        err.strip_prefix("line 7: failure 6: data/e.csv line ")
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn a_row_with_the_wrong_number_of_cells_is_named_with_both_counts() {
+        let head = "name,amount,paid\n";
+        assert_eq!(
+            refused(&format!("{head}A,1,yes\nB,2\n")),
+            "3: has 2 cells; the header has 3\n"
+        );
+        assert_eq!(
+            refused(&format!("{head}A,1,yes,x\n")),
+            "2: has 4 cells; the header has 3\n"
+        );
+        assert_eq!(
+            refused(&format!("{head}\n")),
+            "2: has 1 cells; the header has 3\n"
+        );
+    }
+
+    #[test]
+    fn a_bad_third_row_after_two_good_ones_names_its_own_line_and_shows_nothing() {
+        let head = "name,amount,paid\nA,1,yes\nB,2,no\n";
+        assert_eq!(
+            refused(&format!("{head}C,x,yes\nD,4,no\n")),
+            "4: amount \"x\" is not a number\n"
+        );
+        // A quoted cell that spans lines moves the next row's line down with it.
+        let spans = "name,amount,paid\n\"A\nB\",1,yes\nC,2,maybe\n";
+        assert_eq!(refused(spans), "4: paid \"maybe\" is not yes or no\n");
+        let long = format!(
+            "name,amount,paid\nA,{},yes\n",
+            "9".repeat(3) + &"x".repeat(60)
+        );
+        let cut = format!(
+            "2: amount \"999{}\u{2026}\" is not a number\n",
+            "x".repeat(37)
+        );
+        assert_eq!(refused(&long), cut);
+    }
+
+    #[test]
+    fn a_table_that_is_a_symbolic_link_is_failure_6() {
+        let mut files = Files::default();
+        files
+            .files
+            .insert("e.csv".into(), b"name,amount,paid\n".to_vec());
+        files.links.insert("e.csv".into());
+        let (o, shown, err) = load_files(files);
+        let link = "line 7: failure 6: data/e.csv is reached through a symbolic link\n";
+        assert_eq!((o.status, shown.as_str(), err.as_str()), (2, "", link));
     }
 }
