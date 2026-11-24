@@ -1,0 +1,12 @@
+record Expense
+  name as text
+  amount as number
+  paid as truth
+
+table expenses of Expense in "expenses.csv"
+
+feature start
+  clear expenses
+  append Expense with name "tea, green", amount 120.5, paid yes to expenses
+  append Expense with name "say ""hi""", amount -3, paid no to expenses
+  save expenses
