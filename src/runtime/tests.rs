@@ -834,3 +834,34 @@ fn file_write_gives_the_error_instead_of_ending_the_program() {
     let o = run_with(&program(file_write_exiting(2, 3), &[b"abc"]), faults);
     assert_eq!((o.status, o.stderr.len()), (i32::from(-5i8 as u8), 0));
 }
+
+#[test]
+fn grow_text_copies_len_bytes_for_len_up_to_twice_the_room() {
+    // len 0, len 1, len = room and len = 2 * room (the bound the exact-size cell copy uses).
+    for (len, room) in [(0, 4), (1, 4), (4, 4), (8, 4), (7, 4), (1, 1), (2, 1)] {
+        let body = vec![
+            AddressOf(A, Data::Text(0)),
+            Push(A),
+            Const(A, len),
+            Push(A),
+            Const(A, room),
+            Push(A),
+            Const(A, 7),
+            Push(A),
+            Call("grow_text".into()),
+            AddImm(A, 8),
+            Push(A),
+            Const(A, len),
+            Push(A),
+            Call("out_bytes".into()),
+            Call("flush".into()),
+        ];
+        let o = run(&program(body, &[b"abcdefgh"]));
+        assert_eq!(o.status, 0);
+        assert_eq!(
+            o.stdout,
+            &b"abcdefgh"[..len as usize],
+            "len {len} room {room}"
+        );
+    }
+}

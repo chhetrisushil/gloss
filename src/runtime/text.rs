@@ -65,7 +65,9 @@ fn text_equal() -> Function {
 
 /// `grow_text(old, len, room, line)`: a new text with room for `2 * room` bytes whose first
 /// `len` bytes are those of `old`; its length word is left for the caller to set. Callers keep
-/// `len <= room`. It allocates `2 * room + 8` bytes, so a `room` above 2^60 asks `alloc` for -1,
+/// `len <= 2 * room`, the capacity of the new text (`len <= room` for a growing builder; the
+/// exact-size copy of a cell in `csv_read_cell` passes `room = (len + 1) / 2` and relies on
+/// the wider bound). It allocates `2 * room + 8` bytes, so a `room` above 2^60 asks `alloc` for -1,
 /// which is failure 10 like any size it refuses. Slots: 1 the new text, 2 how many bytes
 /// are copied.
 fn grow_text() -> Function {
