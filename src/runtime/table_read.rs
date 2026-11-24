@@ -382,6 +382,19 @@ mod file_tests {
     }
 
     #[test]
+    fn two_blank_lines_are_an_empty_first_column_whichever_the_line_ending() {
+        for content in ["\n\n", "\r\n\r\n"] {
+            let (o, shown, err) = load(Some(content));
+            let msg = "line 7: failure 6: data/e.csv line 1: column  is not a field of Expense\n";
+            assert_eq!(
+                (o.status, shown.as_str(), err.as_str()),
+                (2, "", msg),
+                "for {content:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_missing_empty_or_header_only_file_is_an_empty_table() {
         let none = "empty list of Expense";
         let (o, shown, err) = load(None);

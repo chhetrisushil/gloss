@@ -299,7 +299,8 @@ fn csv_read_cell() -> Function {
         from: A,
     });
     // The cell is copied out of the scratch text into one that is exactly big enough:
-    // `grow_text` gives room for `2 * room` bytes, and `room` is half the length, rounded up.
+    // `grow_text` gives room for `2 * room` bytes, and `room` is half the length, rounded up:
+    // it relies on `grow_text` accepting `len <= 2 * room` (see its comment).
     for offset in [0, 8] {
         s.i(LoadSlot(A, BUILDER));
         s.i(Load {
