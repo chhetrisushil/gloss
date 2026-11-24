@@ -3,9 +3,10 @@
 //! the program under test.
 
 use super::asm::Asm;
+use super::test_state::TITLE;
 use crate::ir::Cond::{Eq, Ge, Le};
 use crate::ir::Reg::{A, B};
-use crate::ir::{Data, Function, Inst::*, IntOp, Prim};
+use crate::ir::{Data, Function, Global, Inst::*, IntOp, Prim};
 
 /// `report_bytes(addr, len)`: writes every byte to descriptor 1, looping on short writes; a
 /// result that is not positive ends the process with status 2. Slots: 1 the address, 2 what
@@ -113,6 +114,50 @@ fn report_lines() -> Function {
     s.finish("report_lines", 3, 3)
 }
 
+/// `test_begin(title)`: remembers the title text of the test being run.
+fn test_begin() -> Function {
+    let mut s = Asm::default();
+    s.i(LoadArg(A, 1));
+    s.i(AddressOf(B, Data::Global(Global::TestState)));
+    s.i(Store {
+        base: B,
+        offset: TITLE as i32 * 8,
+        from: A,
+    });
+    s.finish("test_begin", 1, 0)
+}
+
+/// Reports the title of the test being run.
+fn report_title(s: &mut Asm) {
+    s.i(AddressOf(A, Data::Global(Global::TestState)));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: TITLE as i32 * 8,
+    });
+    s.i(Push(A));
+    s.call("report_text");
+    s.push_text(super::NEWLINE);
+    s.call("report_text");
+}
+
+/// `test_pass()`: `pass  <title>`, then exit 0.
+fn test_pass() -> Function {
+    let mut s = Asm::default();
+    s.push_text(super::PASS);
+    s.call("report_text");
+    report_title(&mut s);
+    s.push_const(0);
+    s.i(System(Prim::Exit));
+    s.finish("test_pass", 0, 0)
+}
+
 pub fn routines() -> Vec<Function> {
-    vec![report_bytes(), report_text(), report_lines()]
+    vec![
+        report_bytes(),
+        report_text(),
+        report_lines(),
+        test_begin(),
+        test_pass(),
+    ]
 }
