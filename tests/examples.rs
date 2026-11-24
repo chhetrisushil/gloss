@@ -1,7 +1,7 @@
 //! Every `examples/<name>.gloss` is built by the real `gloss` binary and run on Linux, and its
 //! output must equal `<name>.out` beside it. Each runs in a temporary copy of `examples/` as its
-//! current folder, so a program that saves never changes the committed files. Each example must also already be in the layout
-//! `gloss format` writes, so the examples read as canonical Gloss.
+//! current folder, so a program that saves never changes the committed files. Each example must
+//! also already be in the layout `gloss format` writes, so the examples read as canonical Gloss.
 
 mod run_support;
 
@@ -59,12 +59,23 @@ fn every_example_builds_runs_and_shows_its_output() {
         let source = folder.0.join(format!("{name}.gloss"));
         let built = gloss(&["build"], &source);
         assert_eq!(built.status.code(), Some(0), "{name}: {built:?}");
+        // The build rewrites a changed `.allow` (D28), so compare it with the committed one: a
+        // stale or over-broad approval must fail here.
+        if let Ok(committed) = std::fs::read(example.with_extension("allow")) {
+            let rebuilt = std::fs::read(source.with_extension("allow")).unwrap();
+            assert_eq!(
+                rebuilt, committed,
+                "{name}.allow is not what the build writes"
+            );
+        }
         let Some(ran) = run_case(&folder.0.join(name), b"", DEADLINE, &folder.0, &[], None) else {
             continue;
         };
         let want = std::fs::read(example.with_extension("out")).expect("every example has an .out");
         assert_eq!(ran.unwrap(), (0, want, Vec::new()), "{name}");
     }
+    // A tripwire for harness regressions (such as running in the real folder), not a check on
+    // programs: RESOLVE_BENEATH and the temporary folder already keep a save out of `examples/`.
     assert!(
         snapshot() == before,
         "running the examples changed the committed examples/ folder"
