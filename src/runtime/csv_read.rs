@@ -3,14 +3,46 @@
 use super::asm::Asm;
 use crate::ir::Cond::{Eq, Ge, Lt, Ne};
 use crate::ir::Reg::{A, B};
-use crate::ir::{Data, Function, Inst::*, IntOp, Label};
+use crate::ir::{Data, Function, Inst::*, IntOp, Label, Shift};
 
-const CURSOR_BYTES: i64 = 32;
+const CURSOR_BYTES: i64 = 40;
 // Words of a cursor: the text, the position in it (at 8), the line the next row starts on, and
 // the line the row being read started on.
 const POS: i32 = 8;
 const NEXT_LINE: i32 = 16;
 const ROW_LINE: i32 = 24;
+const BUILDER_AT: i32 = 32; // the scratch builder every cell is built in
+
+/// `csv_builder(line)`: a block of three words for `csv_byte`: a text with room for 16 bytes, the
+/// length so far (0) and the room. The reader builds every cell of a file in the one.
+fn csv_builder() -> Function {
+    let mut s = Asm::default();
+    s.push_const(24);
+    s.push_arg(1);
+    s.call("alloc");
+    s.i(StoreSlot(1, A));
+    s.i(Const(A, 0));
+    s.i(Push(A));
+    s.i(Push(A));
+    s.push_const(8);
+    s.push_arg(1);
+    s.call("grow_text");
+    s.i(LoadSlot(B, 1));
+    s.i(Store {
+        base: B,
+        offset: 0,
+        from: A,
+    });
+    s.i(Const(A, 16));
+    s.i(Store {
+        base: B,
+        offset: 16,
+        from: A,
+    });
+    s.i(Move { to: A, from: B });
+    s.i(Return);
+    s.finish("csv_builder", 1, 1)
+}
 
 /// `csv_cursor(text, line)`: a cursor at the start of `text`, whose first row is line 1. One
 /// leading UTF-8 byte order mark (`EF BB BF`) is skipped, as editors add one.
@@ -34,6 +66,14 @@ fn csv_cursor() -> Function {
         });
     }
     s.i(StoreSlot(1, A));
+    s.push_arg(2);
+    s.call("csv_builder");
+    s.i(LoadSlot(B, 1));
+    s.i(Store {
+        base: B,
+        offset: BUILDER_AT,
+        from: A,
+    });
     let plain = s.label();
     s.i(LoadArg(A, 1));
     s.i(Load {
@@ -93,6 +133,7 @@ const END: u32 = 4;
 const LINE: u32 = 5;
 const QUOTED: u32 = 6;
 const MESSAGE: u32 = 7;
+const LENGTH: u32 = 8;
 
 /// The byte of the text `delta` bytes after the position, into `a`.
 fn byte_at(s: &mut Asm, delta: i32) {
@@ -139,29 +180,12 @@ fn csv_read_cell() -> Function {
     let mut s = Asm::default();
     let [quoted, quote, plain, tail, done, other, open] = [(); 7].map(|_| s.label());
     let [misplaced, fail] = [(); 2].map(|_| s.label());
-    s.push_const(24);
-    s.push_arg(3);
-    s.call("alloc");
-    s.i(StoreSlot(BUILDER, A));
-    s.i(Const(A, 0));
-    s.i(Push(A));
-    s.i(Push(A));
-    s.push_const(8);
-    s.push_arg(3);
-    s.call("grow_text");
-    s.i(LoadSlot(B, BUILDER));
-    s.i(Store {
-        base: B,
-        offset: 0,
-        from: A,
-    });
-    s.i(Const(A, 16));
-    s.i(Store {
-        base: B,
-        offset: 16,
-        from: A,
-    });
-    for (slot, offset) in [(TEXT, 0), (AT, POS), (LINE, NEXT_LINE)] {
+    for (slot, offset) in [
+        (TEXT, 0),
+        (AT, POS),
+        (LINE, NEXT_LINE),
+        (BUILDER, BUILDER_AT),
+    ] {
         s.i(LoadArg(A, 1));
         s.i(Load {
             to: A,
@@ -170,6 +194,13 @@ fn csv_read_cell() -> Function {
         });
         s.i(StoreSlot(slot, A));
     }
+    s.i(LoadSlot(B, BUILDER));
+    s.i(Const(A, 0));
+    s.i(Store {
+        base: B,
+        offset: 8,
+        from: A,
+    });
     s.i(LoadSlot(A, TEXT));
     s.i(Load {
         to: A,
@@ -267,25 +298,33 @@ fn csv_read_cell() -> Function {
         offset: NEXT_LINE,
         from: A,
     });
-    s.i(LoadSlot(B, BUILDER));
-    s.i(Load {
-        to: A,
-        base: B,
-        offset: 8,
-    });
-    s.i(Load {
-        to: B,
-        base: B,
-        offset: 0,
-    });
+    // The cell is copied out of the scratch text into one that is exactly big enough:
+    // `grow_text` gives room for `2 * room` bytes, and `room` is half the length, rounded up.
+    for offset in [0, 8] {
+        s.i(LoadSlot(A, BUILDER));
+        s.i(Load {
+            to: A,
+            base: A,
+            offset,
+        });
+        s.i(Push(A));
+    }
+    s.i(Pop(A));
+    s.i(StoreSlot(LENGTH, A));
+    s.i(Push(A));
+    s.i(AddImm(A, 1));
+    s.i(Shift(Shift::Right, 1));
+    s.i(Push(A));
+    s.push_arg(3);
+    s.call("grow_text");
+    s.i(LoadSlot(B, LENGTH));
     s.i(Store {
-        base: B,
+        base: A,
         offset: 0,
-        from: A,
+        from: B,
     });
-    s.i(Move { to: A, from: B });
     s.i(Return);
-    s.finish("csv_read_cell", 3, 7)
+    s.finish("csv_read_cell", 3, 8)
 }
 
 const LIST: u32 = 1; // the slot of `csv_next`
@@ -420,7 +459,13 @@ fn csv_next() -> Function {
 }
 
 pub fn routines() -> Vec<Function> {
-    vec![csv_cursor(), fail_row(), csv_read_cell(), csv_next()]
+    vec![
+        csv_builder(),
+        csv_cursor(),
+        fail_row(),
+        csv_read_cell(),
+        csv_next(),
+    ]
 }
 
 #[cfg(test)]
@@ -430,7 +475,7 @@ pub(super) mod tests {
     use crate::ir::Cond::Eq;
     use crate::ir::Inst::*;
     use crate::ir::{
-        Data, Desc, Function, Inst, Label, Module,
+        Data, Desc, Function, Global, Inst, Label, Module,
         Reg::{A, B},
     };
     use crate::irsim::Outcome;
@@ -765,5 +810,52 @@ pub(super) mod tests {
         assert_eq!(o.status, 2);
         assert_eq!(String::from_utf8(o.stderr).unwrap(), format!("1 2 {err}"));
         assert!(got.starts_with("list of \"a\"\nlist of \"b\"\n"));
+    }
+
+    /// The bytes of heap one `csv_next` on `input` takes, after a cursor over it exists.
+    fn heap_for_one_row(input: &[u8]) -> i64 {
+        let heap = |slot| {
+            let at = AddressOf(A, Data::Global(Global::HeapNext));
+            let load = Load {
+                to: A,
+                base: A,
+                offset: 0,
+            };
+            let mut v = vec![at, load];
+            v.extend(say());
+            v.push(StoreSlot(slot, A));
+            v
+        };
+        let mut after = heap(2);
+        after.extend([
+            LoadSlot(A, 1),
+            Push(A),
+            AddressOf(A, Data::Text(0)),
+            Push(A),
+        ]);
+        after.extend([Const(A, 7), Push(A), Call("csv_next".into())]);
+        after.extend(heap(3));
+        let o = with_cursor(input, after);
+        let seen = String::from_utf8(o.stderr).unwrap();
+        let [before, after]: [i64; 2] = seen
+            .split_whitespace()
+            .map(|n| n.parse().unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        after - before
+    }
+
+    #[test]
+    fn a_file_of_commas_takes_under_40_bytes_of_heap_per_byte() {
+        // Before the cells shared one scratch text it was 74: a 24-byte builder and a
+        // 24-byte text for each cell, on top of a list slot.
+        let n = 20000;
+        let bytes = heap_for_one_row(",".repeat(n).as_bytes());
+        assert!(
+            bytes < 40 * n as i64,
+            "{} per byte",
+            bytes as f64 / n as f64
+        );
     }
 }
