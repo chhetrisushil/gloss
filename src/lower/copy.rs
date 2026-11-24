@@ -3,7 +3,7 @@
 //! and is stored as it is.
 use super::Lowerer;
 use crate::ast::{Expr, ExprKind};
-use crate::check::Ty;
+use crate::check::{NameKind, Ty};
 use crate::diag::Diagnostic;
 use crate::ir::{Data, Inst, Reg};
 
@@ -37,7 +37,16 @@ impl Lowerer<'_> {
         {
             root = &**of;
         }
-        if !matches!(root.kind, ExprKind::Name(_)) {
+        // A zero-input feature call is also a `Name`, and what it gives may be a table's own
+        // list (`give rs`), so only a variable, a loop variable, an input or a table is owned.
+        let owned = match root.kind {
+            ExprKind::Name(_) => !matches!(
+                self.types.names.get(&root.id),
+                Some(NameKind::FeatureCall) | None
+            ),
+            _ => false,
+        };
+        if !owned {
             self.copy_unless_fresh(e);
         }
         Ok(())
