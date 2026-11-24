@@ -1088,3 +1088,35 @@ fn test_pass_prints_the_title_and_exits_0() {
     let o = report_numbers("test_pass", &[], true);
     assert_eq!((o.status, o.stdout), (0, b"pass  my title\n".to_vec()));
 }
+
+#[test]
+fn test_lost_names_the_status() {
+    for (status, want) in [
+        (7, "(status 7)"),
+        (267, "(status 267)"),
+        (-10, "(status -10)"),
+    ] {
+        let mut body = vec![
+            AddressOf(A, Data::Text(0)),
+            Push(A),
+            Const(A, status),
+            Push(A),
+        ];
+        body.push(Call("test_lost".into()));
+        let o = run(&program(body, &[b"my title"]));
+        let want = format!("fail  my title\n      ended without a result {want}\n");
+        assert_eq!((o.status, String::from_utf8(o.stdout).unwrap()), (0, want));
+    }
+}
+
+#[test]
+fn test_summary_counts() {
+    for (passed, failed, want) in [
+        (2, 1, "\n2 passed, 1 failed\n"),
+        (0, 0, "\n0 passed, 0 failed\n"),
+        (12, 105, "\n12 passed, 105 failed\n"),
+    ] {
+        let o = report_numbers("test_summary", &[passed, failed], false);
+        assert_eq!(String::from_utf8(o.stdout).unwrap(), want);
+    }
+}

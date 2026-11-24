@@ -141,6 +141,18 @@ fn report_title(s: &mut Asm) {
     s.call("report_text");
 }
 
+/// Reports `n` (a number argument slot value times 10000) as a text.
+fn report_number(s: &mut Asm, arg: u32) {
+    s.i(LoadArg(A, arg));
+    s.i(Const(B, 10000));
+    s.i(Int(IntOp::Mul));
+    s.i(Push(A));
+    s.push_const(0);
+    s.call("number_text");
+    s.i(Push(A));
+    s.call("report_text");
+}
+
 /// `test_pass()`: `pass  <title>`, then exit 0.
 fn test_pass() -> Function {
     let mut s = Asm::default();
@@ -152,6 +164,44 @@ fn test_pass() -> Function {
     s.finish("test_pass", 0, 0)
 }
 
+/// `test_lost(title, status)`: the fail block of a test that ended without a result.
+fn test_lost() -> Function {
+    let mut s = Asm::default();
+    s.push_text(super::FAIL);
+    s.call("report_text");
+    s.push_arg(1);
+    s.call("report_text");
+    s.push_text(super::NEWLINE);
+    s.call("report_text");
+    s.i(AddressOf(A, Data::Text(super::INDENT)));
+    s.i(AddImm(A, 8));
+    s.i(Push(A));
+    s.push_const(6);
+    s.call("report_bytes");
+    s.push_text(super::LOST);
+    s.call("report_text");
+    report_number(&mut s, 2);
+    s.push_text(super::CLOSE);
+    s.call("report_text");
+    s.push_text(super::NEWLINE);
+    s.call("report_text");
+    s.finish("test_lost", 2, 0)
+}
+
+/// `test_summary(passed, failed)`: a blank line, then `N passed, M failed`.
+fn test_summary() -> Function {
+    let mut s = Asm::default();
+    s.push_text(super::NEWLINE);
+    s.call("report_text");
+    report_number(&mut s, 1);
+    s.push_text(super::PASSED);
+    s.call("report_text");
+    report_number(&mut s, 2);
+    s.push_text(super::FAILED);
+    s.call("report_text");
+    s.finish("test_summary", 2, 0)
+}
+
 pub fn routines() -> Vec<Function> {
     vec![
         report_bytes(),
@@ -159,5 +209,7 @@ pub fn routines() -> Vec<Function> {
         report_lines(),
         test_begin(),
         test_pass(),
+        test_lost(),
+        test_summary(),
     ]
 }

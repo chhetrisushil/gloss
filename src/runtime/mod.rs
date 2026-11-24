@@ -81,12 +81,16 @@ const CELLS_HEADER: u32 = 38;
 const MISPLACED: u32 = 39;
 const INDENT: u32 = 40;
 const PASS: u32 = 41;
+const FAIL: u32 = 42;
+const LOST: u32 = 43;
+const PASSED: u32 = 44;
+const FAILED: u32 = 45;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 42] = [
+const TEXTS: [&[u8]; 46] = [
     b"line ",
     b": failure ",
     b": ",
@@ -129,6 +133,10 @@ const TEXTS: [&[u8]; 42] = [
     b"a quote is out of place",
     b"        ",
     b"pass  ",
+    b"fail  ",
+    b"ended without a result (status ",
+    b" passed, ",
+    b" failed\n",
 ];
 
 /// The bytes of the runtime text `i`.
