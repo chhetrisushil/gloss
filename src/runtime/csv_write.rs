@@ -234,6 +234,20 @@ fn put_cell(s: &mut Asm) {
     call_with(s, "csv_add", |s| s.i(Push(B)));
     s.i(Jump(done));
     s.i(Mark(text));
+    // An empty text in a one-field table is `""`: a bare empty line would read as no row.
+    let cell = s.label();
+    s.i(LoadSlot(A, VALUE));
+    load(s, A, A, 0);
+    s.i(Const(B, 0));
+    s.jump_if(Ne, cell);
+    s.i(LoadSlot(A, FIELDS));
+    s.i(Const(B, 1));
+    s.jump_if(Ne, cell);
+    for _ in 0..2 {
+        call_with(s, "csv_byte", |s| s.push_const(i64::from(b'"')));
+    }
+    s.i(Jump(done));
+    s.i(Mark(cell));
     call_with(s, "csv_cell", |s| s.push_slot(VALUE));
     s.i(Jump(done));
     s.i(Mark(truth));
@@ -426,10 +440,15 @@ mod table_tests {
 
     /// The CSV text of the table holding `rows`; `texts` are the names' text, by index.
     fn csv(texts: &[&[u8]], rows: &[Row]) -> Vec<u8> {
+        csv_of(texts, rows, 3)
+    }
+
+    /// Like `csv`, for a table with only its first `n` fields.
+    fn csv_of(texts: &[&[u8]], rows: &[Row], n: usize) -> Vec<u8> {
         let mut descs = Module::default();
         let kinds = [Desc::Text, Desc::Number, Desc::Truth];
         let fields = ["name", "amount", "paid"];
-        let list = (0..3)
+        let list = (0..n)
             .map(|i| (fields[i].to_string(), descs.desc(kinds[i].clone())))
             .collect();
         let at = descs.desc(Desc::Record {
@@ -446,7 +465,7 @@ mod table_tests {
                 Const(B, *amount),
                 Const(B, *paid),
             ];
-            for (i, cell) in cells.into_iter().enumerate() {
+            for (i, cell) in cells.into_iter().take(n).enumerate() {
                 let store = Store {
                     base: A,
                     offset: 8 * i as i32,
@@ -496,5 +515,30 @@ mod table_tests {
             want.extend([&long[..], b",1,yes\n"].concat());
         }
         assert_eq!(csv(&[&long], &[(0, 10_000, 1); 30]), want);
+    }
+
+    #[test]
+    fn text_is_written_byte_for_byte_and_quoted_only_when_it_must_be() {
+        let texts: [&[u8]; 6] = [
+            "café".as_bytes(),
+            "日本".as_bytes(),
+            b"  padded  ",
+            b"\"",
+            b"a\rb",
+            b"x",
+        ];
+        let rows: Vec<Row> = (0..6).map(|i| (i, 0, 0)).collect();
+        let want = "name,amount,paid\ncafé,0,no\n日本,0,no\n  padded  ,0,no\n\"\"\"\"\
+                    ,0,no\n\"a\rb\",0,no\nx,0,no\n";
+        assert_eq!(csv(&texts, &rows), want.as_bytes());
+    }
+
+    #[test]
+    fn an_empty_text_is_quoted_when_it_is_the_only_field_so_the_row_survives() {
+        let texts: [&[u8]; 2] = [b"", b"tea"];
+        let rows: [Row; 3] = [(1, 0, 0), (0, 0, 0), (0, 0, 0)];
+        assert_eq!(csv_of(&texts, &rows, 1), b"name\ntea\n\"\"\n\"\"\n");
+        // With more than one field an empty text stays bare.
+        assert_eq!(csv(&texts, &[(0, 0, 0)]), b"name,amount,paid\n,0,no\n");
     }
 }
