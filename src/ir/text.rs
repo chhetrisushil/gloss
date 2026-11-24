@@ -1,6 +1,6 @@
 //! The text form of the IR, which lowering tests compare against.
 
-use super::{Cond, Data, Function, Inst, IntOp, Label, Module, Prim, Reg, Shift};
+use super::{Cond, Data, Function, Inst, IntOp, Label, Module, OpenMode, Prim, Reg, Shift};
 
 /// Prints a function: a header line, then one line per instruction.
 pub fn function_text(f: &Function) -> String {
@@ -43,6 +43,16 @@ fn data(d: &Data) -> String {
         Data::Text(n) => format!("text {n}"),
         Data::Desc(n) => format!("desc {n}"),
         Data::Global(g) => g.name().to_string(),
+    }
+}
+
+/// The word that follows `system open`.
+fn open_mode(mode: &OpenMode) -> &'static str {
+    match mode {
+        OpenMode::Read => "read",
+        OpenMode::Folder => "folder",
+        OpenMode::Create => "create",
+        OpenMode::Probe => "probe",
     }
 }
 
@@ -115,6 +125,10 @@ pub fn inst_text(inst: &Inst) -> String {
         Inst::System(Prim::Map) => "  system map".to_string(),
         Inst::System(Prim::Exit) => "  system exit".to_string(),
         Inst::System(Prim::StackSize) => "  system stack_size".to_string(),
+        Inst::System(Prim::Open(mode)) => format!("  system open {}", open_mode(mode)),
+        Inst::System(Prim::Close) => "  system close".to_string(),
+        Inst::System(Prim::Sync) => "  system sync".to_string(),
+        Inst::System(Prim::Rename) => "  system rename".to_string(),
     }
 }
 
@@ -153,6 +167,13 @@ mod tests {
                 fail: Label(5),
             },
             Inst::System(Prim::StackSize),
+            Inst::System(Prim::Open(OpenMode::Read)),
+            Inst::System(Prim::Open(OpenMode::Folder)),
+            Inst::System(Prim::Open(OpenMode::Create)),
+            Inst::System(Prim::Open(OpenMode::Probe)),
+            Inst::System(Prim::Close),
+            Inst::System(Prim::Sync),
+            Inst::System(Prim::Rename),
         ];
         Function {
             name: "f".to_string(),
@@ -177,6 +198,13 @@ line 4
 L3:
   stack check 48; too deep L5
   system stack_size
+  system open read
+  system open folder
+  system open create
+  system open probe
+  system close
+  system sync
+  system rename
 ";
 
     #[test]
@@ -282,6 +310,13 @@ L3:
             Inst::System(Prim::Map),
             Inst::System(Prim::Exit),
             Inst::System(Prim::StackSize),
+            Inst::System(Prim::Open(OpenMode::Read)),
+            Inst::System(Prim::Open(OpenMode::Folder)),
+            Inst::System(Prim::Open(OpenMode::Create)),
+            Inst::System(Prim::Open(OpenMode::Probe)),
+            Inst::System(Prim::Close),
+            Inst::System(Prim::Sync),
+            Inst::System(Prim::Rename),
         ];
         Function {
             name: "f".to_string(),
@@ -357,6 +392,13 @@ L3:
   system map
   system exit
   system stack_size
+  system open read
+  system open folder
+  system open create
+  system open probe
+  system close
+  system sync
+  system rename
 ";
 
     #[test]

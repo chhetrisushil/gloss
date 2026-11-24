@@ -24,6 +24,9 @@ pub fn system(prim: Prim, unique: &str, out: &mut Vec<X>) {
         Prim::Exit => out.extend([X::Pop(R::Rdi), X::MovRI(R::Rax, EXIT_GROUP), X::Syscall]),
         Prim::Map => map(unique, out),
         Prim::StackSize => stack_size(out),
+        Prim::Open(_) | Prim::Close | Prim::Sync | Prim::Rename => {
+            panic!("file primitives arrive in task 5b")
+        }
     }
 }
 

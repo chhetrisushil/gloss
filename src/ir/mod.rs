@@ -51,6 +51,31 @@ pub enum Shift {
     RightLogical,
 }
 
+/// How `Prim::Open` opens a path. Every mode resolves the path beneath the folder it is given
+/// and refuses symbolic links.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenMode {
+    /// Read only.
+    Read,
+    /// A folder handle, for later opens and `Prim::Sync`.
+    Folder,
+    /// Write only; creates the file or truncates it, with permissions 0644.
+    Create,
+    /// No access: only shows whether the name exists and is not a link.
+    Probe,
+}
+
+/// The folder argument of `Prim::Open` and `Prim::Rename` that means the current folder.
+pub const CWD: i64 = -100;
+
+/// The IR's error vocabulary: a primitive gives a negative `-errno`, with Linux's numbers;
+/// other targets map their own errors to these. No such file or folder.
+pub const NOT_FOUND: i64 = -2;
+/// A path component is a symbolic link.
+pub const LINK: i64 = -40;
+/// The path leads outside the folder it is relative to.
+pub const ESCAPES: i64 = -18;
+
 /// A primitive the host provides. The arguments were pushed left to right; `System`
 /// consumes them and leaves the result in `a`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,6 +90,16 @@ pub enum Prim {
     Exit,
     /// `StackSize()`: the soft stack limit in bytes, or -1 when unlimited.
     StackSize,
+    /// `Open(folder_fd, path)`: a file descriptor, or a negative error. `folder_fd` is from
+    /// `Open(OpenMode::Folder)` or is `CWD`; `path` is the address of NUL-terminated bytes.
+    Open(OpenMode),
+    /// `Close(fd)`: 0, or a negative error.
+    Close,
+    /// `Sync(fd)`: 0, or a negative error, once the file or folder is on disk.
+    Sync,
+    /// `Rename(folder_fd, from, to)`: 0, or a negative error; both names are in that folder
+    /// and an existing `to` is replaced.
+    Rename,
 }
 
 /// A runtime global, addressed with `Data::Global`.

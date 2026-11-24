@@ -1,7 +1,7 @@
 //! The host primitives: output, input, memory and exit.
 
 use super::machine::{Ended, Machine, STACK_SIZE};
-use crate::ir::Prim;
+use crate::ir::{NOT_FOUND, Prim};
 
 /// What `Write` and `Read` give for a file descriptor the program does not have.
 const EBADF: i64 = -9;
@@ -21,6 +21,18 @@ impl Machine<'_> {
             }
             Prim::Exit => return Some(Ended::Exited(self.pop() as i32 & 0xff)),
             Prim::StackSize => self.a = STACK_SIZE,
+            // Until the in-memory file system arrives, every file primitive fails.
+            Prim::Open(_) | Prim::Rename => {
+                let args = if prim == Prim::Rename { 3 } else { 2 };
+                for _ in 0..args {
+                    self.pop();
+                }
+                self.a = NOT_FOUND;
+            }
+            Prim::Close | Prim::Sync => {
+                self.pop();
+                self.a = NOT_FOUND;
+            }
         }
         None
     }
