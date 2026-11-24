@@ -19,11 +19,17 @@ pub struct SaveNames {
     pub temp: String,
 }
 
-/// Splits a table path at its last `/`. The checker already guarantees what the runtime
-/// relies on: the file name and the temporary name are one plain name each, and the folder is
-/// relative and has no `..`. This holds it, so a checker change cannot reach the file system.
-pub fn save_names(path: &str) -> Result<SaveNames, String> {
-    let (folder, name) = path.rsplit_once('/').unwrap_or((".", path));
+/// Splits a table path at its last `/`: the folder (`.` for the current one) and the name.
+fn split_path(path: &str) -> (&str, &str) {
+    path.rsplit_once('/').unwrap_or((".", path))
+}
+
+/// Holds what the runtime relies on, for `load` and `save` alike: the file name and the
+/// temporary name `save` would use are one plain name each, and the folder is relative and has
+/// no `..`. The checker already guarantees it; this keeps a checker change from reaching the
+/// file system.
+pub fn check_table_path(path: &str) -> Result<(), String> {
+    let (folder, name) = split_path(path);
     let temp = format!("{name}{TEMP_SUFFIX}");
     let plain = |part: &str| !part.is_empty() && !part.contains(['/', '\0']);
     let dotted = |part: &str| part == "." || part == "..";
@@ -31,17 +37,23 @@ pub fn save_names(path: &str) -> Result<SaveNames, String> {
         || (!folder.starts_with('/')
             && !folder.contains('\0')
             && folder.split('/').all(|c| !c.is_empty() && !dotted(c)));
-    let safe = plain(name) && !dotted(name) && plain(&temp) && folder_ok;
-    match safe {
-        true => Ok(SaveNames {
-            folder: folder.to_string(),
-            name: name.to_string(),
-            temp,
-        }),
+    match plain(name) && !dotted(name) && plain(&temp) && folder_ok {
+        true => Ok(()),
         false => Err(format!(
-            "internal error: the table path {path:?} is not safe to save"
+            "internal error: the table path {path:?} is not safe to use"
         )),
     }
+}
+
+/// The names `save` needs for a table path that `check_table_path` accepts.
+pub fn save_names(path: &str) -> Result<SaveNames, String> {
+    check_table_path(path)?;
+    let (folder, name) = split_path(path);
+    Ok(SaveNames {
+        folder: folder.to_string(),
+        name: name.to_string(),
+        temp: format!("{name}{TEMP_SUFFIX}"),
+    })
 }
 
 /// A table's list starts with room for this many rows, as `list of` does.
@@ -110,7 +122,7 @@ impl Lowerer<'_> {
             .tables()
             .nth(index)
             .expect("a table of that index");
-        save_names(&table.path)
+        check_table_path(&table.path)
             .map_err(|message| Diagnostic::error(self.src, self.line, &message))?;
         self.push_text(&[table.path.as_bytes(), b"\0"].concat());
         self.push_text(crate::permissions::display_name(&table.path).as_bytes());

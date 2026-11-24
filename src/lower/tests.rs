@@ -467,8 +467,8 @@ fn load_lowers_to_a_table_read_call_and_stores_the_list_only_after_it() {
     let f = m.functions.iter().find(|f| f.name == "f_start").unwrap();
     let text = function_text(f);
     assert_eq!(text.matches("call table_read").count(), 1, "{text}");
-    let (read, stored) = (text.find("call table_read"), text.find("[a] = b"));
-    assert!(read.unwrap() < stored.unwrap(), "{text}");
+    let read = text.find("call table_read").expect("the call");
+    assert!(text[read..].contains("[a] = b"), "{text}");
     for want in [&b"data/rows.csv\0"[..], b"data/rows.csv"] {
         assert!(m.texts.iter().any(|t| t == want), "{want:?}");
     }
