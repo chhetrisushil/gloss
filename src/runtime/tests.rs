@@ -802,3 +802,35 @@ fn number_places_equals_with_places_for_3000_values_at_every_place_count() {
     assert_eq!(o.status, 0);
     assert_eq!(String::from_utf8(o.stdout).unwrap(), want);
 }
+
+/// Calls `file_write(fd, text 0's bytes, len)` and exits with its result.
+fn file_write_exiting(fd: i64, len: i64) -> Vec<Inst> {
+    let mut body = write_text(fd, len);
+    *body.last_mut().unwrap() = Call("file_write".into());
+    body.extend([Push(A), System(Prim::Exit)]);
+    body
+}
+
+#[test]
+fn file_write_delivers_every_byte_through_short_writes_and_gives_0() {
+    let faults = Faults {
+        short_write: Some(7),
+        ..Faults::default()
+    };
+    let text: Vec<u8> = (0..5000u32).map(|i| (i % 251) as u8).collect();
+    let o = run_with(&program(file_write_exiting(1, 5000), &[&text]), faults);
+    assert_eq!((o.status, o.stdout), (0, text));
+}
+
+#[test]
+fn file_write_gives_the_error_instead_of_ending_the_program() {
+    let m = program(file_write_exiting(9, 3), &[b"abc"]);
+    // The exit status keeps the low 8 bits of the result.
+    assert_eq!(run(&m).status, i32::from(-9i8 as u8));
+    let faults = Faults {
+        failing_fds: vec![2],
+        ..Faults::default()
+    };
+    let o = run_with(&program(file_write_exiting(2, 3), &[b"abc"]), faults);
+    assert_eq!((o.status, o.stderr.len()), (i32::from(-5i8 as u8), 0));
+}
