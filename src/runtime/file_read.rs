@@ -1,7 +1,7 @@
 //! Reading a whole file into a text, and checking that it is UTF-8.
 
 use super::asm::Asm;
-use crate::ir::Cond::{Eq, Lt, Ne};
+use crate::ir::Cond::{Eq, Ge, Lt, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{ESCAPES, Function, Inst::*, IntOp, LINK, NOT_FOUND, OpenMode, Prim, Shift};
 
@@ -40,6 +40,9 @@ const TEXT: u32 = 2;
 const LEN: u32 = 3;
 const ROOM: u32 = 4;
 const N: u32 = 5;
+const AT: u32 = 6;
+const LINES: u32 = 7;
+const BAD: u32 = 8;
 
 /// `a = slot x`, `b = slot y`.
 fn load2(s: &mut Asm, x: u32, y: u32) {
@@ -59,11 +62,12 @@ fn push_text_at(s: &mut Asm, offset: u32) {
 /// NUL-terminated text) in the folder descriptor `folder`, as a text, or 0 when there is no
 /// such file, after the notice "<shown> not found; starting with an empty table" on standard
 /// error. A file that cannot be opened or read, or one that is reached through a symbolic
-/// link, is failure 6 (`read_fail`). The text grows by doubling, so a file too large for
-/// memory is failure 10.
+/// link, is failure 6 (`read_fail`), and so is one that is not UTF-8: the line is that of the
+/// first bad sequence. The text grows by doubling, so a file too large for memory is failure 10.
 fn file_bytes() -> Function {
     let mut s = Asm::default();
     let [again, room, done, open_failed, cannot, read_failed] = [(); 6].map(|_| s.label());
+    let [count, report, step, feed] = [(); 4].map(|_| s.label());
     s.push_arg(1);
     s.i(LoadArg(A, 2));
     s.i(AddImm(A, 8));
@@ -116,8 +120,53 @@ fn file_bytes() -> Function {
         offset: 0,
         from: B,
     });
+    s.push_slot(TEXT);
+    s.call("utf8_valid_up_to");
+    s.i(StoreSlot(BAD, A));
+    s.i(LoadSlot(B, LEN));
+    s.jump_if(Lt, count);
     s.i(LoadSlot(A, TEXT));
     s.i(Return);
+    // The line of the first bad byte: one more than the line feeds before it.
+    s.i(Mark(count));
+    s.i(Const(A, 1));
+    s.i(StoreSlot(LINES, A));
+    s.i(Const(A, 0));
+    s.i(StoreSlot(AT, A));
+    s.i(Mark(step));
+    load2(&mut s, AT, BAD);
+    s.jump_if(Ge, report);
+    s.i(LoadSlot(A, AT));
+    s.i(LoadSlot(B, TEXT));
+    s.i(Int(IntOp::Add));
+    s.i(LoadByte {
+        to: A,
+        base: A,
+        offset: 8,
+    });
+    s.i(Const(B, 10));
+    s.jump_if(Ne, feed);
+    s.i(LoadSlot(A, LINES));
+    s.i(AddImm(A, 1));
+    s.i(StoreSlot(LINES, A));
+    s.i(Mark(feed));
+    s.i(LoadSlot(A, AT));
+    s.i(AddImm(A, 1));
+    s.i(StoreSlot(AT, A));
+    s.i(Jump(step));
+    s.i(Mark(report));
+    s.push_arg(4);
+    s.push_const(6);
+    s.call("fail_begin");
+    s.push_arg(3);
+    s.call("err_text");
+    s.push_text(super::NOT_UTF8);
+    s.call("err_text");
+    s.push_slot(LINES);
+    s.call("err_int");
+    s.push_text(super::CLOSE);
+    s.call("err_text");
+    s.call("fail_end");
     s.i(Mark(open_failed));
     s.i(StoreSlot(N, A));
     s.i(Const(B, NOT_FOUND));
@@ -137,7 +186,7 @@ fn file_bytes() -> Function {
     s.push_arg(3);
     s.push_slot(N);
     s.call("read_fail");
-    s.finish("file_bytes", 4, 5)
+    s.finish("file_bytes", 4, 8)
 }
 
 pub fn routines() -> Vec<Function> {
@@ -228,5 +277,48 @@ mod tests {
         let notice = "data/e.csv not found; starting with an empty table\n";
         assert_eq!((o.status, o.stdout), (0, b"NULL".to_vec()));
         assert_eq!(String::from_utf8(o.stderr).unwrap(), notice);
+    }
+
+    /// The status and standard error of a read that ends the program.
+    fn refused(mut files: Files, path: &str, faults: Faults) -> (i32, String) {
+        let o = read(&mut files, path, faults);
+        assert!(o.stdout.is_empty());
+        (o.status, String::from_utf8(o.stderr).unwrap())
+    }
+
+    #[test]
+    fn links_a_path_that_escapes_and_other_errors_are_failure_6() {
+        let link = "line 7: failure 6: data/e.csv is reached through a symbolic link\n";
+        let plain = "line 7: failure 6: data/e.csv cannot be read\n";
+        let mut files = files_with(&[], &[("e.csv", b"a\n")]);
+        files.links.insert("e.csv".into());
+        assert_eq!(refused(files, "e.csv", Faults::default()), (2, link.into()));
+        let files = files_with(&[], &[("e.csv", b"a\n")]);
+        assert_eq!(
+            refused(files, "../e.csv", Faults::default()),
+            (2, link.into())
+        );
+        let files = files_with(&[], &[("e.csv", b"a\n")]);
+        let faults = Faults {
+            failing_open: Some("e.csv".into()),
+            ..Faults::default()
+        };
+        assert_eq!(refused(files, "e.csv", faults), (2, plain.into()));
+        // A folder opens, and then cannot be read.
+        let files = files_with(&["data"], &[]);
+        assert_eq!(refused(files, "data", Faults::default()), (2, plain.into()));
+    }
+
+    #[test]
+    fn bytes_that_are_not_utf8_name_the_line_of_the_first_bad_one() {
+        let bad = |bytes: &[u8]| {
+            let files = files_with(&[], &[("e.csv", bytes)]);
+            refused(files, "e.csv", Faults::default()).1
+        };
+        let line = |n: u32| format!("line 7: failure 6: data/e.csv is not UTF-8 text (line {n})\n");
+        assert_eq!(bad(b"\xFF"), line(1));
+        assert_eq!(bad(b"ab\ncd\n\xC3(\n\xFF"), line(3));
+        assert_eq!(bad(b"a\r\nb\r\n\xE2\x82"), line(3));
+        assert_eq!(bad(b"\n\n\n\n\xC0\xAF"), line(5));
     }
 }
