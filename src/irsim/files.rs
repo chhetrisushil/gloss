@@ -38,8 +38,21 @@ impl Files {
 
     /// The permission bits of the file or folder `path`.
     pub fn mode_of(&self, path: &str) -> u32 {
-        let default = if self.is_folder(path) { 0o755 } else { 0o644 };
+        let default = self.mode_of_default(path);
         self.modes.get(path).copied().unwrap_or(default)
+    }
+
+    /// Sets the permission bits of `path`; the default is not stored.
+    pub fn set_mode(&mut self, path: &str, mode: u32) {
+        if mode == self.mode_of_default(path) {
+            self.modes.remove(path);
+        } else {
+            self.modes.insert(path.to_string(), mode);
+        }
+    }
+
+    fn mode_of_default(&self, path: &str) -> u32 {
+        if self.is_folder(path) { 0o755 } else { 0o644 }
     }
 
     /// Whether `path` names a file or a folder.

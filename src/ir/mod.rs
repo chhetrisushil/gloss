@@ -59,7 +59,9 @@ pub enum OpenMode {
     Read,
     /// A folder handle, for later opens and `Prim::Sync`.
     Folder,
-    /// Write only; creates the file or truncates it, with permissions 0644.
+    /// Write only; creates the file or truncates it. `Open` takes a third argument, the
+    /// permissions of a created file (the process's umask applies); a file that exists keeps
+    /// its own.
     Create,
     /// No access: only shows whether the name exists and is not a link.
     Probe,
@@ -90,14 +92,14 @@ pub enum Prim {
     Exit,
     /// `StackSize()`: the soft stack limit in bytes, or -1 when unlimited.
     StackSize,
-    /// `Open(folder_fd, path)`: a file descriptor, or a negative error. `folder_fd` is from
+    /// `Open(folder_fd, path)`, and for `Create` `Open(folder_fd, path, permissions)`: a file descriptor, or a negative error. `folder_fd` is from
     /// `Open(OpenMode::Folder)` or is `CWD`; `path` is the address of NUL-terminated bytes.
     Open(OpenMode),
     /// `Close(fd)`: 0, or a negative error.
     Close,
     /// `Sync(fd)`: 0, or a negative error, once the file or folder is on disk.
     Sync,
-    /// `Mode(fd)`: the permission bits (0 to 0o7777) of the file or folder `fd` is on, or a
+    /// `Mode(fd)`: the permission bits (0 to 0o777) of the file or folder `fd` is on, or a
     /// negative error. Works on a `Probe` descriptor, which cannot be read.
     Mode,
     /// `Rename(folder_fd, from, to)`: 0, or a negative error; both names are in that folder

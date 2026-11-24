@@ -157,10 +157,15 @@ impl Machine<'_> {
     }
 
     fn open(&mut self, mode: OpenMode) {
+        let permissions = if mode == OpenMode::Create {
+            self.pop()
+        } else {
+            0
+        };
         let path = self.pop() as u64;
         let dir = self.pop();
         let path = self.cstr(path);
-        self.a = match self.open_path(dir, &path, mode) {
+        self.a = match self.open_path(dir, &path, mode, permissions) {
             Ok(file) => {
                 let fd = (3..).find(|fd| !self.fds.contains_key(fd)).unwrap();
                 self.fds.insert(fd, file);
@@ -170,7 +175,13 @@ impl Machine<'_> {
         };
     }
 
-    fn open_path(&mut self, dir: i64, path: &str, mode: OpenMode) -> Result<OpenFile, i64> {
+    fn open_path(
+        &mut self,
+        dir: i64,
+        path: &str,
+        mode: OpenMode,
+        permissions: i64,
+    ) -> Result<OpenFile, i64> {
         // Linux rejects an absolute or empty path before it looks at the descriptor.
         if path.starts_with('/') {
             return Err(ESCAPES);
@@ -199,10 +210,15 @@ impl Machine<'_> {
             OpenMode::Create if self.faults.read_only_folders.contains(parent(&full)) => {
                 Err(EACCES)
             }
-            OpenMode::Create => self
-                .files
-                .create(&full)
-                .map(|()| OpenFile::Create(Target::Path(full))),
+            OpenMode::Create => {
+                let is_new = !is_file;
+                self.files.create(&full)?;
+                if is_new {
+                    // The process's umask, 022, clears the group and other write bits.
+                    self.files.set_mode(&full, permissions as u32 & 0o755);
+                }
+                Ok(OpenFile::Create(Target::Path(full)))
+            }
             _ => Err(NOT_FOUND),
         }
     }
