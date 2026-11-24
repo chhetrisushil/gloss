@@ -1,0 +1,12 @@
+record Expense
+  name as text
+  amount as number
+  paid as truth
+
+table expenses of Expense in "expenses.csv"
+
+feature start
+  show "before"
+  load expenses
+  show count of expenses
+  show expenses
