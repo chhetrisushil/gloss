@@ -1,0 +1,4 @@
+2
+list of (Expense with name "Lunch", amount 12.5, paid yes), (Expense with name "Tea", amount 3, paid no)
+Lunch: 12.5
+Tea: 3
