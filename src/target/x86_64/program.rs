@@ -9,8 +9,9 @@ use super::lower::lower_function;
 use crate::ir::{self, Global, IO_BUF_BYTES, Module, NUMBER_BUF_BYTES};
 use crate::target::elf::{Image, RODATA_BASE, write};
 
-/// The globals in declaration order, as `irsim` lays them out.
-const GLOBALS: [Global; 10] = [
+/// The globals in the order the executable lays them out; `irsim` lays them out the same
+/// way (a test in `irsim/memory.rs` checks the order and the sizes).
+pub(crate) const GLOBALS: [Global; 11] = [
     Global::HeapNext,
     Global::HeapEnd,
     Global::StackLimit,
@@ -20,10 +21,11 @@ const GLOBALS: [Global; 10] = [
     Global::InPos,
     Global::InBuf,
     Global::EntrySp,
+    Global::Tables,
     Global::NumBuf,
 ];
 
-fn global_size(g: Global) -> usize {
+pub(crate) fn global_size(g: Global) -> usize {
     match g {
         Global::NumBuf => NUMBER_BUF_BYTES,
         Global::OutBuf | Global::InBuf => IO_BUF_BYTES,
@@ -31,6 +33,7 @@ fn global_size(g: Global) -> usize {
         | Global::HeapEnd
         | Global::StackLimit
         | Global::EntrySp
+        | Global::Tables
         | Global::OutLen
         | Global::InLen
         | Global::InPos => 8,

@@ -32,6 +32,37 @@ fn a_program_with_a_table_is_refused() {
 }
 
 #[test]
+fn tables_init_gives_each_table_a_list_and_a_flag_of_zero() {
+    let text = "record Row\n  name as text\n\ntable a of Row in \"a.csv\"\ntable b of Row in \"b.csv\"\n\n\
+                feature start\n  show \"ran\"\n";
+    let src = Source::new(text);
+    let program = crate::parse_source(&src).expect("parses");
+    let types = check(&program, &src).types.expect("checks clean");
+    let m = super::lower_allowing_tables(&program, &types, &src).expect("lowers");
+    let init = m
+        .functions
+        .iter()
+        .find(|f| f.name == "tables_init")
+        .unwrap();
+    let text = function_text(init);
+    assert_eq!(text.matches("call list_new").count(), 2, "{text}");
+    assert!(text.contains("[b + 16] = a"), "{text}");
+    let o = crate::irsim::run(&m, "_start", b"");
+    assert_eq!((o.stdout, o.status), (b"ran\n".to_vec(), 0));
+}
+
+#[test]
+fn a_program_without_tables_allocates_nothing_at_start() {
+    let m = lowered("feature start\n  show \"x\"\n").unwrap();
+    let init = m
+        .functions
+        .iter()
+        .find(|f| f.name == "tables_init")
+        .unwrap();
+    assert!(!function_text(init).contains("call"));
+}
+
+#[test]
 fn the_lowered_program_runs_in_irsim() {
     let m = lowered("feature start\n  show \"hi\"\n").unwrap();
     let o = crate::irsim::run(&m, "_start", b"");

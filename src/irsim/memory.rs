@@ -11,10 +11,11 @@ const TEXT_BASE: u64 = 0x1000_0000;
 const MAP_BASE: u64 = 0x4000_0000_0000;
 /// The most one `Prim::Map` call may ask for.
 const MAP_LIMIT: i64 = 1 << 40;
-/// Where the globals start, in `Global` declaration order.
+/// Where the globals start, in the order of `GLOBALS`.
 const GLOBAL_BASE: u64 = 0x2000_0000;
 
-const GLOBALS: [Global; 10] = [
+/// The globals in the order they are laid out, the same as the executable's.
+pub(crate) const GLOBALS: [Global; 11] = [
     Global::HeapNext,
     Global::HeapEnd,
     Global::StackLimit,
@@ -24,6 +25,7 @@ const GLOBALS: [Global; 10] = [
     Global::InPos,
     Global::InBuf,
     Global::EntrySp,
+    Global::Tables,
     Global::NumBuf,
 ];
 
@@ -35,6 +37,7 @@ fn global_size(g: Global) -> u64 {
         | Global::HeapEnd
         | Global::StackLimit
         | Global::EntrySp
+        | Global::Tables
         | Global::OutLen
         | Global::InLen
         | Global::InPos => 8,
@@ -136,6 +139,15 @@ impl Memory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_globals_are_laid_out_alike_in_irsim_and_the_executable() {
+        use crate::target::x86_64::program as exe;
+        assert_eq!(GLOBALS, exe::GLOBALS);
+        for g in GLOBALS {
+            assert_eq!(global_size(g), exe::global_size(g) as u64, "{g:?}");
+        }
+    }
 
     #[test]
     fn words_are_little_endian_and_unwritten_bytes_are_zero() {
