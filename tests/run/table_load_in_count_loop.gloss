@@ -1,0 +1,13 @@
+record Row
+  t as text
+  n as number
+
+table rs of Row in "s.csv"
+
+feature start
+  load rs
+  for each i from 1 to count of rs
+    set n of item i of rs to 9
+    load rs
+    show i, " ", count of rs, " ", n of item i of rs
+  show n of item 2 of rs
