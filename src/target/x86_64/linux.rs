@@ -16,6 +16,7 @@ const MAP_PRIVATE_ANONYMOUS: i64 = 0x22;
 const CLOSE: i64 = 3;
 const FSYNC: i64 = 74;
 const FSTAT: i64 = 5;
+const FCHMOD: i64 = 91;
 const RENAMEAT: i64 = 264;
 const OPENAT2: i64 = 437;
 const O_RDONLY: i64 = 0;
@@ -49,6 +50,10 @@ pub fn system(prim: Prim, unique: &str, out: &mut Vec<X>) {
         Prim::Close => single(CLOSE, out),
         Prim::Sync => single(FSYNC, out),
         Prim::Mode => mode(unique, out),
+        Prim::SetMode => {
+            out.extend([X::Pop(R::Rsi), X::Pop(R::Rdi)]);
+            call(FCHMOD, out);
+        }
         Prim::Rename => rename(out),
     }
 }

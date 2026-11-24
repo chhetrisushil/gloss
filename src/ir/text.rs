@@ -129,6 +129,7 @@ pub fn inst_text(inst: &Inst) -> String {
         Inst::System(Prim::Close) => "  system close".to_string(),
         Inst::System(Prim::Sync) => "  system sync".to_string(),
         Inst::System(Prim::Mode) => "  system mode".to_string(),
+        Inst::System(Prim::SetMode) => "  system set_mode".to_string(),
         Inst::System(Prim::Rename) => "  system rename".to_string(),
     }
 }
@@ -175,6 +176,7 @@ mod tests {
             Inst::System(Prim::Close),
             Inst::System(Prim::Sync),
             Inst::System(Prim::Mode),
+            Inst::System(Prim::SetMode),
             Inst::System(Prim::Rename),
         ];
         Function {
@@ -207,6 +209,7 @@ L3:
   system close
   system sync
   system mode
+  system set_mode
   system rename
 ";
 
@@ -320,6 +323,7 @@ L3:
             Inst::System(Prim::Close),
             Inst::System(Prim::Sync),
             Inst::System(Prim::Mode),
+            Inst::System(Prim::SetMode),
             Inst::System(Prim::Rename),
         ];
         Function {
@@ -403,6 +407,7 @@ L3:
   system close
   system sync
   system mode
+  system set_mode
   system rename
 ";
 

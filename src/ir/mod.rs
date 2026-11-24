@@ -102,6 +102,9 @@ pub enum Prim {
     /// `Mode(fd)`: the permission bits (0 to 0o777) of the file or folder `fd` is on, or a
     /// negative error. Works on a `Probe` descriptor, which cannot be read.
     Mode,
+    /// `SetMode(fd, permissions)`: sets the permission bits of the file `fd` is open on
+    /// exactly (`fchmod`, the umask does not apply); 0, or a negative error.
+    SetMode,
     /// `Rename(folder_fd, from, to)`: 0, or a negative error; both names are in that folder
     /// and an existing `to` is replaced.
     Rename,

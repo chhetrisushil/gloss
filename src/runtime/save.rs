@@ -80,7 +80,7 @@ fn on_slot(s: &mut Asm, prim: Prim, slot: u32, fail: Label) {
 /// `list` (of records `desc`) as CSV. `folder`, `name` and `temp` are NUL-terminated texts,
 /// the temporary name being `name` and `.gloss-new`; `shown` and `folder_shown` are the
 /// display forms for failure 7. It opens the folder, looks at `name` (a symbolic link there is
-/// refused) and reads its permissions, writes `temp` with them and syncs it, renames it over `name`, then syncs the folder. A
+/// refused) and reads its permissions, writes `temp`, sets exactly them on it (a stale `temp` keeps its own at open) and syncs it, renames it over `name`, then syncs the folder. A
 /// failure before the rename leaves `name` untouched. Slots: the text, the folder, the file
 /// descriptor, whether the folder is being opened, the error, the permissions of the new
 /// file.
@@ -125,6 +125,11 @@ fn table_save() -> Function {
     s.push_slot(MODE);
     s.i(System(Prim::Open(OpenMode::Create)));
     s.i(StoreSlot(FILE, A));
+    failed(&mut s, fail);
+    // A stale temporary file keeps its own permissions at open; set them exactly.
+    s.push_slot(FILE);
+    s.push_slot(MODE);
+    s.i(System(Prim::SetMode));
     failed(&mut s, fail);
     s.push_slot(FILE);
     s.i(LoadSlot(A, TEXT));
@@ -304,11 +309,17 @@ mod table_tests {
         let mut files = files_with(&[], &[]);
         save(&mut files, ".", "e.csv", Faults::default());
         assert_eq!(files.mode_of("e.csv"), 0o644);
-        // A mode with group or other write bits is narrowed by the umask, as on Linux.
+        // A stale temporary file with another mode does not change the table's.
+        let mut files = files_with(&[], &[("e.csv", "old\n"), ("e.csv.gloss-new", "x")]);
+        files.set_mode("e.csv", 0o600);
+        files.set_mode("e.csv.gloss-new", 0o666);
+        assert_eq!(save(&mut files, ".", "e.csv", Faults::default()).status, 0);
+        assert_eq!(files.mode_of("e.csv"), 0o600);
+        // The mode is set exactly, so the umask does not narrow it.
         let mut files = files_with(&["d"], &[("d/e.csv", "old\n")]);
         files.set_mode("d/e.csv", 0o666);
         save(&mut files, "d", "e.csv", Faults::default());
-        assert_eq!(files.mode_of("d/e.csv"), 0o644);
+        assert_eq!(files.mode_of("d/e.csv"), 0o666);
     }
 
     /// The descriptors still open when the program ended. A successful save closes every one

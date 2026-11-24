@@ -345,6 +345,22 @@ fn mode_cases(real: bool) {
     ];
     let wants = [FD, 0o600, FD + 1, 0o640, FD + 2, 0o644, FD + 3, 0o644];
     check("created modes", &setup, &steps, &wants, real);
+    // `SetMode` sets the bits exactly, the umask does not narrow them, on a file that exists.
+    let steps = [
+        open(OpenMode::Create, "a.txt"),
+        step(Prim::SetMode, vec![Arg::Int(FD), Arg::Int(0o600)]),
+        fd_step(Prim::Mode),
+        step(Prim::SetMode, vec![Arg::Int(FD), Arg::Int(0o666)]),
+        fd_step(Prim::Mode),
+        step(Prim::SetMode, vec![Arg::Int(77), Arg::Int(0o600)]),
+    ];
+    check(
+        "set mode",
+        &setup,
+        &steps,
+        &[FD, 0, 0o600, 0, 0o666, EBADF],
+        real,
+    );
 }
 
 /// Opens and renames relative to a folder descriptor, as `save` does: "beneath" is the
