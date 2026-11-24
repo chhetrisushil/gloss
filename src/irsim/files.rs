@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const ENOTDIR: i64 = -20;
 /// What Linux gives for creating a file where a folder is.
 pub const EISDIR: i64 = -21;
+/// What Linux gives for renaming `.` or `..`.
+pub const EBUSY: i64 = -16;
 /// What Linux gives for a bad argument; here a name that is not one component.
 pub const EINVAL: i64 = -22;
 
@@ -51,7 +53,10 @@ impl Files {
         let floor = parts.len();
         for component in path.split('/') {
             match component {
-                "" | "." => {}
+                // A file followed by `/` or `/.` is not a folder, and `.` must exist.
+                "." => self.need_folder(&parts.join("/"))?,
+                "" if self.files.contains_key(&parts.join("/")) => return Err(ENOTDIR),
+                "" => {}
                 ".." => {
                     if parts.len() == floor {
                         return Err(ESCAPES);
@@ -99,10 +104,10 @@ impl Files {
         if from.is_empty() || to.is_empty() {
             return Err(NOT_FOUND);
         }
-        if [from, to]
-            .iter()
-            .any(|n| n.contains('/') || *n == "." || *n == "..")
-        {
+        if [from, to].iter().any(|n| *n == "." || *n == "..") {
+            return Err(EBUSY);
+        }
+        if [from, to].iter().any(|n| n.contains('/')) {
             return Err(EINVAL);
         }
         let (from, to) = (join(folder, from), join(folder, to));
@@ -190,6 +195,15 @@ mod tests {
     }
 
     #[test]
+    fn a_file_followed_by_slash_or_dot_is_enotdir() {
+        let f = sample();
+        assert_eq!(f.resolve("", "d/e/x/."), Err(ENOTDIR));
+        assert_eq!(f.resolve("", "d/e/x/"), Err(ENOTDIR));
+        assert_eq!(f.resolve("", "d/e/x/.."), Err(ENOTDIR));
+        assert_eq!(f.resolve("", "d/e/gone/."), Err(NOT_FOUND));
+    }
+
+    #[test]
     fn empty_dot_and_trailing_slash_paths() {
         let f = sample();
         assert_eq!(f.resolve("d", ""), Err(NOT_FOUND));
@@ -214,7 +228,8 @@ mod tests {
     fn rename_takes_single_names_of_files_and_not_onto_folders() {
         let mut f = sample();
         assert_eq!(f.rename("d", "e/x", "z"), Err(EINVAL));
-        assert_eq!(f.rename("d/e", "x", ".."), Err(EINVAL));
+        assert_eq!(f.rename("d/e", "x", ".."), Err(EBUSY));
+        assert_eq!(f.rename("d/e", ".", "x"), Err(EBUSY));
         f.files.insert("t".to_string(), Vec::new());
         assert_eq!(f.rename("", "t", "d"), Err(EISDIR));
     }
