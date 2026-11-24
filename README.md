@@ -41,14 +41,14 @@ Agents now write most code, and fewer people read it. Gloss aims to make program
 
 ## Status
 
-Milestones 1 and 2 are built. The compiler reads a Gloss program, reports every compile error and warning the spec defines, formats source into its one accepted form, and `gloss build` writes a static x86-64 Linux executable. Programs that declare a table are refused (`tables arrive in milestone 3`); `load`, `save` and `clear` are refused; test blocks (`expect`, `input`) are left out of the built program until milestone 4.
+Milestones 1 to 3 are built. The compiler reads a Gloss program, reports every compile error and warning the spec defines, formats source into its one accepted form, and `gloss build` writes a static x86-64 Linux executable. Programs can declare tables, and `load`, `save` and `clear` work on CSV files. A program that touches files needs approval at build time (see [Tables and files](#tables-and-files)). Test blocks (`expect`, `input`) are left out of the built program until milestone 4.
 
 | Milestone | What it adds | State |
 |---|---|---|
 | 1 | Lexer, parser, checker, `gloss build` (checks only), `gloss format` | Done |
 | 2 | Code generation and runtime: `gloss build` writes an x86-64 Linux executable | Done |
-| 3 | Tables and files: CSV `load`/`save`, file permissions | Next |
-| 4 | `gloss test` | Planned |
+| 3 | Tables and files: CSV `load`/`save`/`clear`, file permissions, `--allow`, `.allow` | Done |
+| 4 | `gloss test` | Next |
 | 5–7 | `gloss trace`, `gloss explain`, `gloss flowchart` | Planned |
 
 ## Getting started
@@ -57,7 +57,7 @@ Milestones 1 and 2 are built. The compiler reads a Gloss program, reports every 
 
 - Rust **1.87 or later** (edition 2024), with `rustfmt` and `clippy`: `rustup component add rustfmt clippy`.
 - No other dependencies. The compiler uses only the Rust standard library.
-- Running the executables Gloss produces needs **x86-64 Linux**. On an Apple Silicon Mac this means an x86-64 Linux machine in [OrbStack](https://orbstack.dev); see [OrbStack setup](#orbstack-setup-macos). Building the compiler itself works on any platform Rust supports.
+- Running the executables Gloss produces needs **x86-64 Linux**. On an Apple Silicon Mac this means an x86-64 Linux machine in [OrbStack](https://orbstack.dev), run under QEMU; see [OrbStack setup](#orbstack-setup-macos). Building the compiler itself works on any platform Rust supports.
 
 ### Build
 
@@ -102,6 +102,36 @@ $ gloss format messy.gloss
 Formatted messy.gloss
 ```
 
+## Tables and files
+
+A `table` holds records in memory and names a CSV file. The header row holds the field names; each later row is one record.
+
+```gloss
+table expenses of Expense in "expenses.csv"
+```
+
+- `load expenses` reads the file into the table. A missing file prints a notice and gives an empty table. Bad data stops the program with run-time failure 6 and names the file line.
+- `save expenses` writes the table back. It writes `expenses.csv.gloss-new` beside the file, syncs it, and renames it over the original, so a failed save never leaves a half-written file. A table must be loaded or cleared before it is saved (failure 8). Failure 7 is a write that cannot happen.
+- `clear expenses` empties the table.
+- Files are found relative to the folder the program runs from. Paths that go through a symbolic link are refused.
+
+File access is approved when you build, not when the program runs. `gloss build` prints what the program can touch and asks:
+
+```console
+$ gloss build expenses.gloss
+This program can:
+  read and replace   expenses.csv
+  nothing else
+Allow? y
+Approval saved in expenses.allow
+Built expenses
+```
+
+- Approval is stored in `expenses.allow` beside the source. After every successful build the file holds exactly the current list, so a file the program stops using loses its approval.
+- `--allow expenses.csv` approves a file without the question, once per file. Use it where there is no terminal. A file the program does not declare is a compile error (status 3).
+- With no terminal and no approval, the build prints `Not approved: ...`, writes no executable and exits with status **4**.
+- `./expenses --permissions` prints the same list from the built executable and exits 0.
+
 ## Commands
 
 | Command | What it does | Available |
@@ -113,7 +143,7 @@ Formatted messy.gloss
 | `gloss explain FILE` | Prints each source line beside its machine instructions | Milestone 6 |
 | `gloss flowchart FILE` | Writes one SVG flowchart per feature | Milestone 7 |
 
-Exit status is **0** on success and **3** on a compile error or wrong usage. Warnings alone do not fail a build. The full set of statuses (including failed tests and run-time failures) is in section 11 of the spec.
+Exit status is **0** on success, **3** on a compile error or wrong usage, and **4** when file access was not approved. Warnings alone do not fail a build. The full set of statuses (including failed tests and run-time failures) is in section 11 of the spec.
 
 ## Working on the compiler
 
@@ -132,7 +162,7 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 - **`tests/format_generated.rs`** checks that formatting never changes a program and is idempotent.
 
 - `GLOSS_OBJDUMP=1 cargo test --test objdump` also checks every encoded instruction against `objdump` inside the machine (opt-in; needs a runner).
-- On a Mac the machine runs x86-64 under Rosetta, not on a real x86-64 kernel. CI runs the same tests on a real kernel, so it is the check of the real loader.
+- On a Mac the machine runs x86-64 under QEMU, not on a real x86-64 kernel. QEMU ignores `ulimit -v` for x86-64 code, so the runs that need a memory limit are skipped, with the message `memory-limit run skipped: the runner ignores ulimit -v for x86-64 code (QEMU)`. CI runs the same tests on a real kernel, so it is the check of the real loader and of the memory limit.
 
 ### OrbStack setup (macOS)
 
@@ -141,11 +171,12 @@ Once per Mac:
 ```sh
 brew install --cask orbstack
 orb start
+orb config set rosetta false               # run x86-64 under QEMU
 orb create --arch amd64 alpine gloss-amd64
 orb -m gloss-amd64 sudo apk add binutils   # only for the objdump check
 ```
 
-OrbStack shares `/Users` with the machine, so `orb -m gloss-amd64 ./hello` runs a binary built on the Mac. The executables are static, so Alpine's small size is enough.
+Rosetta is turned off because it does not implement `openat2`, which the file code uses. OrbStack shares `/Users` with the machine, so `orb -m gloss-amd64 ./hello` runs a binary built on the Mac. The executables are static, so Alpine's small size is enough.
 
 ### Repository layout
 
@@ -160,10 +191,11 @@ OrbStack shares `/Users` with the machine, so `orb -m gloss-amd64 ./hello` runs 
 | `src/ast/` | The syntax tree, plus printers (source form and a compact debug form for tests) |
 | `src/parser/` | Recursive-descent parser following Appendix A |
 | `src/check/` | Names, types, statements, feature results, flow and mutation rules |
+| `src/permissions.rs`, `src/approve.rs` | The permission list, the `.allow` file, and build-time approval |
 | `src/ir/`, `src/lower/`, `src/runtime/` | The Gloss IR, lowering from the checked program, and the runtime written in IR |
 | `src/target/` | The x86-64 backend, encoder, static ELF writer and Linux system calls |
 | `src/irsim/` | Test-only IR interpreter |
-| `examples/` | Programs that build and run, with expected output |
+| `examples/` | Programs that build and run, with expected output; programs that use files carry a `.allow` |
 | `src/format/` | `gloss format`: canonical printing, rewrites, line wrapping |
 | `src/cli.rs`, `src/main.rs` | The `gloss` command line |
 

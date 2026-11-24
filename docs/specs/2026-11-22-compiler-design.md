@@ -1,7 +1,7 @@
 # Gloss v0 compiler - design spec
 
 - **Date:** 2026-11-22
-- **Status:** built (milestones 1 and 2, section 6); milestone 3 designed (§4.7); milestones 4–7 not started
+- **Status:** built (milestones 1 to 3, section 6); milestones 4–7 not started
 - **Context:** Implements the language defined in `spec/v0.md` (the *language spec*). This document decides *how* the compiler is built. Where the two disagree about the language, the language spec wins. Where they disagree about the implementation, this document wins.
 - **Plans:** `docs/plans/2026-11-22-compiler-m1-front-end.md` (milestone 1). Milestone 2: `docs/plans/2026-11-23-compiler-m2-codegen.md`. Milestone 3: `docs/plans/2026-11-24-compiler-m3-tables-files.md`. Later milestones get their own plans.
 
@@ -178,7 +178,7 @@ Table paths are the only security boundary in M1. The checker rejects absolute p
 - **Tables in memory.** Each table is a list held in its own global slot, with a flag that is set by `load` and `clear`. Every list operation from M2 works on it unchanged, and a table passed to a `list of T` input is that list. `clear` gives the table a new empty list. `load` builds the new list in full and swaps it in only after the whole file parsed. `save` with the flag unset is failure 8.
 - **OS primitives (D19).** `openat2`, `read` and `write` on a file descriptor, `fsync`, `renameat`, `close`, and the start-up arguments. Everything above them is runtime written in IR.
 - **Load.** Open with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`. A missing file prints `expenses.csv not found; starting with an empty table` to the error output and loads an empty table. `ELOOP` or `EXDEV` is failure 6 (symbolic link); any other error is failure 6 (cannot be read). Read the whole file into one growing block, check it is UTF-8, then parse RFC 4180: the header is matched to fields by name, quoted cells may hold doubled quotes, commas and line breaks, `\n` and `\r\n` both end a line, and one final empty line is ignored. One leading UTF-8 byte order mark (as Excel and Notepad write) is skipped before the header. Number cells use the runtime's `parse_number`; truth cells must be `yes` or `no`.
-- **Save.** Open the table's folder with `O_PATH | O_DIRECTORY` and the same resolve flags; a missing folder is failure 7 (folder does not exist). A target that is a symbolic link is failure 7. Write `<name>.gloss-new` in that folder (`O_CREAT | O_TRUNC`, mode 0644): the header in field order, then each row, numbers as `show` prints them, truths as `yes` and `no`, quotes only where needed, `\n` line endings. Then `fsync` the file, `renameat` it over the target and `fsync` the folder. Any write error is failure 7 (cannot be written). Output already shown is flushed before a failure, as in M2.
+- **Save.** Open the table's folder with `O_RDONLY | O_DIRECTORY | O_CLOEXEC` and the same resolve flags (not `O_PATH`: a path-only descriptor cannot be synced, M3-R8); a missing folder is failure 7 (folder does not exist). A target that is a symbolic link is failure 7. Write `<name>.gloss-new` in that folder (`O_CREAT | O_TRUNC`, mode 0644): the header in field order, then each row, numbers as `show` prints them, truths as `yes` and `no`, quotes only where needed, `\n` line endings. Then `fsync` the file, `renameat` it over the target and `fsync` the folder. Any write error is failure 7 (cannot be written). Output already shown is flushed before a failure, as in M2.
 - **Checks already in place.** The M1 checker already treats `load` and `clear` as changing a list for the walking rule, refuses a saved table that nothing loads or clears, and warns when a `load` would replace rows appended earlier. M3 lifts the D22 refusal (D23).
 
 **Failures 6–8 (D26).** `N` is the source line of the `load` or `save`; file lines count from 1, the header being line 1, and a row's line is the line where it starts.
@@ -339,3 +339,94 @@ The milestone ledger (every ruling R2–R49 and the review record) is kept at `~
 - **Reviews:** the encoder, ELF writer, runtime memory, input and descriptor code each had a first review on the top tier.
 
 The milestone ledger (every ruling, review record and carry) is kept in `.superpowers/sdd/2026-11-23-compiler-m2-codegen/progress.md`.
+
+### Milestone 3 (tables and files), finished 2026-11-24, `main` @ b6dcbfd plus this documentation
+
+**What shipped:**
+- **Approval at build time.** The permission list (D24 names, D27 only for programs with tables), the `<source>.allow` file, `--allow <file>`, the yes/no question, exit status 4 (D25) and `--permissions` on every executable.
+- **Tables.** A table is a list in its own global slot with a loaded flag; every M2 list operation works on it. `clear`, `load` and `save` build and run.
+- **Files at run time.** New primitives `openat2`, `close`, `fsync`, `renameat` and the start-up arguments (D19). `load` parses RFC 4180 CSV from untrusted input; `save` writes `<name>.gloss-new`, syncs it, renames it over the target and syncs the folder. Failures 6–8 are worded as in §4.7.
+- **Tests and examples.** Run cases can carry files and a folder to compare afterwards (D29); `irsim` has an in-memory file system. `examples/` gained `expenses` (`load`, `append`, `save`) and `report` (read only).
+- **Language spec.** `spec/v0.md` §8, §10 and §11 now describe what the compiler does, and `tests/spec_examples.rs` checks its tables programs and failure 6–8 messages against this document both ways.
+
+**Pull requests** (all rebase-merged, one at a time; design #274, plan #275).
+
+| Task | What | PRs |
+|---|---|---|
+| 1 | Permission list and D24 names | #276 |
+| 2 | `.allow` file | #277–#278 |
+| 3a, 3b | `--allow` arguments; approval (the question, status 4) | #279–#280, #281–#284 |
+| 4 | `--permissions` and `argv` in `_start` | #285–#287 |
+| 5a, 5b | File primitives in IR and `irsim`; Linux system calls | #288–#294, #295–#300 |
+| CI | Clippy drift fix | #301 |
+| 6 | File cases in the run harness | #302–#307 |
+| 7 | Tables in memory, `clear`, D22 lifted | #308–#311 |
+| 8 | CSV writer; `save` | #312–#329 |
+| CI | Clippy and nesting-stack fixes | #330–#331 |
+| 9 | CSV reader; `load` | #332–#366 |
+| 10 | Run cases for every failure 6–8 message | #367–#384 |
+| 11 | Language spec, examples | #385–#388 |
+
+**Deviations from the decisions above** (rulings are numbered M3-R1 … M3-R24 in the milestone ledger):
+- **D22:** lifted in task 7a, not in the last task. D23 was amended to say so (plan ruling P1).
+- **D27:** accepted deviation from the language spec §8: builds of programs with no tables print `Built x` and no list.
+- **D14 (200-line PRs):** tasks over the cap were split into sequential PRs, never trimmed (M3-R5, M3-R7, M3-R19). Task 9 is 35 PRs.
+- **D2 and D17:** the machine runs under QEMU (`orb config set rosetta false`), not Rosetta, because Rosetta has no `openat2` (M3-R13). Memory-limit runs skip visibly under QEMU.
+- **D24:** the escape is unpadded upper-case hex, as the owner's example shows (M3-R1), and a file name may not contain `"` (M3-R2).
+- **D26:** failure 6 gained a row, `a quote is out of place` (M3-R22).
+- **D29:** `table_save` takes 8 arguments, the extra one being the folder name as shown. The case `table_save_link` was added.
+- **§4.7:** `save` opens the folder with `O_RDONLY | O_DIRECTORY`, not `O_PATH` (M3-R8). The wording is fixed above.
+- **Plan rulings:** P2: a `save` in a test block does not make a table read and replace. P3: `--allow` for a file the program does not declare is a compile error, status 3, so a typo cannot approve nothing.
+
+**Rulings** (final state; later rulings are noted against the ones they supersede):
+
+*Approval and names*
+- M3-R1: D24 escapes are unpadded hex (`\u{E9}`), as the approved example shows; the plan's four-digit rule was wrong.
+- M3-R2: a `"` in a table file name is refused, so a quoted entry in the list is always the D24 form and a plain name cannot imitate it.
+- M3-R3: the build writes `.allow` before lowering. `.allow` records the approval; the executable carries its own list. Cost: a stale executable outlives a narrower `.allow` until rebuilt.
+
+*Test and build plumbing*
+- M3-R4: the task 4 table test lowered through a test-only entry that skipped the D22 refusal; task 7a removed it.
+- M3-R5: task 5a was split into smaller branches up front, to stay under the cap.
+- M3-R6: the x86-64 backend panicked on the new file primitives until task 5b; no program could reach them.
+- M3-R7: task 5a became four, then seven branches; tests were not trimmed to fit.
+- M3-R13: QEMU ignores `ulimit -v`, so memory-limit runs probe once (`dd` of 200 MB under 64 MB) and skip visibly when the limit is not enforced. CI still runs them.
+- M3-R14: the `permissions_flag` run case used a program without tables, because tables could not build before 7a; 7a added the table case.
+- M3-R15: the cases that need a program able to write or read files (`.after`, the working folder proof, `.allow`) landed with the tasks that made that possible.
+- M3-R19: task 8's review fixes went on top of the 14-branch stack as new branches, not into it.
+- M3-R21: `tests/nesting.rs` runs on an 8 MiB thread, the size of the binary's main stack, because rustc 1.100 debug builds overflow 2 MiB at 99-deep parentheses.
+
+*`irsim` and the system calls*
+- M3-R8: the folder is opened `O_RDONLY | O_DIRECTORY | O_CLOEXEC`, because `fsync` on an `O_PATH` descriptor fails with `EBADF`. `Probe` stays `O_PATH`.
+- M3-R9, superseded in part by M3-R10: `irsim` rename mirrors `renameat` on a folder descriptor (single-component names, a link at the target is replaced, a link at the source is moved).
+- M3-R10: a `Probe` descriptor of a folder is a valid directory descriptor for open and rename, as on Linux; a read or create descriptor gives `ENOTDIR`.
+- M3-R11: the remaining `irsim`/Linux fit fixes went in a seventh branch, not folded into branches at 187–200 lines.
+- M3-R12: fix `irsim` and Linux edge disagreements, missing lowering tests and the ENOSYS skip now; carry the single-name check, FIFO and hard-link concerns into tasks 8 and 9.
+- M3-R20: the save order is tested by an `irsim` event log of `sync` and `rename`, which fails if the folder sync moves before the rename.
+
+*Tables and lowering*
+- M3-R16: after table `is` compared pointers (`type_desc` mapped `Ty::Table` to a number), every `match` on `Ty` in lowering was audited; only `type_desc` was wrong.
+
+*Files*
+- M3-R17: (a) `table_save` asserts that folder, name and temporary name are single plain names; (b) the `table_save_new` case proves the working folder and `.after`; (c) the hard-link and FIFO risks below are accepted; (d) the design's `O_PATH` text was superseded by M3-R8.
+- M3-R18: a record of one text field with empty text is saved as `""`, so no row is a bare empty line (the reader ignores one final empty line). The reader does not trim cells.
+- M3-R22: `load` follows RFC 4180 for quotes. Text after a closing quote, or a quote inside an unquoted cell, is failure 6. A lone `\r` is kept as data (save quotes it, so it round-trips). A blank middle line is a one-cell row. Silent repair of damaged input would hide the damage.
+- M3-R23: `load` skips one leading UTF-8 byte order mark, as Excel and Notepad write one. `save` does not write it back.
+- M3-R24: a FIFO at the table path blocks `load` forever. Accepted (see below).
+
+**Tests:** 664 pass and 1 is ignored (the stress test): 541 unit tests and 123 integration tests in 24 files. They include 142 run cases (`MIN_CASES`), each run as a real executable and under `irsim`, 11 examples (`MIN_EXAMPLES`), and run cases for every failure 6–8 message with exact `.err` and status 2. The 4 permission cases ran as a non-root user, and CI (`ubuntu-latest`, non-root) ran them too. Under QEMU the memory-limit runs skip. The objdump check is opt-in. CI found two clippy lints that the local toolchain (1.87) lacked; the local toolchain is now 1.100 (stable).
+
+**Known limits and accepted risks:**
+- **Save and a same-user attacker (M3-R17c).** All need someone who can already write the table's folder, which §8 does not defend against:
+  - A hard link at `<name>.gloss-new` is truncated by `O_TRUNC`, which loses the other file's contents.
+  - A FIFO at the table name or at `<name>.gloss-new` blocks `save`.
+  - A planted symbolic link at `.gloss-new` makes every save fail with the symbolic-link message (safe, but blocking).
+- **Load (M3-R24).** A FIFO at the table path blocks `load` forever. Refusing it needs an `fstat` primitive after the open. The program can be killed and no data is lost.
+- **Sync errors after the rename.** If the folder sync or a close fails after the rename, the message says `cannot be written` although the table was replaced.
+- **Mode 300 folders (M3-R8).** A folder that is write and search only cannot be opened `O_RDONLY`, so a save into it is refused.
+- **Memory:** nothing is freed, as in M2. Memory-limit runs skip under QEMU, so the out-of-memory case is checked only by CI.
+- **BOM:** a loaded and saved file loses its byte order mark (M3-R23).
+- **Deferred:** test fixtures and pretend files (M4), `trace`'s `--allow` (M5).
+- **Reviews:** the approval logic, `.allow` parsing, open and save paths, symbolic-link handling, safe writing, the new encoder primitives and the CSV reader each had a first review on the top tier.
+
+The milestone ledger (every ruling, review record and carry) is kept in `.superpowers/sdd/2026-11-24-compiler-m3-tables-files/progress.md`.
