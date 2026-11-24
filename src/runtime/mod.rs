@@ -21,6 +21,7 @@ mod numbers;
 mod output;
 mod parse;
 mod places;
+mod save;
 mod shown;
 #[cfg(test)]
 mod tests;
@@ -49,12 +50,16 @@ const TRUTH: u32 = 16;
 const OPEN: u32 = 17;
 const CLOSE: u32 = 18;
 const PERMISSIONS_FLAG: u32 = 19;
+const CANNOT_WRITE: u32 = 20;
+const ITS_FOLDER: u32 = 21;
+const NOT_EXIST: u32 = 22;
+const THROUGH_LINK: u32 = 23;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 20] = [
+const TEXTS: [&[u8]; 24] = [
     b"line ",
     b": failure ",
     b": ",
@@ -75,6 +80,10 @@ const TEXTS: [&[u8]; 20] = [
     b"(",
     b")",
     b"--permissions\0",
+    b" cannot be written",
+    b" (its folder ",
+    b" does not exist)",
+    b" is reached through a symbolic link",
 ];
 
 /// The bytes of the runtime text `i`.
@@ -99,6 +108,7 @@ pub fn routines() -> Vec<Function> {
     all.extend(numbers::routines());
     all.extend(parse::routines());
     all.extend(places::routines());
+    all.extend(save::routines());
     all.extend(shown::routines());
     all.extend(text::routines());
     all.extend(values::routines());
