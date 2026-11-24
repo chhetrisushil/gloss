@@ -10,15 +10,14 @@ use crate::diag::Diagnostic;
 /// `load` replaces rows appended earlier in the same block.
 pub fn check_saving(ctx: &mut Ctx) {
     let program = ctx.program;
-    let bodies: Vec<&[Stmt]> = program
-        .features()
-        .map(|f| f.body.as_slice())
-        .chain(program.tests().map(|t| t.body.as_slice()))
-        .collect();
+    let features: Vec<&[Stmt]> = program.features().map(|f| f.body.as_slice()).collect();
+    // Only the executable's own features load: a test uses pretend files (M4), so a `load`
+    // there would leave the built program stopping at its first `save` (failure 8).
     let mut loaded = BTreeSet::new();
-    bodies.iter().for_each(|b| loaded_in(b, &mut loaded));
+    features.iter().for_each(|b| loaded_in(b, &mut loaded));
     let mut reported = BTreeSet::new();
-    for body in bodies {
+    let tests = program.tests().map(|t| t.body.as_slice());
+    for body in features.iter().copied().chain(tests) {
         unloaded_saves(ctx, body, &loaded, &mut reported);
         load_after_append(ctx, body, &mut BTreeMap::new());
     }
@@ -127,6 +126,20 @@ mod tests {
             ))
             .is_empty()
         );
+    }
+
+    #[test]
+    fn a_load_in_a_test_does_not_count_for_a_save_in_a_feature() {
+        let only_in_test = format!("{HEAD}feature start\n  save es\ntest \"t\"\n  load es\n");
+        assert_eq!(
+            diags(&only_in_test),
+            [
+                "line 5: save es. es is saved here but nothing in this program loads it. Add load es before the first change, or clear es if you mean to start the file again."
+            ]
+        );
+        let in_feature =
+            format!("{HEAD}feature start\n  load es\n  save es\ntest \"t\"\n  load es\n");
+        assert!(diags(&in_feature).is_empty());
     }
 
     #[test]
