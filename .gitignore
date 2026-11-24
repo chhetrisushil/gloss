@@ -5,3 +5,5 @@
 !/examples/*.gloss
 !/examples/*.out
 !/examples/README.md
+!/examples/*.allow
+!/examples/report.csv

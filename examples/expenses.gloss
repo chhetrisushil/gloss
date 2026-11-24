@@ -1,0 +1,18 @@
+record Expense
+  name as text
+  amount as number
+  category as text
+
+table expenses of Expense in "expenses.csv"
+
+feature start
+  clear expenses
+  append Expense with name "Lunch", amount 12.5, category "food" to expenses
+  append Expense with name "Bus", amount 3, category "travel" to expenses
+  append Expense with name "Dinner", amount 30, category "food" to expenses
+  save expenses
+  clear expenses
+  load expenses
+  show "Saved and loaded ", count of expenses, " expenses"
+  for each expense in expenses
+    show name of expense, " (", category of expense, "): ", amount of expense
