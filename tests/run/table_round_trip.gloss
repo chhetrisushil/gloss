@@ -1,0 +1,12 @@
+record Expense
+  name as text
+  amount as number
+  paid as truth
+
+table expenses of Expense in "expenses.csv"
+
+feature start
+  load expenses
+  append Expense with name "Coffee, large", amount 4.5, paid yes to expenses
+  save expenses
+  show "saved ", count of expenses

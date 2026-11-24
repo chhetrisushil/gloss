@@ -1,0 +1,3 @@
+4
+list of (Expense with name "a,b", amount 1, paid yes), (Expense with name "say ""hi""", amount 2, paid no), (Expense with name "line one
+line two", amount 3, paid yes), (Expense with name "", amount 4, paid no)
