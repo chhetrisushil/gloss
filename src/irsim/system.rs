@@ -1,6 +1,6 @@
 //! The host primitives: output, input, memory and exit.
 
-use super::files::{EISDIR, ENOTDIR};
+use super::files::{EISDIR, ENOTDIR, join};
 use super::machine::{Ended, Machine, STACK_SIZE};
 use crate::ir::{CWD, NOT_FOUND, OpenMode, Prim};
 
@@ -11,9 +11,9 @@ const EIO: i64 = -5;
 
 /// A descriptor `Open` handed out.
 pub enum OpenFile {
-    Read,
+    Read(String),
     Folder(String),
-    Create,
+    Create(String),
     Probe,
 }
 
@@ -39,15 +39,8 @@ impl Machine<'_> {
                     None => EBADF,
                 };
             }
-            // Until files are synced and renamed, these fail.
-            Prim::Rename => {
-                (0..3).for_each(|_| _ = self.pop());
-                self.a = NOT_FOUND;
-            }
-            Prim::Sync => {
-                self.pop();
-                self.a = NOT_FOUND;
-            }
+            Prim::Sync => self.sync(),
+            Prim::Rename => self.rename(),
         }
         None
     }
@@ -152,13 +145,59 @@ impl Machine<'_> {
             return Err(ENOTDIR);
         }
         match mode {
-            OpenMode::Read if is_file => Ok(OpenFile::Read),
+            OpenMode::Read if is_file => Ok(OpenFile::Read(full)),
             OpenMode::Folder if is_file => Err(ENOTDIR),
             OpenMode::Folder if self.files.is_folder(&full) => Ok(OpenFile::Folder(full)),
             OpenMode::Probe if self.files.exists(&full) => Ok(OpenFile::Probe),
             OpenMode::Create if slash => Err(EISDIR),
-            OpenMode::Create => self.files.create(&full).map(|()| OpenFile::Create),
+            OpenMode::Create => self.files.create(&full).map(|()| OpenFile::Create(full)),
             _ => Err(NOT_FOUND),
+        }
+    }
+
+    fn sync(&mut self) {
+        let fd = self.pop();
+        self.a = match self.fds.get(&fd) {
+            Some(OpenFile::Read(path) | OpenFile::Folder(path) | OpenFile::Create(path)) => {
+                self.files.synced.push(path.clone());
+                0
+            }
+            // `fsync` on an `O_PATH` descriptor fails, so a probe cannot be synced.
+            Some(OpenFile::Probe) | None => EBADF,
+        };
+    }
+
+    /// Like `renameat` on a folder descriptor: both names are in that folder. Open
+    /// descriptors follow their file to its new name.
+    fn rename(&mut self) {
+        let to = self.pop() as u64;
+        let from = self.pop() as u64;
+        let dir = self.pop();
+        let (from, to) = (self.cstr(from), self.cstr(to));
+        self.a = match self.folder(dir).map(str::to_string) {
+            Ok(folder) => match self.files.rename(&folder, &from, &to) {
+                Ok(moved) => {
+                    let (from, to) = (join(&folder, &from), join(&folder, &to));
+                    if moved && from != to {
+                        self.follow(&from, &to);
+                    }
+                    0
+                }
+                Err(error) => error,
+            },
+            Err(error) => error,
+        };
+    }
+
+    /// Points the descriptors on the file `from` at its new name `to`.
+    fn follow(&mut self, from: &str, to: &str) {
+        for file in self.fds.values_mut() {
+            match file {
+                OpenFile::Read(path) | OpenFile::Create(path) if path == from => {
+                    *path = to.to_string();
+                }
+                _ => {}
+            }
         }
     }
 }
