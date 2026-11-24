@@ -1440,11 +1440,15 @@ fn wait_for(slot: u32) -> Vec<Inst> {
 }
 
 fn forking(slots: u32, body: Vec<Inst>) -> super::Outcome {
+    forking_on(b"", slots, body)
+}
+
+fn forking_on(stdin: &[u8], slots: u32, body: Vec<Inst>) -> super::Outcome {
     let mut m = with_slots(slots, body);
     for text in [b"c\0", b"p\0", b"e\0", b"f\0"] {
         m.text(text);
     }
-    run(&m, "f", b"")
+    run(&m, "f", stdin)
 }
 
 #[test]
@@ -1536,4 +1540,70 @@ fn two_children_wait_in_any_order() {
     body.push(Mark(Label(2)));
     body.extend(exit_with(4));
     assert_eq!(forking(4, body).status, 0x43);
+}
+
+#[test]
+fn a_status_is_forgotten_once_waited_for() {
+    let mut body = fork_into(1, 1);
+    body.extend(wait_for(1));
+    body.extend(wait_for(1));
+    body.extend([Push(A), System(Prim::Exit), Mark(Label(1))]);
+    body.extend(exit_with(7));
+    assert_eq!(
+        forking(1, body).status as u8 as i8 as i64,
+        super::system::ECHILD
+    );
+}
+
+#[test]
+fn a_childs_reads_move_the_parents_input_position() {
+    let mut body = fork_into(1, 1);
+    body.extend(read_into_in_buf(3));
+    body.extend(push_const(1));
+    body.extend(push_global(Global::InBuf));
+    body.extend(push_const(2));
+    body.extend([System(Prim::Write)]);
+    body.extend(exit_with(0));
+    body.push(Mark(Label(1)));
+    body.extend(read_into_in_buf(3));
+    body.extend(exit_with(0));
+    assert_eq!(forking_on(b"hello", 1, body).stdout, b"lo");
+}
+
+#[test]
+#[should_panic(expected = "irsim: a forked child returned")]
+fn a_child_returning_from_the_entry_panics() {
+    let mut body = fork_into(1, 1);
+    body.extend(exit_with(0));
+    body.extend([Mark(Label(1)), Return]);
+    forking(1, body);
+}
+
+#[test]
+#[should_panic(expected = "irsim: fork with open files")]
+fn forking_with_an_open_descriptor_panics() {
+    let mut body = open_text(OpenMode::Create, 3);
+    body.push(System(Prim::Fork));
+    forking(0, body);
+}
+
+#[test]
+fn a_grandchild_does_not_reuse_a_pid() {
+    let mut body = fork_into(1, 1);
+    body.extend(fork_into(2, 2));
+    body.extend([
+        LoadSlot(A, 2),
+        Const(B, 100),
+        Int(IntOp::Sub),
+        Push(A),
+        System(Prim::Exit),
+    ]);
+    body.push(Mark(Label(1)));
+    body.extend(fork_into(3, 3));
+    body.extend(exit_with(0));
+    body.push(Mark(Label(3)));
+    body.extend(exit_with(0));
+    body.push(Mark(Label(2)));
+    body.extend(exit_with(0));
+    assert_eq!(forking(3, body).status, 2);
 }
