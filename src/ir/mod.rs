@@ -113,6 +113,9 @@ pub enum Global {
     InLen,
     InPos,
     InBuf,
+    /// The address of the tables block: two words per table, in declaration order, the
+    /// table's list and its loaded flag. Set by `tables_init`.
+    Tables,
     /// Scratch for formatting a number as a text; see `NUMBER_BUF_BYTES`.
     NumBuf,
     /// The stack pointer at program entry, saved by the target's entry code before `_start`
@@ -140,6 +143,7 @@ impl Global {
             Global::InBuf => "in_buf",
             Global::NumBuf => "num_buf",
             Global::EntrySp => "entry_sp",
+            Global::Tables => "tables",
         }
     }
 }

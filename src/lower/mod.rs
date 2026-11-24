@@ -8,6 +8,7 @@ mod fail;
 mod list;
 mod record;
 mod stmt;
+mod table;
 #[cfg(test)]
 mod tests;
 
@@ -227,6 +228,9 @@ fn lower_program(program: &Program, types: &TypeInfo, src: &Source) -> Result<Mo
     let list = crate::permissions::render(&crate::permissions::list(program));
     let text = module.text(list.as_bytes());
     module.functions.push(permissions_text(text));
+    module
+        .functions
+        .push(table::tables_init(program, &mut called));
     size_stack_checks(&mut module);
     runtime::add_reachable(&mut module, &called);
     Ok(module)

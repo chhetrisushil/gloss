@@ -21,11 +21,18 @@ fn start() -> Function {
     s.call("heap_init");
     s.call("stack_init");
     s.call("args_check");
+    s.call("tables_init");
     s.call("f_start");
     s.call("flush");
     s.push_const(0);
     s.i(System(Prim::Exit));
     s.finish("_start", 0, 0)
+}
+
+/// `tables_init`, for a module whose program declares no tables: nothing to set up. Lowering
+/// always emits the program's own `tables_init`, which takes the place of this one.
+fn tables_init() -> Function {
+    Asm::default().finish("tables_init", 0, 0)
 }
 
 fn heap_init() -> Function {
@@ -258,6 +265,7 @@ pub fn routines() -> Vec<Function> {
     vec![
         start(),
         heap_init(),
+        tables_init(),
         alloc(),
         fail_memory(),
         stack_limit(),
