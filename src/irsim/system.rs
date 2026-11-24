@@ -1,12 +1,21 @@
 //! The host primitives: output, input, memory and exit.
 
+use super::files::{EISDIR, ENOTDIR};
 use super::machine::{Ended, Machine, STACK_SIZE};
-use crate::ir::{NOT_FOUND, Prim};
+use crate::ir::{CWD, NOT_FOUND, OpenMode, Prim};
 
 /// What `Write` and `Read` give for a file descriptor the program does not have.
 const EBADF: i64 = -9;
 /// What a `Write` that a test makes fail, and what such a `Read` gives.
 const EIO: i64 = -5;
+
+/// A descriptor `Open` handed out.
+pub enum OpenFile {
+    Read,
+    Folder(String),
+    Create,
+    Probe,
+}
 
 impl Machine<'_> {
     /// Runs a primitive: pops its arguments and leaves the result in `a`. Gives the end of
@@ -21,15 +30,21 @@ impl Machine<'_> {
             }
             Prim::Exit => return Some(Ended::Exited(self.pop() as i32 & 0xff)),
             Prim::StackSize => self.a = STACK_SIZE,
-            // Until the in-memory file system arrives, every file primitive fails.
-            Prim::Open(_) | Prim::Rename => {
-                let args = if prim == Prim::Rename { 3 } else { 2 };
-                for _ in 0..args {
-                    self.pop();
-                }
+            Prim::Open(mode) => self.open(mode),
+            Prim::Close => {
+                let fd = self.pop();
+                self.a = match self.fds.remove(&fd) {
+                    Some(_) => 0,
+                    None if (0..3).contains(&fd) => 0,
+                    None => EBADF,
+                };
+            }
+            // Until files are synced and renamed, these fail.
+            Prim::Rename => {
+                (0..3).for_each(|_| _ = self.pop());
                 self.a = NOT_FOUND;
             }
-            Prim::Close | Prim::Sync => {
+            Prim::Sync => {
                 self.pop();
                 self.a = NOT_FOUND;
             }
@@ -92,5 +107,58 @@ impl Machine<'_> {
         }
         self.stdin_pos += count;
         self.a = count as i64;
+    }
+
+    /// Reads the NUL-terminated bytes at `addr` as a path.
+    fn cstr(&mut self, addr: u64) -> String {
+        let mut bytes = Vec::new();
+        loop {
+            self.check(addr + bytes.len() as u64, 1, false);
+            match self.memory.read_byte(addr + bytes.len() as u64) {
+                0 => return String::from_utf8_lossy(&bytes).into_owned(),
+                byte => bytes.push(byte),
+            }
+        }
+    }
+
+    /// The path of the folder descriptor `dir`, which may be `CWD`.
+    fn folder(&self, dir: i64) -> Result<&str, i64> {
+        match self.fds.get(&dir) {
+            _ if dir == CWD => Ok(""),
+            Some(OpenFile::Folder(base)) => Ok(base),
+            _ => Err(EBADF),
+        }
+    }
+
+    fn open(&mut self, mode: OpenMode) {
+        let path = self.pop() as u64;
+        let dir = self.pop();
+        let path = self.cstr(path);
+        self.a = match self.open_path(dir, &path, mode) {
+            Ok(file) => {
+                let fd = (3..).find(|fd| !self.fds.contains_key(fd)).unwrap();
+                self.fds.insert(fd, file);
+                fd
+            }
+            Err(error) => error,
+        };
+    }
+
+    fn open_path(&mut self, dir: i64, path: &str, mode: OpenMode) -> Result<OpenFile, i64> {
+        let full = self.files.resolve(self.folder(dir)?, path)?;
+        let is_file = self.files.files.contains_key(&full);
+        let slash = path.ends_with('/');
+        if is_file && slash {
+            return Err(ENOTDIR);
+        }
+        match mode {
+            OpenMode::Read if is_file => Ok(OpenFile::Read),
+            OpenMode::Folder if is_file => Err(ENOTDIR),
+            OpenMode::Folder if self.files.is_folder(&full) => Ok(OpenFile::Folder(full)),
+            OpenMode::Probe if self.files.exists(&full) => Ok(OpenFile::Probe),
+            OpenMode::Create if slash => Err(EISDIR),
+            OpenMode::Create => self.files.create(&full).map(|()| OpenFile::Create),
+            _ => Err(NOT_FOUND),
+        }
     }
 }
