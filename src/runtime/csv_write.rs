@@ -178,7 +178,7 @@ fn call_with(s: &mut Asm, routine: &str, push: impl FnOnce(&mut Asm)) {
 }
 
 /// Runs `each` for every index of slot `index` below the count in slot `count`.
-fn count_up(s: &mut Asm, index: u32, count: u32, each: impl FnOnce(&mut Asm)) {
+pub(super) fn count_up(s: &mut Asm, index: u32, count: u32, each: impl FnOnce(&mut Asm)) {
     let (again, done) = (s.label(), s.label());
     s.i(Const(A, 0));
     s.i(StoreSlot(index, A));
