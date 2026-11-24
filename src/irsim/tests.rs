@@ -1388,3 +1388,20 @@ fn a_probe_of_a_folder_is_a_dirfd_for_rename_and_closing_standard_fds_does_nothi
     body.push(System(Prim::Close));
     assert_eq!(run_on(&mut files, &[], 0, body), 0);
 }
+
+#[test]
+fn a_read_only_folder_refuses_create_directly_in_it_only() {
+    let mut files = super::Files::default();
+    files.folders.insert("d".to_string());
+    let faults = || super::Faults {
+        read_only_folders: ["d".to_string()].into(),
+        ..super::Faults::default()
+    };
+    let texts: [&[u8]; 2] = [b"d/f\0", b"g\0"];
+    let denied = open_text(OpenMode::Create, 0);
+    assert_eq!(run_faulty(&mut files, faults(), &texts, denied), -13);
+    assert!(!files.files.contains_key("d/f"));
+    let fine = open_text(OpenMode::Create, 1);
+    assert_eq!(run_faulty(&mut files, faults(), &texts, fine), 3);
+    assert!(files.files.contains_key("g"));
+}
