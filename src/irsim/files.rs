@@ -8,6 +8,9 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const ENOTDIR: i64 = -20;
 /// What Linux gives for creating a file where a folder is.
 pub const EISDIR: i64 = -21;
+/// What Linux gives for a bad argument; here a rename of a folder, which irsim does not
+/// model, or of a name that is not one component.
+pub const EINVAL: i64 = -22;
 
 /// The files a program sees, and what it did to them.
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
@@ -89,6 +92,48 @@ impl Files {
         self.files.insert(path.to_string(), Vec::new());
         Ok(())
     }
+
+    /// Like `renameat` in the folder `folder`, which is not resolved again: `from` and `to`
+    /// are single names, links are moved and replaced, never followed, and a file replaces
+    /// a file or a link. Gives whether a file (not a link) moved.
+    pub fn rename(&mut self, folder: &str, from: &str, to: &str) -> Result<bool, i64> {
+        if from.is_empty() || to.is_empty() {
+            return Err(NOT_FOUND);
+        }
+        if [from, to]
+            .iter()
+            .any(|n| n.contains('/') || *n == "." || *n == "..")
+        {
+            return Err(EINVAL);
+        }
+        let (from, to) = (join(folder, from), join(folder, to));
+        if self.folders.contains(&from) {
+            return Err(EINVAL);
+        }
+        if self.folders.contains(&to) {
+            return Err(EISDIR);
+        }
+        if let Some(bytes) = self.files.remove(&from) {
+            self.links.remove(&to);
+            self.files.insert(to, bytes);
+            Ok(true)
+        } else if self.links.remove(&from) {
+            self.files.remove(&to);
+            self.links.insert(to);
+            Ok(false)
+        } else {
+            Err(NOT_FOUND)
+        }
+    }
+}
+
+/// The path of `name` in the folder `folder`.
+pub fn join(folder: &str, name: &str) -> String {
+    if folder.is_empty() {
+        name.to_string()
+    } else {
+        format!("{folder}/{name}")
+    }
 }
 
 /// The folder a normalised path is in.
@@ -152,5 +197,28 @@ mod tests {
         assert_eq!(f.resolve("d", "."), Ok("d".to_string()));
         assert_eq!(f.resolve("", "d/e/"), Ok("d/e".to_string()));
         assert_eq!(f.resolve("", "."), Ok(String::new()));
+    }
+
+    #[test]
+    fn rename_replaces_files_and_links_and_moves_links() {
+        let mut f = sample();
+        f.files.insert("d/y".to_string(), b"y".to_vec());
+        assert_eq!(f.rename("d/e", "x", "x2"), Ok(true));
+        assert_eq!(f.rename("d", "y", "l"), Ok(true));
+        assert_eq!(f.files["d/l"], b"y".to_vec());
+        assert!(!f.links.contains("d/l"));
+        assert_eq!(f.rename("", "l", "m"), Ok(false));
+        assert!(f.links.contains("m") && !f.links.contains("l"));
+    }
+
+    #[test]
+    fn rename_takes_single_names_of_files_and_not_onto_folders() {
+        let mut f = sample();
+        assert_eq!(f.rename("d", "e/x", "z"), Err(EINVAL));
+        assert_eq!(f.rename("d", "e", "z"), Err(EINVAL));
+        assert_eq!(f.rename("d/e", "x", ".."), Err(EINVAL));
+        assert_eq!(f.rename("", "d", "e"), Err(EINVAL));
+        f.files.insert("t".to_string(), Vec::new());
+        assert_eq!(f.rename("", "t", "d"), Err(EISDIR));
     }
 }

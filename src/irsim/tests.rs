@@ -1037,12 +1037,17 @@ fn run_on(files: &mut super::Files, texts: &[&[u8]], slots: u32, mut body: Vec<I
     super::run_with(&m, "f", b"", &[], faults, files).status as u8 as i8 as i64
 }
 
-/// `Open(mode)` of text `n` in the current folder; the result is in `a`.
-fn open_text(mode: OpenMode, n: u32) -> Vec<Inst> {
-    let mut body = push_const(CWD).to_vec();
+/// `Open(mode)` of text `n` in the folder `dir` puts in `a`; the result is in `a`.
+fn open_in(mode: OpenMode, dir: Inst, n: u32) -> Vec<Inst> {
+    let mut body = vec![dir, Push(A)];
     body.extend(push_text_n(n));
     body.push(System(Prim::Open(mode)));
     body
+}
+
+/// `Open(mode)` of text `n` in the current folder.
+fn open_text(mode: OpenMode, n: u32) -> Vec<Inst> {
+    open_in(mode, Const(A, CWD), n)
 }
 
 /// `prim(slot)` for a primitive with one argument.
@@ -1106,4 +1111,58 @@ fn open_failures_are_the_ir_errors() {
         run_on(&mut files, &[b"\0"], 0, open_text(OpenMode::Folder, 0)),
         NOT_FOUND
     );
+}
+
+#[test]
+fn sync_records_folders_and_files_and_rename_moves_the_file_under_its_descriptor() {
+    let mut files = super::Files::default();
+    files.folders.insert("d".to_string());
+    let mut body = open_text(OpenMode::Folder, 0);
+    body.push(StoreSlot(1, A));
+    body.extend(open_in(OpenMode::Create, LoadSlot(A, 1), 1));
+    body.push(StoreSlot(2, A));
+    body.extend(on_slot(Prim::Sync, 1));
+    body.extend([LoadSlot(A, 1), Push(A)]);
+    body.extend(push_text_n(1));
+    body.extend(push_text_n(2));
+    body.extend([System(Prim::Rename), StoreSlot(3, A)]);
+    body.extend(on_slot(Prim::Sync, 2));
+    body.extend([LoadSlot(A, 3)]);
+    assert_eq!(run_on(&mut files, &[b"d\0", b"a\0", b"b\0"], 3, body), 0);
+    assert_eq!(files.synced, ["d", "d/b"]);
+    assert!(files.files.contains_key("d/b") && !files.files.contains_key("d/a"));
+}
+
+#[test]
+fn only_open_descriptors_other_than_probes_can_be_synced() {
+    let mut files = super::Files::default();
+    files.files.insert("a".to_string(), Vec::new());
+    let mut body = open_text(OpenMode::Probe, 0);
+    body.push(StoreSlot(1, A));
+    body.extend(on_slot(Prim::Sync, 1));
+    assert_eq!(run_on(&mut files, &[b"a\0"], 1, body), -9);
+    let mut body = open_text(OpenMode::Read, 0);
+    body.push(StoreSlot(1, A));
+    body.extend(on_slot(Prim::Close, 1));
+    body.extend(on_slot(Prim::Sync, 1));
+    assert_eq!(run_on(&mut files, &[b"a\0"], 1, body), -9);
+}
+
+#[test]
+fn rename_needs_a_folder_descriptor_and_single_names() {
+    let mut files = super::Files::default();
+    files.files.insert("a".to_string(), Vec::new());
+    let rename = |first: &[u8], second: &[u8]| {
+        let mut body = push_const(CWD).to_vec();
+        body.extend(push_text_n(0));
+        body.extend(push_text_n(1));
+        body.push(System(Prim::Rename));
+        run_on(&mut super::Files::default(), &[first, second], 0, body)
+    };
+    assert_eq!(rename(b"a/b\0", b"c\0"), -22);
+    let mut body = push_const(7).to_vec();
+    body.extend(push_text_n(0));
+    body.extend(push_text_n(0));
+    body.push(System(Prim::Rename));
+    assert_eq!(run_on(&mut files, &[b"a\0"], 0, body), -9);
 }
