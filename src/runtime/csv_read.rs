@@ -344,7 +344,7 @@ pub fn routines() -> Vec<Function> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::super::add_reachable;
     use super::super::tests::{program, run};
     use crate::ir::Cond::Eq;
@@ -356,11 +356,19 @@ mod tests {
     use crate::irsim::Outcome;
 
     /// Runs `after` with a cursor over `input` in slot 1 of a function `t`; `shown` is text 0
-    /// (`e.csv`), a line feed is text 1 and a space text 2.
-    fn with_cursor(input: &[u8], after: Vec<Inst>) -> Outcome {
+    /// (`e.csv`), a line feed is text 1 and a space text 2; the descriptors are text, list of
+    /// text, number, truth and the record `Expense` with fields `name`, `amount` and `paid`.
+    pub(in crate::runtime) fn with_cursor(input: &[u8], after: Vec<Inst>) -> Outcome {
         let mut m: Module = program(vec![Call("t".into())], &[]);
         let text_desc = m.desc(Desc::Text);
         m.desc(Desc::List(text_desc));
+        let (number, truth) = (m.desc(Desc::Number), m.desc(Desc::Truth));
+        let fields = ["name", "amount", "paid"].map(String::from);
+        let fields = fields.into_iter().zip([text_desc, number, truth]).collect();
+        m.desc(Desc::Record {
+            name: "Expense".into(),
+            fields,
+        });
         let [_shown, _lf, _space, text] = [&b"e.csv"[..], b"\n", b" ", input].map(|t| m.text(t));
         let mut body = vec![Enter(1), AddressOf(A, Data::Text(text)), Push(A)];
         body.extend([
@@ -633,5 +641,14 @@ mod tests {
             let (o, got) = rows(input.as_bytes());
             assert_eq!((o.status, got.as_str()), (0, want), "for {input:?}");
         }
+    }
+
+    #[test]
+    fn an_unclosed_quote_names_the_line_its_row_started_on() {
+        let (o, got) = rows(b"a\nb\n\"c\nd");
+        let err = "line 7: failure 6: e.csv line 3: a quoted cell is not closed\n";
+        assert_eq!(o.status, 2);
+        assert_eq!(String::from_utf8(o.stderr).unwrap(), format!("1 2 {err}"));
+        assert!(got.starts_with("list of \"a\"\nlist of \"b\"\n"));
     }
 }
