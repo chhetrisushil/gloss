@@ -139,6 +139,11 @@ fn system_programs_agree() {
 }
 
 #[test]
+fn file_programs_agree() {
+    files::programs();
+}
+
+#[test]
 fn a_program_that_never_ends_times_out() {
     let mut m = Module::default();
     program(

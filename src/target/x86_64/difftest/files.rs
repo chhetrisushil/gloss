@@ -4,11 +4,15 @@
 //! behind must agree too.
 
 use std::collections::BTreeMap;
+use std::io::Write;
+use std::os::unix::fs::symlink;
+use std::path::Path;
 
+use super::runner::{DEADLINE, TempDir, run_in, under_orb};
 use super::{program, write_words};
 use crate::ir::Reg::{A, B};
-use crate::ir::{CWD, Data, Global, Inst, Module, OpenMode, Prim};
-use crate::irsim::Files;
+use crate::ir::{CWD, Data, ESCAPES, Global, Inst, LINK, Module, NOT_FOUND, OpenMode, Prim};
+use crate::irsim::{self, Faults, Files};
 
 const B_VALUE: i64 = 0x1111_2222_3333;
 /// The descriptor the first successful `Open` gives (0 to 2 are standard).
@@ -124,9 +128,96 @@ fn results(out: &[u8], steps: &[Step]) -> Vec<i64> {
     found
 }
 
-#[test]
-fn irsim_runs_an_open_and_a_read() {
-    let setup = Setup {
+/// Everything under `dir` except the runner's own files, as the in-memory model keeps it.
+fn snapshot(dir: &Path) -> Files {
+    fn walk(dir: &Path, rel: &str, out: &mut Files) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let name = entry.file_name().into_string().unwrap();
+            if rel.is_empty() && name.starts_with("prog") {
+                continue;
+            }
+            let path = if rel.is_empty() {
+                name
+            } else {
+                format!("{rel}/{name}")
+            };
+            let kind = entry.file_type().unwrap();
+            if kind.is_symlink() {
+                out.links.insert(path);
+            } else if kind.is_dir() {
+                out.folders.insert(path.clone());
+                walk(&entry.path(), &path, out);
+            } else {
+                out.files.insert(path, std::fs::read(entry.path()).unwrap());
+            }
+        }
+    }
+    let mut out = Files::default();
+    walk(dir, "", &mut out);
+    out
+}
+
+/// `ENOSYS`: what Rosetta, which runs the Linux machine on a Mac, gives for `openat2`.
+const ENOSYS: i64 = -38;
+
+/// Whether the machine that runs the programs knows `openat2`.
+fn has_openat2() -> Option<bool> {
+    let steps = [open(OpenMode::Probe, ".")];
+    let dir = TempDir::new();
+    let ran = run_in(&module(&steps), b"", DEADLINE, &dir)?;
+    Some(results(&ran.expect("the program ends").1, &steps) != [ENOSYS])
+}
+
+/// Runs the program in `irsim` and, unless `real` is false, for real; both must give
+/// `wants` as the step results, and the same output and files.
+fn check(name: &str, setup: &Setup, steps: &[Step], wants: &[i64], real: bool) {
+    let m = module(steps);
+    let mut files = model(setup);
+    let want = irsim::run_with(&m, "_start", b"", &[], Faults::default(), &mut files);
+    assert_eq!(results(&want.stdout, steps), wants, "{name}: irsim");
+    if !real {
+        return;
+    }
+    let dir = TempDir::new();
+    for f in &setup.folders {
+        std::fs::create_dir_all(dir.0.join(f)).unwrap();
+    }
+    for (n, b) in &setup.files {
+        std::fs::write(dir.0.join(n), b).unwrap();
+    }
+    for (l, target) in &setup.links {
+        symlink(target, dir.0.join(l)).unwrap();
+    }
+    let Some(got) = run_in(&m, b"", DEADLINE, &dir) else {
+        return;
+    };
+    let got = got.expect("the program ends");
+    assert_eq!(got, (want.status, want.stdout, want.stderr), "{name}");
+    let (real, model) = (snapshot(&dir.0), (files.files, files.folders, files.links));
+    assert_eq!(
+        (real.files, real.folders, real.links),
+        model,
+        "{name}: files"
+    );
+}
+
+/// Runs every file program. Under `orb` on Rosetta, which lacks `openat2`, the real runs are
+/// skipped, visibly, and only `irsim` is checked against the expected results; ENOSYS on any
+/// other runner is a failure.
+pub fn programs() {
+    let real = match has_openat2() {
+        Some(true) => true,
+        // Rosetta, which `orb` may use on a Mac, has no openat2: skip, visibly.
+        Some(false) if under_orb() => false,
+        Some(false) => panic!("openat2 gives ENOSYS on a native runner"),
+        None => false,
+    };
+    if !real {
+        let note = "difftest files skipped: no runner, or `orb` on Rosetta lacks openat2\n";
+        let _ = std::io::stderr().write_all(note.as_bytes());
+    }
+    let a = Setup {
         files: vec![("a.txt", "hello")],
         ..Setup::default()
     };
@@ -138,14 +229,24 @@ fn irsim_runs_an_open_and_a_read() {
         fd_step(Prim::Close),
         fd_step(Prim::Close),
     ];
-    let out = crate::irsim::run_with(
-        &module(&steps),
-        "_start",
-        b"",
-        &[],
-        crate::irsim::Faults::default(),
-        &mut model(&setup),
-    );
-    assert_eq!(results(&out.stdout, &steps), [FD, 5, 0, EBADF]);
-    assert!(out.stdout.windows(5).any(|w| w == b"hello"));
+    check("open read", &a, &steps, &[FD, 5, 0, EBADF], real);
+    let missing = [open(OpenMode::Read, "nope")];
+    check("missing", &a, &missing, &[NOT_FOUND], real);
+    let escapes = [open(OpenMode::Read, "../x")];
+    check("escapes", &a, &escapes, &[ESCAPES], real);
+    let link = Setup {
+        files: vec![("a.txt", "hello"), ("real/x", "in")],
+        folders: vec!["real"],
+        links: vec![("ln", "a.txt"), ("link", "real")],
+    };
+    let steps = [open(OpenMode::Read, "ln"), open(OpenMode::Folder, "ln")];
+    check("link final", &link, &steps, &[LINK, LINK], real);
+    // A link in the middle of the path, not the last component, must be refused too.
+    let steps = [
+        open(OpenMode::Read, "link/x"),
+        open(OpenMode::Create, "link/y"),
+        open(OpenMode::Probe, "link/x"),
+        open(OpenMode::Read, "real/x"),
+    ];
+    check("link inside", &link, &steps, &[LINK, LINK, LINK, FD], real);
 }
