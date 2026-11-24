@@ -316,6 +316,7 @@ impl Machine<'_> {
             self.a = EIO;
             return;
         }
+        let len = len.min(self.faults.short_file_write.unwrap_or(len));
         self.check(addr, len, false);
         let bytes: Vec<u8> = (0..len).map(|i| self.memory.read_byte(addr + i)).collect();
         if let Some(OpenFile::Create(target)) = self.fds.get(&fd) {

@@ -347,6 +347,32 @@ mod table_tests {
         assert_eq!(fds(&mut files, ".", Faults::default()), (2, vec![3]));
     }
 
+    #[test]
+    fn a_short_file_write_is_repeated_until_the_table_is_complete() {
+        let mut files = files_with(&[], &[("e.csv", "old\n")]);
+        let short = Faults {
+            short_file_write: Some(1),
+            ..Faults::default()
+        };
+        let o = save(&mut files, ".", "e.csv", short);
+        assert_eq!((o.status, o.stderr.len()), (0, 0));
+        assert_eq!(files.files["e.csv"], b"a,b\n");
+    }
+
+    #[test]
+    fn a_write_that_gives_zero_bytes_is_failure_7_and_leaves_the_table_alone() {
+        let mut files = files_with(&[], &[("e.csv", "old\n")]);
+        let zero = Faults {
+            short_file_write: Some(0),
+            ..Faults::default()
+        };
+        assert_eq!(
+            refused(&mut files, ".", zero),
+            "line 7: failure 7: e.csv cannot be written\n"
+        );
+        assert_eq!(files.files["e.csv"], b"old\n");
+    }
+
     fn refused(files: &mut Files, folder: &str, faults: Faults) -> String {
         let o = save(files, folder, "e.csv", faults);
         assert_eq!(o.status, 2);

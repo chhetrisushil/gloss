@@ -49,6 +49,9 @@ pub struct Faults {
     pub failing_open: Option<String>,
     /// `Open` to create a file directly in one of these folders fails with a permission error.
     pub read_only_folders: std::collections::BTreeSet<String>,
+    /// `Write` to a descriptor from `Open` takes at most this many bytes per call; 0 is a write
+    /// that gives 0.
+    pub short_file_write: Option<u64>,
     /// `Write` to a descriptor from `Open` fails with an I/O error.
     pub failing_file_write: bool,
     /// The Nth `Read` (counting from 1) of a descriptor from `Open` fails with an I/O error.
