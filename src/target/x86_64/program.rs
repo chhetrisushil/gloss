@@ -6,12 +6,12 @@ use super::arith;
 use super::encode::encode;
 use super::inst::{Sym, X};
 use super::lower::lower_function;
-use crate::ir::{self, Global, IO_BUF_BYTES, Module, NUMBER_BUF_BYTES};
+use crate::ir::{self, Global, IO_BUF_BYTES, Module, NUMBER_BUF_BYTES, TEST_STATE_BYTES};
 use crate::target::elf::{Image, RODATA_BASE, write};
 
 /// The globals in the order the executable lays them out; `irsim` lays them out the same
 /// way (a test in `irsim/memory.rs` checks the order and the sizes).
-pub(crate) const GLOBALS: [Global; 11] = [
+pub(crate) const GLOBALS: [Global; 12] = [
     Global::HeapNext,
     Global::HeapEnd,
     Global::StackLimit,
@@ -23,11 +23,13 @@ pub(crate) const GLOBALS: [Global; 11] = [
     Global::EntrySp,
     Global::Tables,
     Global::NumBuf,
+    Global::TestState,
 ];
 
 pub(crate) fn global_size(g: Global) -> usize {
     match g {
         Global::NumBuf => NUMBER_BUF_BYTES,
+        Global::TestState => TEST_STATE_BYTES,
         Global::OutBuf | Global::InBuf => IO_BUF_BYTES,
         Global::HeapNext
         | Global::HeapEnd
