@@ -55,6 +55,7 @@ pub fn system(prim: Prim, unique: &str, out: &mut Vec<X>) {
             call(FCHMOD, out);
         }
         Prim::Rename => rename(out),
+        Prim::Fork | Prim::Wait => panic!("Fork and Wait arrive in task 3"),
     }
 }
 

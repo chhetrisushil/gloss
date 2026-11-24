@@ -108,6 +108,14 @@ pub enum Prim {
     /// `Rename(folder_fd, from, to)`: 0, or a negative error; both names are in that folder
     /// and an existing `to` is replaced.
     Rename,
+    /// `Fork()`: in the parent the child's process id (positive), in the child 0, a negative
+    /// error on failure. The child is a copy of the process (registers, stack, memory and
+    /// globals as they were) and shares the open files and the output descriptors.
+    Fork,
+    /// `Wait(pid)`: waits for that child. The result is its exit status (0 to 255) when it
+    /// exited, `256 + signal number` when a signal ended it, or a negative error (`-10`, no
+    /// such child). Each target decodes its own wait status to this.
+    Wait,
 }
 
 /// A runtime global, addressed with `Data::Global`.
