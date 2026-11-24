@@ -2,7 +2,7 @@
 // run cases the same way. Needs `std::path::{Path, PathBuf}` in scope.
 
 /// Raised by every task that adds cases.
-const MIN_CASES: usize = 131;
+const MIN_CASES: usize = 132;
 
 /// The `.gloss` programs in `dir`, sorted; an error naming every file that is not part of a
 /// case: an extension other than gloss, out, in, err, status, ulimit, allow, args, links
