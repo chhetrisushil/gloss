@@ -27,6 +27,37 @@ impl Lowerer<'_> {
         }
     }
 
+    /// `clear t`: a new empty list replaces the table's (a list a caller copied earlier keeps
+    /// its rows), and the loaded flag becomes 1.
+    pub fn clear_table(&mut self, index: usize) {
+        let fresh = self.new_temp();
+        self.emit(Inst::Const(Reg::A, ROOM));
+        self.emit(Inst::Push(Reg::A));
+        self.emit(Inst::Const(Reg::A, i64::from(self.line)));
+        self.emit(Inst::Push(Reg::A));
+        self.call("list_new");
+        self.emit(Inst::StoreSlot(fresh, Reg::A));
+        self.emit(Inst::AddressOf(Reg::A, Data::Global(Global::Tables)));
+        self.emit(Inst::Load {
+            to: Reg::A,
+            base: Reg::A,
+            offset: 0,
+        });
+        self.emit(Inst::LoadSlot(Reg::B, fresh));
+        let at = ENTRY * index as i32;
+        self.emit(Inst::Store {
+            base: Reg::A,
+            offset: at,
+            from: Reg::B,
+        });
+        self.emit(Inst::Const(Reg::B, 1));
+        self.emit(Inst::Store {
+            base: Reg::A,
+            offset: at + 8,
+            from: Reg::B,
+        });
+    }
+
     /// A slot holding the list `name` names: a variable's own slot, or a hidden one loaded
     /// from the table.
     pub fn list_slot(&mut self, name: &str) -> u32 {

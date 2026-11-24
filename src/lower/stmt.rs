@@ -138,6 +138,13 @@ impl Lowerer<'_> {
                 self.emit(Inst::Jump(target));
                 Ok(())
             }
+            StmtKind::Clear(name) => {
+                self.line = s.line;
+                self.emit(Inst::Line(s.line));
+                let index = self.table_index(name).expect("the checker found the table");
+                self.clear_table(index);
+                Ok(())
+            }
             _ => Err(self.cannot_build(s)),
         }
     }

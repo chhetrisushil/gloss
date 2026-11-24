@@ -1,0 +1,7 @@
+list of (Item with name "tea"), (Item with name "jam")
+list of (Person with age 30)
+2 1
+list of (Item with name "tea"), (Item with name "jam")
+empty list of Person
+2 0
+list of (Person with age 41)
