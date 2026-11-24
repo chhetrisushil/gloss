@@ -1,0 +1,12 @@
+record Row
+  name as text
+
+table rows of Row in "rows.csv"
+
+feature reset
+  clear rows
+
+feature start
+  show "before"
+  save rows
+  show "after"
