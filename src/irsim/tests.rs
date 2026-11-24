@@ -1281,3 +1281,75 @@ fn a_failing_file_write_fails_valid_descriptors_only() {
     wrong_kind.extend(transfer(Prim::Write, LoadSlot(A, 1), &buf, 2));
     assert_eq!(run_faulty(&mut files, faults(), &[b"f\0"], wrong_kind), -9);
 }
+
+#[test]
+fn a_link_renamed_over_a_file_detaches_its_descriptors_which_share_the_bytes() {
+    let mut files = super::Files::default();
+    files.files.insert("b".to_string(), b"old".to_vec());
+    files.links.insert("l".to_string());
+    let in_buf = push_global(Global::InBuf);
+    let mut body = open_slot(OpenMode::Read, 0, 1);
+    body.extend(open_slot(OpenMode::Create, 0, 2));
+    body.extend(transfer(Prim::Write, LoadSlot(A, 2), &push_text_n(2), 2));
+    body.extend(push_const(CWD));
+    body.extend(push_text_n(1));
+    body.extend(push_text_n(0));
+    body.push(System(Prim::Rename));
+    body.extend(transfer(Prim::Write, LoadSlot(A, 2), &push_text_n(3), 1));
+    body.extend(transfer(Prim::Read, LoadSlot(A, 1), &in_buf, 8));
+    body.extend(transfer(Prim::Write, Const(A, 1), &in_buf, 3));
+    let out = run_out(&mut files, &[b"b\0", b"l\0", b"xy", b"z"], 2, body);
+    assert_eq!(out.stdout, b"xyz");
+    assert!(files.files.is_empty() && files.links.contains("b"));
+}
+
+#[test]
+fn reading_a_folder_is_eisdir_and_only_a_folder_or_probe_of_one_is_a_dirfd() {
+    let mut files = super::Files::default();
+    files.folders.insert("d".to_string());
+    files.files.insert("d/x".to_string(), Vec::new());
+    files.files.insert("f".to_string(), Vec::new());
+    let in_buf = push_global(Global::InBuf);
+    let read = |mode, prim, path: &'static [u8]| {
+        let mut body = open_slot(mode, 0, 1);
+        body.extend(transfer(prim, LoadSlot(A, 1), &in_buf, 1));
+        (path, body)
+    };
+    let cases = [
+        read(OpenMode::Read, Prim::Read, b"d\0"),
+        read(OpenMode::Folder, Prim::Read, b"d\0"),
+        read(OpenMode::Probe, Prim::Read, b"d\0"),
+        read(OpenMode::Folder, Prim::Write, b"d\0"),
+    ];
+    let wants = [-21, -21, -9, -9];
+    for ((path, body), want) in cases.into_iter().zip(wants) {
+        assert_eq!(run_on(&mut files, &[path], 1, body), want);
+    }
+    let dirfd = |mode, path: &'static [u8]| {
+        let mut body = open_slot(mode, 0, 1);
+        body.extend(open_in(OpenMode::Read, LoadSlot(A, 1), 1));
+        run_on(&mut files.clone(), &[path, b"x\0"], 1, body)
+    };
+    assert_eq!(dirfd(OpenMode::Probe, b"d\0"), 4);
+    assert_eq!(dirfd(OpenMode::Read, b"d\0"), 4);
+    assert_eq!(dirfd(OpenMode::Probe, b"f\0"), -20);
+    assert_eq!(dirfd(OpenMode::Read, b"f\0"), -20);
+    assert_eq!(dirfd(OpenMode::Create, b"g\0"), -20);
+}
+
+#[test]
+fn a_probe_of_a_folder_is_a_dirfd_for_rename_and_closing_standard_fds_does_nothing() {
+    let mut files = super::Files::default();
+    files.folders.insert("d".to_string());
+    files.files.insert("d/x".to_string(), Vec::new());
+    let mut body = open_slot(OpenMode::Probe, 0, 1);
+    body.extend([LoadSlot(A, 1), Push(A)]);
+    body.extend(push_text_n(1));
+    body.extend(push_text_n(2));
+    body.push(System(Prim::Rename));
+    assert_eq!(run_on(&mut files, &[b"d\0", b"x\0", b"y\0"], 1, body), 0);
+    assert!(files.files.contains_key("d/y"));
+    let mut body = push_const(1).to_vec();
+    body.push(System(Prim::Close));
+    assert_eq!(run_on(&mut files, &[], 0, body), 0);
+}

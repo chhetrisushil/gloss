@@ -8,8 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const ENOTDIR: i64 = -20;
 /// What Linux gives for creating a file where a folder is.
 pub const EISDIR: i64 = -21;
-/// What Linux gives for a bad argument; here a rename of a folder, which irsim does not
-/// model, or of a name that is not one component.
+/// What Linux gives for a bad argument; here a name that is not one component.
 pub const EINVAL: i64 = -22;
 
 /// The files a program sees, and what it did to them.
@@ -108,7 +107,7 @@ impl Files {
         }
         let (from, to) = (join(folder, from), join(folder, to));
         if self.folders.contains(&from) {
-            return Err(EINVAL);
+            panic!("irsim: rename of a folder is not modelled");
         }
         if self.folders.contains(&to) {
             return Err(EISDIR);
@@ -215,10 +214,14 @@ mod tests {
     fn rename_takes_single_names_of_files_and_not_onto_folders() {
         let mut f = sample();
         assert_eq!(f.rename("d", "e/x", "z"), Err(EINVAL));
-        assert_eq!(f.rename("d", "e", "z"), Err(EINVAL));
         assert_eq!(f.rename("d/e", "x", ".."), Err(EINVAL));
-        assert_eq!(f.rename("", "d", "e"), Err(EINVAL));
         f.files.insert("t".to_string(), Vec::new());
         assert_eq!(f.rename("", "t", "d"), Err(EISDIR));
+    }
+
+    #[test]
+    #[should_panic(expected = "rename of a folder is not modelled")]
+    fn renaming_a_folder_is_not_modelled() {
+        let _ = sample().rename("", "d", "z");
     }
 }

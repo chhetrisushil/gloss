@@ -3,6 +3,7 @@
 use super::files::{EISDIR, ENOTDIR, join};
 use super::machine::{Ended, Machine, STACK_SIZE};
 use crate::ir::{CWD, NOT_FOUND, OpenMode, Prim};
+use std::{cell::RefCell, rc::Rc};
 
 /// What `Write` and `Read` give for a file descriptor the program does not have.
 const EBADF: i64 = -9;
@@ -17,14 +18,16 @@ pub enum OpenFile {
     Read(Target, usize),
     Folder(String),
     Create(Target),
-    Probe,
+    /// An `O_PATH` descriptor: with its name, so a folder can be a `dirfd`.
+    Probe(String),
 }
 
 /// The file a descriptor is on. Like an inode, it follows the file when `Rename` moves it;
-/// when `Rename` replaces it, the descriptor keeps the old bytes, which no name reaches.
+/// when `Rename` replaces it, the descriptors keep the old bytes, which no name reaches and
+/// which they share.
 pub enum Target {
     Path(String),
-    Detached(Vec<u8>),
+    Detached(Rc<RefCell<Vec<u8>>>),
 }
 
 impl Machine<'_> {
@@ -45,6 +48,8 @@ impl Machine<'_> {
                 let fd = self.pop();
                 self.a = match self.fds.remove(&fd) {
                     Some(_) => 0,
+                    // Unlike Linux, closing 0-2 does nothing: a later `Write` still works and
+                    // `Open` never gives these numbers out.
                     None if (0..3).contains(&fd) => 0,
                     None => EBADF,
                 };
@@ -136,8 +141,10 @@ impl Machine<'_> {
     fn folder(&self, dir: i64) -> Result<&str, i64> {
         match self.fds.get(&dir) {
             _ if dir == CWD => Ok(""),
-            Some(OpenFile::Folder(base)) => Ok(base),
-            _ => Err(EBADF),
+            Some(OpenFile::Folder(path)) => Ok(path),
+            Some(OpenFile::Probe(path)) if self.files.is_folder(path) => Ok(path),
+            Some(_) => Err(ENOTDIR),
+            None => Err(EBADF),
         }
     }
 
@@ -168,8 +175,11 @@ impl Machine<'_> {
         match mode {
             OpenMode::Read if is_file => Ok(OpenFile::Read(Target::Path(full), 0)),
             OpenMode::Folder if is_file => Err(ENOTDIR),
-            OpenMode::Folder if self.files.is_folder(&full) => Ok(OpenFile::Folder(full)),
-            OpenMode::Probe if self.files.exists(&full) => Ok(OpenFile::Probe),
+            // Linux opens a folder for reading, too; only `Read` on it fails.
+            OpenMode::Read | OpenMode::Folder if self.files.is_folder(&full) => {
+                Ok(OpenFile::Folder(full))
+            }
+            OpenMode::Probe if self.files.exists(&full) => Ok(OpenFile::Probe(full)),
             OpenMode::Create if slash => Err(EISDIR),
             OpenMode::Create => self
                 .files
@@ -191,7 +201,7 @@ impl Machine<'_> {
                 0
             }
             // `fsync` on an `O_PATH` descriptor fails, so a probe cannot be synced.
-            Some(OpenFile::Probe) | None => EBADF,
+            Some(OpenFile::Probe(_)) | None => EBADF,
             Some(_) => 0,
         };
     }
@@ -213,26 +223,28 @@ impl Machine<'_> {
         let folder = self.folder(dir)?.to_string();
         let (full_from, full_to) = (join(&folder, from), join(&folder, to));
         let replaced = self.files.files.get(&full_to).cloned();
-        if self.files.rename(&folder, from, to)? && full_from != full_to {
-            self.follow(&full_from, &full_to, replaced);
+        let moved = self.files.rename(&folder, from, to)?;
+        if full_from != full_to {
+            self.follow(&full_from, &full_to, replaced, moved);
         }
         Ok(())
     }
 
-    /// After the file `from` moved to `to`: descriptors on the file it replaced are detached
-    /// with its bytes, and those on `from` follow it.
-    fn follow(&mut self, from: &str, to: &str, replaced: Option<Vec<u8>>) {
+    /// After `from` was renamed to `to`: descriptors on the file it replaced, if any, are
+    /// detached with its bytes, and, when `from` was a file, those on it follow it.
+    fn follow(&mut self, from: &str, to: &str, replaced: Option<Vec<u8>>, moved: bool) {
+        let detached = replaced.map(|bytes| Rc::new(RefCell::new(bytes)));
         for file in self.fds.values_mut() {
             let (OpenFile::Read(target, _) | OpenFile::Create(target)) = file else {
                 continue;
             };
             match target {
                 Target::Path(path) if path == to => {
-                    if let Some(bytes) = &replaced {
+                    if let Some(bytes) = &detached {
                         *target = Target::Detached(bytes.clone());
                     }
                 }
-                Target::Path(path) if path == from => *path = to.to_string(),
+                Target::Path(path) if moved && path == from => *path = to.to_string(),
                 _ => {}
             }
         }
@@ -249,28 +261,39 @@ impl Machine<'_> {
         }
         self.check(addr, len, false);
         let bytes: Vec<u8> = (0..len).map(|i| self.memory.read_byte(addr + i)).collect();
-        if let Some(OpenFile::Create(target)) = self.fds.get_mut(&fd) {
+        if let Some(OpenFile::Create(target)) = self.fds.get(&fd) {
             match target {
-                Target::Path(path) => self.files.files.entry(path.clone()).or_default(),
-                Target::Detached(content) => content,
+                Target::Path(path) => self
+                    .files
+                    .files
+                    .entry(path.clone())
+                    .or_default()
+                    .extend(bytes),
+                Target::Detached(content) => content.borrow_mut().extend(bytes),
             }
-            .extend(bytes);
         }
         self.a = len as i64;
     }
 
     fn read_file(&mut self, fd: i64, addr: u64, len: u64) {
-        let Some(OpenFile::Read(target, pos)) = self.fds.get(&fd) else {
-            self.a = EBADF;
-            return;
+        let (target, pos) = match self.fds.get(&fd) {
+            Some(OpenFile::Read(target, pos)) => (target, *pos),
+            Some(OpenFile::Folder(_)) => {
+                self.a = EISDIR;
+                return;
+            }
+            _ => {
+                self.a = EBADF;
+                return;
+            }
         };
         let content = match target {
-            Target::Path(path) => self.files.files.get(path).map_or(&[][..], Vec::as_slice),
-            Target::Detached(content) => content,
+            Target::Path(path) => self.files.files.get(path).cloned().unwrap_or_default(),
+            Target::Detached(content) => content.borrow().clone(),
         };
         let chunk: Vec<u8> = content
             .iter()
-            .skip(*pos)
+            .skip(pos)
             .take(len as usize)
             .copied()
             .collect();
