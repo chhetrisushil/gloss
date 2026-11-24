@@ -18,6 +18,7 @@ const B_VALUE: i64 = 0x1111_2222_3333;
 /// The descriptor the first successful `Open` gives (0 to 2 are standard).
 const FD: i64 = 3;
 const EBADF: i64 = -9;
+const ENOTDIR: i64 = -20;
 
 /// What a test puts in the folder: `(name, bytes)` files, folders, `(name, target)` links.
 #[derive(Default)]
@@ -249,4 +250,80 @@ pub fn programs() {
         open(OpenMode::Read, "real/x"),
     ];
     check("link inside", &link, &steps, &[LINK, LINK, LINK, FD], real);
+
+    let steps = [
+        open(OpenMode::Probe, "a.txt"),
+        fd_step(Prim::Close),
+        open(OpenMode::Probe, "nope"),
+    ];
+    check("probe", &a, &steps, &[FD, 0, NOT_FOUND], real);
+    let old = Setup {
+        files: vec![("t", "old bytes")],
+        ..Setup::default()
+    };
+    let steps = [open(OpenMode::Create, "t"), fd_step(Prim::Close)];
+    check("create truncates", &old, &steps, &[FD, 0], real);
+    let rename = |from, to| {
+        let names = vec![Arg::Int(FD), Arg::Text(from), Arg::Text(to)];
+        step(Prim::Rename, names)
+    };
+    let steps = [
+        open(OpenMode::Create, "t.new"),
+        step(
+            Prim::Write,
+            vec![Arg::Int(FD), Arg::Text("data!"), Arg::Int(5)],
+        ),
+        fd_step(Prim::Sync),
+        fd_step(Prim::Close),
+        open(OpenMode::Folder, "."),
+        rename("t.new", "t"),
+        rename("t", "u"),
+        fd_step(Prim::Sync),
+        fd_step(Prim::Close),
+    ];
+    check(
+        "create and rename",
+        &old,
+        &steps,
+        &[FD, 5, 0, 0, FD, 0, 0, 0, 0],
+        real,
+    );
+    let steps = [
+        open(OpenMode::Folder, "."),
+        fd_step(Prim::Sync),
+        open(OpenMode::Folder, "a.txt"),
+        step(Prim::Sync, vec![Arg::Int(77)]),
+    ];
+    check("sync folder", &a, &steps, &[FD, 0, ENOTDIR, EBADF], real);
+    folder_cases(real);
+}
+
+/// Opens and renames relative to a folder descriptor, as `save` does: "beneath" is the
+/// descriptor's folder, not the current one.
+fn folder_cases(real: bool) {
+    let setup = Setup {
+        files: vec![("a.txt", "top"), ("sub/x", "in")],
+        folders: vec!["sub"],
+        ..Setup::default()
+    };
+    let steps = [
+        open(OpenMode::Folder, "sub"),
+        open_in(OpenMode::Read, FD, "x"),
+        open_in(OpenMode::Read, FD, "../a.txt"),
+        open_in(OpenMode::Create, FD, "y"),
+        open(OpenMode::Read, "/a.txt"),
+        open(OpenMode::Probe, "sub"),
+    ];
+    let wants = [FD, FD + 1, ESCAPES, FD + 2, ESCAPES, FD + 3];
+    check("beneath a folder", &setup, &steps, &wants, real);
+    let steps = [
+        open(OpenMode::Folder, "sub"),
+        step(
+            Prim::Rename,
+            vec![Arg::Int(FD), Arg::Text("x"), Arg::Text("z")],
+        ),
+        fd_step(Prim::Sync),
+        fd_step(Prim::Close),
+    ];
+    check("rename in a folder", &setup, &steps, &[FD, 0, 0, 0], real);
 }
