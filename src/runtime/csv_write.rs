@@ -160,8 +160,89 @@ fn csv_cell() -> Function {
     s.finish("csv_cell", 3, 2)
 }
 
+// Slots of `csv_text`.
+const BUILDER: u32 = 1;
+const FIELDS: u32 = 2;
+const FIELD: u32 = 3;
+
+/// Calls `routine(builder, <the pushed word>, line)`; `push` pushes the second argument.
+fn call_with(s: &mut Asm, routine: &str, push: impl FnOnce(&mut Asm)) {
+    s.push_slot(BUILDER);
+    push(s);
+    s.push_arg(3);
+    s.call(routine);
+}
+
+/// Runs `each` for every index of slot `index` below the count in slot `count`.
+fn count_up(s: &mut Asm, index: u32, count: u32, each: impl FnOnce(&mut Asm)) {
+    let (again, done) = (s.label(), s.label());
+    s.i(Const(A, 0));
+    s.i(StoreSlot(index, A));
+    s.i(Mark(again));
+    s.i(LoadSlot(A, index));
+    s.i(LoadSlot(B, count));
+    s.jump_if(Ge, done);
+    each(s);
+    s.i(LoadSlot(A, index));
+    s.i(AddImm(A, 1));
+    s.i(StoreSlot(index, A));
+    s.i(Jump(again));
+    s.i(Mark(done));
+}
+
+/// Puts a comma before every field but the first.
+fn comma_between(s: &mut Asm) {
+    let first = s.label();
+    s.i(LoadSlot(A, FIELD));
+    s.i(Const(B, 0));
+    s.jump_if(Eq, first);
+    call_with(s, "csv_byte", |s| s.push_const(i64::from(b',')));
+    s.i(Mark(first));
+}
+
+/// `csv_text(list, desc, line)`: a fresh text holding the header, the field names of the
+/// record descriptor `desc` in order, comma-separated, ending `\n`. The lines for the
+/// records of `list` follow in the next change.
+fn csv_text() -> Function {
+    let mut s = Asm::default();
+    s.push_const(24);
+    s.push_arg(3);
+    s.call("alloc");
+    s.i(StoreSlot(BUILDER, A));
+    s.i(Const(A, 0));
+    s.i(Push(A));
+    s.i(Push(A));
+    s.push_const(32);
+    s.push_arg(3);
+    s.call("grow_text");
+    s.i(LoadSlot(B, BUILDER));
+    store(&mut s, B, 0, A);
+    s.i(Const(A, 64));
+    store(&mut s, B, 16, A);
+    s.i(LoadArg(A, 2));
+    load(&mut s, A, A, 16);
+    s.i(StoreSlot(FIELDS, A));
+    count_up(&mut s, FIELD, FIELDS, |s| {
+        comma_between(s);
+        s.i(LoadSlot(A, FIELD));
+        s.i(Shift(Shift::Left, 4));
+        s.i(LoadArg(B, 2));
+        s.i(Int(IntOp::Add));
+        load(s, A, A, 24);
+        s.i(Move { to: B, from: A });
+        call_with(s, "csv_add", |s| s.i(Push(B)));
+    });
+    call_with(&mut s, "csv_byte", |s| s.push_const(i64::from(b'\n')));
+    s.i(LoadSlot(A, BUILDER));
+    load(&mut s, B, A, 8);
+    load(&mut s, A, A, 0);
+    store(&mut s, A, 0, B);
+    s.i(Return);
+    s.finish("csv_text", 3, 3)
+}
+
 pub fn routines() -> Vec<Function> {
-    vec![csv_byte(), csv_add(), csv_cell()]
+    vec![csv_byte(), csv_add(), csv_cell(), csv_text()]
 }
 
 #[cfg(test)]
@@ -262,5 +343,43 @@ mod tests {
         assert_eq!(cell(b"cr\rhere"), b"\"cr\rhere\"");
         let long = [vec![b'z'; 300], b",".to_vec()].concat();
         assert_eq!(cell(&long), [b"\"", &long[..], b"\""].concat());
+    }
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::super::tests::{program, run};
+    use crate::ir::{Data, Desc, Inst::*, Module, Reg::A};
+
+    /// The CSV text of an empty table `E` with the fields `name`, `amount` and `paid`.
+    fn csv() -> Vec<u8> {
+        let mut descs = Module::default();
+        let kinds = [Desc::Text, Desc::Number, Desc::Truth];
+        let names = ["name", "amount", "paid"];
+        let list = (0..3)
+            .map(|i| (names[i].to_string(), descs.desc(kinds[i].clone())))
+            .collect();
+        let at = descs.desc(Desc::Record {
+            name: "E".into(),
+            fields: list,
+        });
+        let mut body = vec![Const(A, 4), Push(A), Const(A, 0), Push(A)];
+        body.extend([
+            Call("list_new".into()),
+            Push(A),
+            AddressOf(A, Data::Desc(at)),
+        ]);
+        body.extend([Push(A), Const(A, 0), Push(A), Call("csv_text".into())]);
+        body.extend([Push(A), Call("out_text".into()), Call("flush".into())]);
+        let mut m = program(body, &[]);
+        m.descs = descs.descs;
+        let out = run(&m);
+        assert_eq!(out.status, 0);
+        out.stdout
+    }
+
+    #[test]
+    fn an_empty_table_is_its_header_line() {
+        assert_eq!(csv(), b"name,amount,paid\n");
     }
 }
