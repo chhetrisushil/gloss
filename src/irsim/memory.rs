@@ -49,6 +49,7 @@ fn global_address(g: Global) -> u64 {
     GLOBAL_BASE + before.map(|&other| global_size(other)).sum::<u64>()
 }
 
+#[derive(Clone)]
 pub struct Memory {
     bytes: HashMap<u64, u8>,
     text_addrs: Vec<u64>,

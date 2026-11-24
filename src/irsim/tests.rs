@@ -1408,3 +1408,132 @@ fn a_read_only_folder_refuses_create_directly_in_it_only() {
     assert_eq!(run_faulty(&mut files, faults(), &texts, fine), 3);
     assert!(files.files.contains_key("g"));
 }
+
+/// Writes the one byte of text `n` to `fd`; text 0 is "c", 1 is "p", 2 is "e", 3 is "f".
+fn say(n: u32, fd: i64) -> Vec<Inst> {
+    let mut body = Vec::new();
+    body.extend(push_const(fd));
+    body.extend(push_text_n(n));
+    body.extend(push_const(1));
+    body.push(System(Prim::Write));
+    body
+}
+
+fn exit_with(status: i64) -> Vec<Inst> {
+    vec![Const(A, status), Push(A), System(Prim::Exit)]
+}
+
+/// `Fork` into slot `slot`; the child, whose result is 0, continues at `child`.
+fn fork_into(slot: u32, child: u32) -> Vec<Inst> {
+    vec![
+        System(Prim::Fork),
+        StoreSlot(slot, A),
+        Const(B, 0),
+        Compare,
+        JumpIf(Cond::Eq, Label(child)),
+    ]
+}
+
+/// `Wait` for the pid in `slot`; the status is in `a`.
+fn wait_for(slot: u32) -> Vec<Inst> {
+    on_slot(Prim::Wait, slot).to_vec()
+}
+
+fn forking(slots: u32, body: Vec<Inst>) -> super::Outcome {
+    let mut m = with_slots(slots, body);
+    for text in [b"c\0", b"p\0", b"e\0", b"f\0"] {
+        m.text(text);
+    }
+    run(&m, "f", b"")
+}
+
+#[test]
+fn a_child_gets_zero_and_the_parent_the_pid() {
+    let mut body = fork_into(1, 1);
+    body.extend(say(1, 1));
+    body.extend(wait_for(1));
+    body.extend([Push(A), System(Prim::Exit), Mark(Label(1))]);
+    body.extend(say(0, 1));
+    body.extend(exit_with(7));
+    let outcome = forking(1, body);
+    assert_eq!(outcome.stdout, b"cp");
+    assert_eq!(outcome.status, 7);
+}
+
+#[test]
+fn a_child_cannot_change_the_parents_memory() {
+    let cell = |from| Store {
+        base: B,
+        offset: 0,
+        from,
+    };
+    let mut body = vec![
+        AddressOf(B, Data::Global(Global::OutBuf)),
+        Const(A, 5),
+        cell(A),
+    ];
+    body.extend(fork_into(1, 1));
+    body.extend(wait_for(1));
+    body.extend([
+        AddressOf(B, Data::Global(Global::OutBuf)),
+        Load {
+            to: A,
+            base: B,
+            offset: 0,
+        },
+        Push(A),
+        System(Prim::Exit),
+        Mark(Label(1)),
+        AddressOf(B, Data::Global(Global::OutBuf)),
+        Const(A, 99),
+        cell(A),
+    ]);
+    body.extend(exit_with(0));
+    assert_eq!(forking(1, body).status, 5);
+}
+
+#[test]
+fn a_childs_files_and_output_reach_the_parent() {
+    let mut body = fork_into(1, 1);
+    body.extend(wait_for(1));
+    body.extend([Push(A), System(Prim::Exit), Mark(Label(1))]);
+    body.extend(open_text(OpenMode::Create, 3));
+    body.extend(say(2, 2));
+    body.extend(exit_with(0));
+    let outcome = forking(1, body);
+    assert_eq!(outcome.stderr, b"e");
+    assert!(outcome.files.files.contains_key("f"));
+}
+
+#[test]
+fn waiting_for_an_unknown_child_is_an_error() {
+    let mut body = push_const(5).to_vec();
+    body.extend([System(Prim::Wait), Push(A), System(Prim::Exit)]);
+    assert_eq!(
+        forking(0, body).status as u8 as i8 as i64,
+        super::system::ECHILD
+    );
+}
+
+#[test]
+fn two_children_wait_in_any_order() {
+    let mut body = fork_into(1, 1);
+    body.extend(fork_into(2, 2));
+    body.extend(wait_for(2));
+    body.push(StoreSlot(3, A));
+    body.extend(wait_for(1));
+    body.extend([
+        StoreSlot(4, A),
+        LoadSlot(A, 3),
+        Shift(crate::ir::Shift::Left, 4),
+        LoadSlot(B, 4),
+        Int(IntOp::Or),
+        Push(A),
+        System(Prim::Exit),
+        Mark(Label(1)),
+    ]);
+    body.extend(exit_with(3));
+    body.push(Mark(Label(2)));
+    body.extend(exit_with(4));
+    assert_eq!(forking(4, body).status, 0x43);
+}

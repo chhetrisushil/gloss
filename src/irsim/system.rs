@@ -3,10 +3,12 @@
 use super::files::{EISDIR, ENOTDIR, join};
 use super::machine::{Ended, Machine, STACK_SIZE};
 use crate::ir::{CWD, ESCAPES, NOT_FOUND, OpenMode, Prim};
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, mem::take, rc::Rc};
 
 /// What `Write` and `Read` give for a file descriptor the program does not have.
 const EBADF: i64 = -9;
+/// What `Wait` gives for a pid that is not a child: Linux's `-ECHILD`.
+pub(super) const ECHILD: i64 = -10;
 /// What a `Write` that a test makes fail, and what such a `Read` gives.
 const EIO: i64 = -5;
 /// What a test's `failing_open` gives: Linux's permission error.
@@ -18,6 +20,7 @@ fn parent(path: &str) -> &str {
 }
 
 /// A descriptor `Open` handed out.
+#[derive(Clone)]
 pub enum OpenFile {
     /// Read only, with how much has been read.
     Read(Target, usize),
@@ -30,6 +33,7 @@ pub enum OpenFile {
 /// The file a descriptor is on. Like an inode, it follows the file when `Rename` moves it;
 /// when `Rename` replaces it, the descriptors keep the old bytes, which no name reaches and
 /// which they share.
+#[derive(Clone)]
 pub enum Target {
     Path(String),
     Detached(Rc<RefCell<Vec<u8>>>),
@@ -63,9 +67,59 @@ impl Machine<'_> {
             Prim::Mode => self.mode(),
             Prim::SetMode => self.set_mode(),
             Prim::Rename => self.rename(),
-            Prim::Fork | Prim::Wait => panic!("Fork and Wait arrive in task 2"),
+            Prim::Fork => self.fork(),
+            Prim::Wait => {
+                let pid = self.pop();
+                self.a = self.children.remove(&pid).map_or(ECHILD, i64::from);
+            }
         }
         None
+    }
+
+    /// Runs a clone of the machine as the child until it exits; the parent then continues. The
+    /// parent keeps its own memory, registers, frames and `fds`, but shares the output, the
+    /// files, the input and its position and the `writes` and `file_reads` counters (a fault budget
+    /// counts across processes, like `writes`), and the pid counter, with the child.
+    ///
+    /// Limits: the child always runs to completion first, so a case compared with a real
+    /// executable must not write in the parent between `Fork` and `Wait` (that order is a race
+    /// on Linux). There are no signals: a child fault panics the whole run, and `Wait` never
+    /// gives `256 + signal`. A parent holding descriptors from `Open` panics, because real
+    /// children share their offsets and follow renames, which `fds` does not model.
+    fn fork(&mut self) {
+        assert!(
+            self.fds.is_empty(),
+            "irsim: fork with open files is not modelled"
+        );
+        let pid = self.next_pid;
+        self.next_pid += 1;
+        // Move the shared buffers to the child rather than cloning them.
+        let (stdout, stderr) = (take(&mut self.stdout), take(&mut self.stderr));
+        let (files, stdin) = (take(&mut self.files), take(&mut self.stdin));
+        let mut child = self.clone();
+        (child.stdout, child.stderr, child.files, child.stdin) = (stdout, stderr, files, stdin);
+        child.a = 0;
+        loop {
+            match child.step() {
+                None => {}
+                Some(Ended::Exited(status)) => {
+                    self.children.insert(pid, status);
+                    break;
+                }
+                Some(Ended::Returned(_)) => {
+                    panic!("irsim: a forked child returned from the program's entry")
+                }
+            }
+        }
+        self.stdout = child.stdout;
+        self.stderr = child.stderr;
+        self.files = child.files;
+        self.stdin = child.stdin;
+        self.writes = child.writes;
+        self.file_reads = child.file_reads;
+        self.stdin_pos = child.stdin_pos;
+        self.next_pid = child.next_pid;
+        self.a = pid;
     }
 
     /// Pops `addr` and `len` of a transfer, whose `fd` was pushed first; gives `fd`, too.

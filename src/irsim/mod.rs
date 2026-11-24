@@ -31,7 +31,7 @@ pub struct Outcome {
 }
 
 /// Faults a test can make `Write` show, as a real kernel sometimes does.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Faults {
     /// The initial stack's auxiliary vector has no `AT_EXECFN` entry.
     pub no_exec_name: bool,
