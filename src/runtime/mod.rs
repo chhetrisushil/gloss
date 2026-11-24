@@ -61,12 +61,13 @@ const CANNOT_READ: u32 = 24;
 const NOT_FOUND_NOTICE: u32 = 25;
 const NOT_UTF8: u32 = 26;
 const LINE_N: u32 = 27;
+const UNCLOSED: u32 = 28;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 28] = [
+const TEXTS: [&[u8]; 29] = [
     b"line ",
     b": failure ",
     b": ",
@@ -95,6 +96,7 @@ const TEXTS: [&[u8]; 28] = [
     b" not found; starting with an empty table\n",
     b" is not UTF-8 text (line ",
     b" line ",
+    b"a quoted cell is not closed",
 ];
 
 /// The bytes of the runtime text `i`.
