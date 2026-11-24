@@ -1,9 +1,9 @@
 # Gloss v0 compiler - design spec
 
 - **Date:** 2026-11-22
-- **Status:** built (milestones 1 to 3, section 6); milestones 4–7 not started
+- **Status:** built (milestones 1 to 3, section 6); milestone 4 designed (section 4.8, D30–D40), not started; milestones 5–7 not started
 - **Context:** Implements the language defined in `spec/v0.md` (the *language spec*). This document decides *how* the compiler is built. Where the two disagree about the language, the language spec wins. Where they disagree about the implementation, this document wins.
-- **Plans:** `docs/plans/2026-11-22-compiler-m1-front-end.md` (milestone 1). Milestone 2: `docs/plans/2026-11-23-compiler-m2-codegen.md`. Milestone 3: `docs/plans/2026-11-24-compiler-m3-tables-files.md`. Later milestones get their own plans.
+- **Plans:** `docs/plans/2026-11-22-compiler-m1-front-end.md` (milestone 1). Milestone 2: `docs/plans/2026-11-23-compiler-m2-codegen.md`. Milestone 3: `docs/plans/2026-11-24-compiler-m3-tables-files.md`. Milestone 4: `docs/plans/2026-11-24-compiler-m4-tests.md`. Later milestones get their own plans.
 
 ## 1. Goals and non-goals
 
@@ -51,6 +51,17 @@ Non-goals (and why):
 | D27 | Which builds print the permission list? | Only programs that declare a table. The language spec says every build; a program with no tables would print only `nothing else`, so it prints `Built x` as in M2. `--permissions` works on every executable. | Avoids noise on every build. Deviation from spec §8, accepted by the owner, 2026-11-24. |
 | D28 | What does `.allow` hold? | Exactly the current program's list after every successful build, written atomically and only when it changes. A file the program no longer uses, or no longer saves, loses its approval. | The safer direction: adding access back needs a new approval, and every change shows in a diff. Owner, 2026-11-24. |
 | D29 | How are files tested? | Run cases carry a `<name>.files/` folder copied in before the run and a `<name>.after/` folder that must match the folder afterwards exactly; symbolic links come from `<name>.links`. `irsim` gets an in-memory file system seeded from the same folder, so file cases are differential too (D21). | One case format for real runs and `irsim`; links are not committed to git. |
+| D30 | How is milestone 4 split? | Two parts, as D5 says. **M4a plain tests:** the `gloss test` CLI, the fork driver, `expect`, run-time failures inside tests, and tables that start empty (`append` works; no `load` or `save`). **M4b fixtures:** `input`, `shown` and pretend files. Fixtures are a second backend for the runtime's console and file routines, used only in test builds; the CSV reading and writing code is shared, and only where the bytes come from and go to changes. | Plain tests work first, as the language spec's build order says (§12 step 3); fixtures can slip to v0.1 without touching anything else. Owner, 2026-11-24. |
+| D31 | What is the test executable? | `lower` gets a test mode (`lower_tests`) whose entry `_start` runs a **driver**, not `start`. For each test, in source order, the driver flushes output, forks and waits. The child runs the test and prints its own block, `pass  <title>` or `fail  <title>` followed by the details indented 6 spaces, then exits 0 for pass or 1 for fail. The parent counts the results and finally prints a blank line and `N passed, M failed`. A child that ends any other way gets `fail  <title>` and `      ended without a result (status N)` from the parent. Each child starts from the parent's untouched state, so tables start empty and counted as cleared. | A forked child needs no unwinding and no way to catch a failure: the failure routines already end the process. Isolation is free. Owner, 2026-11-24. |
+| D32 | How do the driver and the child talk to the operating system? | Two new primitives, `Fork` and `Wait`. Their Linux numbers (`fork` 57, `wait4` 61) and the decoding of the wait status live only in `src/target/` (D18). `Wait(pid)` gives the child's exit status (0 to 255), or `256 + signal` when a signal ended it, or a negative error. `irsim` models `Fork` by cloning the machine and running the clone to its end inside the call (D21). | Everything else the driver does is runtime written in IR (D19). Owner, 2026-11-24. |
+| D33 | What does `gloss test` print? | The owner's preview, exactly:<br>`pass  category total counts only the matching category`<br>`fail  largest expense is found`<br>`      line 23: expect name of largest_expense is "Dinner"`<br>`      shown:`<br>`        Largest so far: Bus at 40`<br>`pass  a cost that is not a number is asked for again`<br>(blank line)<br>`2 passed, 1 failed`<br>The `shown:` part appears only if the test printed something. Titles print as written; titles are checked unique already. | It reads like the language spec's promise (a non-programmer can see which promise broke). Owner, 2026-11-24. |
+| D34 | What does a failure inside a test do? | A failed `expect` stops the test and reports `line N: expect <condition as gloss format writes it>`. A run-time failure prints its normal message (`line 5: failure 1: dividing by zero (people is 0)`) under the title, not on standard error, and fails only that test. `show` in a test is quiet: it appends to `shown`. `ask` prompts are not part of `shown`. | Matches the language spec: output appears only for a failing test, under its title. Owner, 2026-11-24. |
+| D35 | What does `ask` do in a test? | It takes the next `input` answer. With none left the test fails with `the test gave 2 answers but line 31 asked a third question`. Standard input is never read. | The language spec's own wording (§9). Singular and plural forms are ruled in §4.8. |
+| D36 | How do tables and files behave in a test? | Each table has an in-memory file that starts missing. `save` and `load` use the real CSV writer and reader (`csv_text`, the `table_read` parser), so failures 6 to 8 live in the same code. A test build contains no real file primitive: its IR has no `Open`, `Rename`, `Sync`, `Mode`, `SetMode`; a lowering test asserts it. | Tests need no approval and cannot touch a real file (§9). One CSV implementation means a test of `load` tests the real parser. Owner, 2026-11-24. |
+| D37 | What does `gloss test x.gloss` do? | Checks the program, tests included. Builds the test executable into a private temporary folder (mode 0700), runs it, deletes it. Never writes beside the source, never reads or writes `.allow`. Exits 0 if all tests pass, 1 if any fails, 3 on a compile error. A program with no tests prints `No tests in x.gloss` and exits 0. | Language spec §11: `test` never asks. Owner, 2026-11-24. |
+| D38 | `gloss test` on a host that cannot run x86-64 Linux programs? | It refuses with `gloss test runs tests on Linux only` and status 3. A ruling, recorded as a deviation risk: the language spec says `gloss test` "builds and runs" without naming a platform. | The compiler does not ship an interpreter (§1), so it can only run what the OS can run. Owner, 2026-11-24. |
+| D39 | How is M4 tested? | New cases `tests/test_cases/<name>.gloss` with `.out` (standard output) and `.status`, run as real executables through `GLOSS_RUNNER` and under `irsim`, which must agree (D21). The CLI's build step is a library function (`build_test_executable`) so the harness can build a test executable on the Mac and run it through the runner. The language spec's §13 program becomes a case; the examples gain tests. Negative cases show isolation: a failing `expect`, failure 10 in one test and a missing `input`, while the other tests still pass. | One case format for both engines, as D29. Owner, 2026-11-24. |
+| D40 | Accepted risk: a test that loops forever. | The run hangs. v0 has no time limit. | A limit needs a clock primitive and a policy; neither is worth it before someone hits it. Owner, 2026-11-24. |
 
 ## 3. Rejected alternatives
 
@@ -66,6 +77,8 @@ Non-goals (and why):
 | A parser generator, or `logos`/`chumsky` | Adds dependencies (D3) and makes exact messages harder | n/a |
 | A snapshot-testing crate (`insta`) | Adds a dependency (D3); `.expected` files do the same job | n/a |
 | Error recovery in the parser | Complex, and the first error is enough at this program size | Users routinely hit several parse errors at once |
+| Run each test in-process and catch failures (unwinding, or a failure routine that returns) | Every failure routine ends the process today; making them return touches every call site, and one test's damage (heap, tables, globals) could leak into the next | Fork becomes unavailable on a target |
+| Capture a child's standard error through a pipe (`Pipe` and `Dup2` primitives) | Two more primitives and more states to model in `irsim`, when the test backend can send failure text to a buffer by itself (D36) | The test backend and the real runtime drift apart |
 
 ## 4. Design
 
@@ -207,6 +220,61 @@ Cell text in a message follows failure 5's rules: at most 40 characters, invisib
 **Testing (D29).** Every message above has a run case with an exact `.err` and status 2. The unreadable-file and unwritable-folder cases skip visibly when run as root. Durability cannot be tested by pulling the power; a unit test on the generated IR checks the order `fsync`, `renameat`, `fsync` of the folder. `tests/cli.rs` covers: a first build answered yes and no, no terminal and no `--allow` (status 4, no executable), `--allow` writing `.allow`, a build covered by `.allow` (asks nothing, still prints the list), read only becoming read and replace, a dropped file shrinking `.allow`, and a broken `.allow` (status 3). Examples gain an expense tracker (`load`, `append`, `save`) and a read-only report.
 
 **Reviews.** The security boundary gets its first review on the top tier: the approval logic and `.allow` parsing, the open and save paths, symbolic-link handling, safe writing, the new primitives in the encoder, and the CSV reader, which parses untrusted input.
+
+### 4.8 Milestone 4: tests
+
+**Scope.** `gloss test x.gloss` (D37) builds and runs every `test` block. M4a (D30): the CLI, the driver, `expect`, run-time failures inside tests, tables that start empty. M4b: `input`, `shown`, pretend files. A program with no tests prints `No tests in x.gloss` (status 0) and builds nothing.
+
+**Pipeline.** check (tests included) → `lower_tests` (IR for the features, one function `t_<i>` per test in source order, the driver, and the reachable runtime with the test backend) → the same x86-64 backend and ELF writer as `build`. The entry `_start` of a test module is the driver's: `heap_init; stack_init; tables_init; test_main; flush; exit(status)`, where `test_main` gives 0 when every test passed and 1 otherwise. `--permissions` is not part of a test executable.
+
+**The driver (D31, D32).** `test_main` is generated IR, one block per test:
+
+```
+flush            (the parent's output buffer is empty, so no child repeats it)
+Fork
+child (0):  set the title in the test state; call t_<i>; call test_pass   (never returns)
+parent:     Wait(pid); 0 -> passed + 1;  1 -> failed + 1;
+            anything else -> report_lost(title, status); failed + 1
+```
+
+After the last test the parent prints a blank line and `N passed, M failed`, with `N` and `M` written through `number_text`. The parent never runs test code, so every child starts from the same untouched heap, tables and globals.
+
+**Reporting.** `test_pass` and `test_fail` write straight to descriptor 1 with `Prim::Write` through their own routine (`report_bytes`), not through `write_all` or the output buffer, because those are the test backend's (below). A block is written in a few whole writes after the test ended. `test_fail` prints `fail  <title>`, then each line of the failure text indented 6 spaces, then, if the test printed anything, `      shown:` and each shown line indented 8 spaces. It exits 1.
+
+**The test state.** One new global, `Global::TestState` (2 KiB), holds, as 8-byte words: the title (a text), the `shown` bytes (pointer, length, room), the `input` answers (a list of text, and the index of the next one), a `failing` flag, and the failure text (a length word and a fixed byte area of 1,792 bytes; extra bytes are dropped). The failure text is a fixed area because failure routines must not allocate: out of memory (failure 10) is itself a failure that has to be reported (see `err_number`'s test in M2).
+
+**The test backend (D30, D36).** `add_reachable` takes a `Backend { Real, Test }`. With `Test`, these routines are replaced, by name, with test versions; nothing else in the runtime changes:
+
+| Routine | Real | Test |
+|---|---|---|
+| `write_all(fd, addr, len)` | writes to the descriptor | fd 1: appends to the `shown` bytes (dropped when `failing` is set and they are full, since growing them could fail again); fd 2: appends to the failure text |
+| `fail_begin(line, code)` | flush, then `line N: failure C: ` to fd 2 | sets `failing`, flushes (so pending `show` output reaches `shown`), then writes the same text through `write_all` |
+| `fail_end()` | newline, exit 2 | calls `test_fail` (no newline) |
+| `ask(question, line)` | prompt, read a line | takes the next answer, or fails the test (D35); nothing is printed |
+| `table_read`'s file half | `file_bytes` | the table's pretend file; a missing file gives an empty table and no notice |
+| `table_save` | `Open`, `Rename`, `Sync` | `csv_text` into the table's pretend file |
+
+For this to work, `err_int` must write through `write_all` (today it issues the `Write` primitive itself, `src/runtime/output.rs:173`), and `table_read` is split in two: `table_read` (bytes from `file_bytes`) and `table_rows` (the parser). In test mode, `load` is lowered to `pretend_read` (which hands `table_rows` the pretend file's text, or 0 for missing) and `save` to `pretend_save` (which stores the result of `csv_text`); both take the table's index. A table's entry in the tables block is three words in a test build: list, loaded flag (**1**: tests start with cleared tables), pretend file (0 for missing).
+
+**Test statements and expressions.**
+- `expect cond`: `condition(cond, fail)`; the failure block calls `test_expect(line, source)`, which writes `line N: expect <source>` into the failure text and calls `test_fail`. `<source>` is the condition as `gloss format` writes it (`ast::print::expr`), invisible characters as `\u{XXXX}`, as in every failure message (M2-R30).
+- `input a, b, c`: each item must be text (a checker error otherwise, plan ruling P3); the answers are appended to the queue.
+- `shown`: a fresh `list of text` made by `shown_list(line)`: flush, then split the shown bytes at each `\n` (a line is every byte up to a `\n`).
+- `run start` and every other statement lower as in a feature; a test's variables get slots from `TestInfo`.
+- Failures 6, 7 and 8 cannot happen in a test: every table counts as cleared, and the pretend file only ever holds text the CSV writer made. They live in shared code and are reachable only from a unit test that hands the parser bad bytes.
+
+**Messages (binding).**
+- `the test gave N answer(s) but line L asked a <ordinal> question`: `N` is the number of answers queued so far, `answer` when it is 1 and `answers` otherwise (`0 answers`); the ordinal is the word for the number of the question asked (`first` to `tenth`), and from the eleventh on `a <ordinal> question` becomes `question number K`. Examples: `the test gave 0 answers but line 7 asked a first question`; `the test gave 1 answer but line 7 asked a second question`; `the test gave 2 answers but line 31 asked a third question`; `the test gave 10 answers but line 4 asked question number 11`.
+- `ended without a result (status N)`: `N` is `Wait`'s result (a signal shows as `256 + signal`).
+- `No tests in x.gloss`, `gloss test runs tests on Linux only`.
+
+**The CLI (D37, D38).** `run` handles `test` before the milestone table. Steps: read and check (the same diagnostics, sorted, and the `.gloss` suffix rule); on an error exit 3; if the program has no test print `No tests in <name>` and exit 0; if the host is not x86-64 Linux print `gloss test runs tests on Linux only` to standard error and exit 3 (after the compile errors, so a Mac user still sees them); build the module through `Checked::test_executable()`; create a private folder (`DirBuilder`, mode 0700, a fresh name under `std::env::temp_dir()`), write the executable there (mode 0700), run it with inherited standard input, output and error, and delete the folder on every path, a panic included (a drop guard). The test run's exit status 0 or 1 is `gloss test`'s; anything else prints `the test run ended without finishing (status N)` to standard error and exits 1. `--allow` is a usage error for `test`.
+
+The library function the harness calls is `build_test_executable(text) -> Result<Vec<u8>, Vec<Diagnostic>>`, the test-mode twin of `build_executable`; the CLI uses `Checked::test_executable`.
+
+**Testing (D39).** `tests/test_cases/<name>.gloss` with `<name>.out`, optional `.err` (default empty) and `.status` (default 0); a sweep like D13's (`MIN_TEST_CASES`) shared by `tests/test_cases.rs` (real executables) and `src/irsim/test_cases.rs` (`irsim`). `tests/cli.rs` covers: no tests, a compile error (3), the Linux-only refusal (the deciding function is unit tested, since a Linux host cannot show it), and, on Linux, all pass and one fails. A lowering test asserts that a test module's IR contains no `Open`, `Rename`, `Sync`, `Mode` or `SetMode` (D36). Spec §13's complete program is `tests/test_cases/expense_tracker.gloss`; the examples gain tests, and `tests/examples.rs` also runs `gloss test` on each.
+
+**Reviews.** `Fork` and `Wait` (target numbers, status decoding, the `irsim` clone) and the pretend-file backend (the swap, and the claim that no real file primitive remains) get their first review on the top tier.
 
 ## 5. Open questions for the owner
 
