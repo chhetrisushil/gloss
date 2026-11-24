@@ -1,0 +1,11 @@
+record Expense
+  name as text
+  amount as number
+
+table expenses of Expense in "expenses.csv"
+
+feature start
+  clear expenses
+  append Expense with name "jam", amount 4.25 to expenses
+  save expenses
+  show "saved ", count of expenses
