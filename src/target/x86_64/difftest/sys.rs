@@ -3,9 +3,9 @@
 
 use super::{program, write_text, write_words};
 use crate::ir::Reg::{A, B};
-use crate::ir::{Cond, Data, Global, Inst, Module, Prim};
+use crate::ir::{Cond, Data, Function, Global, Inst, Label, Module, Prim};
 
-const B_VALUE: i64 = 0x1111_2222_3333;
+pub const B_VALUE: i64 = 0x1111_2222_3333;
 
 fn out_buf(offset: i32) -> Vec<Inst> {
     vec![
@@ -138,6 +138,71 @@ fn exit_with(status: i64) -> Module {
     m
 }
 
+/// Forks; the child runs `child`, which must exit. The parent, with `b` set before the fork
+/// and a word pushed before the wait, waits for the child and writes the status, `b` and the
+/// word: `b` surviving both calls and `rsp` being as it was show in the output.
+pub fn fork_wait(child: &[Inst]) -> Module {
+    let mut body = vec![
+        Inst::Enter(2),
+        Inst::Const(B, B_VALUE),
+        Inst::System(Prim::Fork),
+        Inst::StoreSlot(1, A),
+        Inst::StoreSlot(2, B),
+        Inst::Const(B, 0),
+        Inst::Compare,
+        Inst::JumpIf(Cond::Eq, Label(1)),
+        Inst::LoadSlot(B, 2),
+    ];
+    body.extend(push(0x5eed));
+    body.extend([
+        Inst::LoadSlot(A, 1),
+        Inst::Push(A),
+        Inst::System(Prim::Wait),
+        Inst::Push(B),
+        Inst::Push(A),
+    ]);
+    body.extend(write_words(3));
+    body.extend(push(0));
+    body.push(Inst::System(Prim::Exit));
+    body.push(Inst::Mark(Label(1)));
+    body.extend(child.iter().cloned());
+    let mut m = Module::default();
+    m.functions.push(Function {
+        name: "_start".into(),
+        params: 0,
+        slots: 2,
+        body,
+    });
+    m
+}
+
+/// A child that exits with `status`.
+pub fn child_exits(status: i64) -> Vec<Inst> {
+    let mut body = push(status);
+    body.push(Inst::System(Prim::Exit));
+    body
+}
+
+/// A child that stores through a null pointer: Linux ends it with `SIGSEGV`, which irsim
+/// does not model.
+pub fn child_faults() -> Vec<Inst> {
+    vec![
+        Inst::Const(A, 0),
+        Inst::Store {
+            base: A,
+            offset: 0,
+            from: A,
+        },
+    ]
+}
+
+/// `Wait` for a pid that is no child of this process (above Linux's `pid_max`).
+fn wait_stranger() -> Module {
+    let mut m = Module::default();
+    finish(&mut m, push(99_999_999), Prim::Wait, Vec::new());
+    m
+}
+
 /// Calls `each` with the name, module and standard input of every program.
 pub fn programs(each: &mut dyn FnMut(&str, &Module, &[u8])) {
     each("write out", &write_to(1), b"");
@@ -154,4 +219,12 @@ pub fn programs(each: &mut dyn FnMut(&str, &Module, &[u8])) {
     for status in [0, 7, 255, 256, 257, -1] {
         each(&format!("exit {status}"), &exit_with(status), b"");
     }
+    for status in [0, 3, 255] {
+        each(
+            &format!("fork exit {status}"),
+            &fork_wait(&child_exits(status)),
+            b"",
+        );
+    }
+    each("wait stranger", &wait_stranger(), b"");
 }

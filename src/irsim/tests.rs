@@ -1520,6 +1520,28 @@ fn waiting_for_an_unknown_child_is_an_error() {
 }
 
 #[test]
+#[should_panic(expected = "irsim: wait for a pid of 0 or less is not modelled")]
+fn waiting_for_a_pid_of_zero_panics() {
+    let mut body = push_const(0).to_vec();
+    body.push(System(Prim::Wait));
+    forking(0, body);
+}
+
+#[test]
+fn a_child_has_no_children_of_its_own() {
+    // The second child waits for the first, which is its sibling: -10, as on Linux.
+    let mut body = fork_into(1, 1);
+    body.extend(fork_into(2, 2));
+    body.extend(wait_for(2));
+    body.extend([Push(A), System(Prim::Exit), Mark(Label(1))]);
+    body.extend(exit_with(3));
+    body.push(Mark(Label(2)));
+    body.extend(wait_for(1));
+    body.extend([Push(A), System(Prim::Exit)]);
+    assert_eq!(forking(2, body).status, 246);
+}
+
+#[test]
 fn two_children_wait_in_any_order() {
     let mut body = fork_into(1, 1);
     body.extend(fork_into(2, 2));
