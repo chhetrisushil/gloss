@@ -1,0 +1,16 @@
+record Row
+  name as text
+  qty as number
+
+table rows of Row in "rows.csv"
+
+feature start
+  append Row with name "tea", qty 2 to rows
+  append Row with name "jam", qty 5 to rows
+  append Row with name "rye", qty 7 to rows
+  set qty of item 2 of rows to 6
+  for each row in rows
+    add 1 to qty of row
+  show rows
+  show count of rows
+  show name of first of rows, " ", qty of last of rows
