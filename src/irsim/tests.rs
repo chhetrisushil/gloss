@@ -1233,3 +1233,51 @@ fn a_descriptor_follows_its_file_through_a_rename_and_keeps_a_replaced_one() {
     assert_eq!(files.files.keys().collect::<Vec<_>>(), ["b"]);
     assert_eq!(files.files["b"], b"xyz".to_vec());
 }
+
+/// Runs `body` with `faults`, which exits with `a` as a signed byte.
+fn run_faulty(
+    files: &mut super::Files,
+    faults: super::Faults,
+    texts: &[&[u8]],
+    body: Vec<Inst>,
+) -> i64 {
+    let mut m = with_slots(2, [body, vec![Push(A), System(Prim::Exit)]].concat());
+    for text in texts {
+        m.text(text);
+    }
+    super::run_with(&m, "f", b"", &[], faults, files).status as u8 as i8 as i64
+}
+
+#[test]
+fn a_failing_open_gives_eacces_for_its_path_only() {
+    let mut files = super::Files::default();
+    files.files.insert("g".to_string(), Vec::new());
+    let faults = || super::Faults {
+        failing_open: Some("f".to_string()),
+        ..super::Faults::default()
+    };
+    let texts: [&[u8]; 2] = [b"f\0", b"g\0"];
+    let denied = open_text(OpenMode::Create, 0);
+    assert_eq!(run_faulty(&mut files, faults(), &texts, denied), -13);
+    assert!(!files.files.contains_key("f"));
+    let fine = open_text(OpenMode::Read, 1);
+    assert_eq!(run_faulty(&mut files, faults(), &texts, fine), 3);
+}
+
+#[test]
+fn a_failing_file_write_fails_valid_descriptors_only() {
+    let mut files = super::Files::default();
+    let faults = || super::Faults {
+        failing_file_write: true,
+        ..super::Faults::default()
+    };
+    let buf = push_global(Global::InBuf);
+    let mut valid = open_slot(OpenMode::Create, 0, 1);
+    valid.extend(transfer(Prim::Write, LoadSlot(A, 1), &buf, 2));
+    assert_eq!(run_faulty(&mut files, faults(), &[b"f\0"], valid), -5);
+    let unknown = transfer(Prim::Write, Const(A, 9), &buf, 2);
+    assert_eq!(run_faulty(&mut files, faults(), &[], unknown), -9);
+    let mut wrong_kind = open_slot(OpenMode::Read, 0, 1);
+    wrong_kind.extend(transfer(Prim::Write, LoadSlot(A, 1), &buf, 2));
+    assert_eq!(run_faulty(&mut files, faults(), &[b"f\0"], wrong_kind), -9);
+}
