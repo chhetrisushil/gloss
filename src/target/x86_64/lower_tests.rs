@@ -4,7 +4,7 @@ use super::encode::encode;
 use super::inst::{Mem, R, X, text};
 use super::lower::lower_function;
 use crate::ir::Reg::{A, B};
-use crate::ir::{Cond, Data, Function, Global, Inst, IntOp, Label, Prim, Shift};
+use crate::ir::{Cond, Data, Function, Global, Inst, IntOp, Label, OpenMode, Prim, Shift};
 
 fn func(params: u32, slots: u32, body: Vec<Inst>) -> Function {
     Function {
@@ -242,6 +242,51 @@ fn system_primitives_pop_their_arguments_in_reverse_and_keep_b() {
         one(Inst::System(Prim::Exit)),
         ["pop rdi", "movabs rax, 231", "syscall"]
     );
+}
+
+#[test]
+fn open_builds_open_how_on_the_stack_and_keeps_b() {
+    let how = |flags: i64, mode: i64| {
+        [
+            "pop rsi".to_string(),
+            "pop rdi".to_string(),
+            "movabs r11, 12".to_string(),
+            "push r11".to_string(),
+            format!("movabs r11, {mode}"),
+            "push r11".to_string(),
+            format!("movabs r11, {flags}"),
+            "push r11".to_string(),
+            "mov rdx, rsp".to_string(),
+            "movabs r10, 24".to_string(),
+            "movabs rax, 437".to_string(),
+            "push rcx".to_string(),
+            "syscall".to_string(),
+            "pop rcx".to_string(),
+            "add rsp, 24".to_string(),
+        ]
+    };
+    let open = |mode| one(Inst::System(Prim::Open(mode)));
+    assert_eq!(open(OpenMode::Read), how(0o2000000, 0)); // O_RDONLY | O_CLOEXEC
+    // O_RDONLY | O_DIRECTORY | O_CLOEXEC: not O_PATH, so the folder can be fsynced (R8).
+    assert_eq!(open(OpenMode::Folder), how(0o2200000, 0));
+    // O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644
+    assert_eq!(open(OpenMode::Create), how(0o2001101, 0o644));
+    assert_eq!(open(OpenMode::Probe), how(0o12000000, 0)); // O_PATH | O_CLOEXEC
+}
+
+#[test]
+fn close_sync_and_rename_pop_their_arguments_in_reverse_and_keep_b() {
+    let call = |number: &str| {
+        ["movabs rax, N", "push rcx", "syscall", "pop rcx"].map(|s| s.replace("N", number))
+    };
+    let close = ["pop rdi".to_string()].into_iter().chain(call("3"));
+    assert_eq!(one(Inst::System(Prim::Close)), close.collect::<Vec<_>>());
+    let sync = ["pop rdi".to_string()].into_iter().chain(call("74"));
+    assert_eq!(one(Inst::System(Prim::Sync)), sync.collect::<Vec<_>>());
+    // renameat(folder, from, folder, to): rdx repeats the folder in rdi.
+    let rename = ["pop r10", "pop rsi", "pop rdi", "mov rdx, rdi"].map(String::from);
+    let rename = rename.into_iter().chain(call("264"));
+    assert_eq!(one(Inst::System(Prim::Rename)), rename.collect::<Vec<_>>());
 }
 
 #[test]
