@@ -148,7 +148,7 @@ pub fn routines() -> Vec<Function> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::{program, run};
+    use super::super::tests::{program, run, xorshift};
     use crate::ir::{Data, Inst::*, Reg::A};
 
     /// What `utf8_valid_up_to` gives for `bytes`, which sit in memory as a text followed by
@@ -189,6 +189,59 @@ mod tests {
                 .chunks(2)
                 .map(|c| c[0] * 16 + c.get(1).copied().unwrap_or(0))
                 .collect();
+            let want = std::str::from_utf8(&bytes).map_or_else(|e| e.valid_up_to(), |s| s.len());
+            assert_eq!(valid_up_to(&bytes), want, "for {bytes:02X?}");
+        }
+    }
+
+    /// Bytes on both sides of every limit a second byte can have, and of the tail range.
+    const EDGES: [u8; 10] = [0x00, 0x7F, 0x80, 0x8F, 0x90, 0x9F, 0xA0, 0xBF, 0xC0, 0xFF];
+    const TAIL: [u8; 4] = [0x7F, 0x80, 0xBF, 0xC0];
+
+    /// Every single byte, every lead byte with each edge after it, every lead from E0 on with
+    /// every edge and tail byte (to four bytes), the characters at each limit, and random
+    /// strings over the bytes that matter. Each is also tried after `ab` and before `z`, so
+    /// the answer is an offset and the end of the text is not the end of the memory.
+    fn sweep() -> Vec<Vec<u8>> {
+        let mut all: Vec<Vec<u8>> = (0..=255u8).map(|b| vec![b]).collect();
+        for lead in 0..=255u8 {
+            all.extend(EDGES.map(|second| vec![lead, second]));
+        }
+        for (lead, second, third) in (0xE0..=0xF5u8).flat_map(|l| {
+            EDGES
+                .iter()
+                .flat_map(move |&s| TAIL.iter().map(move |&t| (l, s, t)))
+        }) {
+            all.push(vec![lead, second, third]);
+            all.extend(TAIL.map(|fourth| vec![lead, second, third, fourth]));
+        }
+        for c in [
+            0, 0x7F, 0x80, 0x7FF, 0x800, 0xD7FF, 0xE000, 0xFFFF, 0x10000, 0x10FFFF,
+        ] {
+            all.push(char::from_u32(c).unwrap().to_string().into_bytes());
+        }
+        let pool = [
+            0x41, 0x7F, 0x80, 0xBF, 0xC2, 0xDF, 0xE0, 0xED, 0xEF, 0xF0, 0xF4, 0xF5,
+        ];
+        let mut state = 0x2545_F491_4F6C_DD1D;
+        for _ in 0..1500 {
+            let length = xorshift(&mut state) % 7;
+            all.push(
+                (0..length)
+                    .map(|_| pool[xorshift(&mut state) as usize % 12])
+                    .collect(),
+            );
+        }
+        let dressed: Vec<Vec<u8>> = all.iter().map(|c| [b"ab", &c[..], b"z"].concat()).collect();
+        all.extend(dressed);
+        all
+    }
+
+    #[test]
+    fn the_check_agrees_with_std_on_a_sweep_of_every_limit() {
+        let all = sweep();
+        assert!(all.len() > 9000);
+        for bytes in all {
             let want = std::str::from_utf8(&bytes).map_or_else(|e| e.valid_up_to(), |s| s.len());
             assert_eq!(valid_up_to(&bytes), want, "for {bytes:02X?}");
         }
