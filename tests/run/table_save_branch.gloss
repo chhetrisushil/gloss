@@ -1,0 +1,15 @@
+record Row
+  name as text
+
+table rows of Row in "rows.csv"
+
+feature persist
+  save rows
+
+feature start
+  set n to 0
+  if n is greater than 5
+    clear rows
+  show "before"
+  run persist
+  show "after"
