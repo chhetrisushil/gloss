@@ -1,6 +1,10 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+mod run_support;
+#[cfg(unix)]
+use run_support::running_as_root;
+
 fn gloss(args: &[&str]) -> (i32, String, String) {
     let o = Command::new(env!("CARGO_BIN_EXE_gloss"))
         .args(args)
@@ -177,13 +181,6 @@ fn format_leaves_no_temporary_file() {
     let p = temp_file("fmttmp", "feature start\n  set  t to 1\n  show t\n");
     assert_eq!(gloss(&["format", p.to_str().unwrap()]).0, 0);
     assert_eq!(leftovers(&p), ["fmttmp.gloss"]);
-}
-
-/// Root ignores permission bits, so tests that rely on them cannot fail as root.
-#[cfg(unix)]
-fn running_as_root() -> bool {
-    let id = Command::new("id").arg("-u").output().unwrap();
-    id.stdout == b"0\n"
 }
 
 #[cfg(unix)]

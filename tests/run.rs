@@ -3,15 +3,18 @@
 //! virtual-memory limit in KiB, applied with `ulimit -v` in the shell that runs the program),
 //! `.args` (one argument per line), `.allow` (copied beside the source), `.files/` (seeded into
 //! the program's current folder, `work/`), `.links` (`link -> target` lines, made inside
-//! `work/`) and `.after/` (the files that must be left in `work/`, besides the links; without
+//! `work/`), `.mode` (`path octal-mode` lines, applied to `work/` after seeding; skipped, and
+//! counted, when the runner's user is root) and `.after/` (the files that must be left in `work/`, besides the links; without
 //! it `work/` must end up as `.files/` was).
 
 mod run_support;
 
+use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use run_support::{DEADLINE, TempDir, copy_tree, run_case, run_env};
+use run_support::{DEADLINE, TempDir, copy_tree, run_case, run_env, runner, runs_as_root};
 
 include!("run_sweep.inc");
 
@@ -36,7 +39,7 @@ fn the_sweep_reports_an_orphan() {
     assert_eq!(sweep(&dir.0).unwrap().len(), 1);
     for orphan in [
         "x.out", "b.GLOSS", "a.txt", "x.ulimit", "x.files", "y.links", "x.after", "x.allow",
-        "x.args",
+        "x.args", "x.mode",
     ] {
         std::fs::write(dir.0.join(orphan), "").unwrap();
         let err = sweep(&dir.0).unwrap_err();
@@ -49,7 +52,7 @@ fn the_sweep_reports_an_orphan() {
 fn the_sweep_accepts_case_folders_and_rejects_plain_files_for_them() {
     let dir = TempDir::new("sweep-folders");
     std::fs::write(dir.0.join("a.gloss"), "").unwrap();
-    for file in ["a.out", "a.args", "a.allow", "a.links"] {
+    for file in ["a.out", "a.args", "a.allow", "a.links", "a.mode"] {
         std::fs::write(dir.0.join(file), "").unwrap();
     }
     for folder in ["a.files", "a.after"] {
@@ -107,8 +110,41 @@ fn the_folder_listing_sees_files_links_and_nested_folders() {
     );
 }
 
+/// Gives every `.mode` path of `work` back a mode that can be read, listed and removed.
+fn restore_modes(work: &Path, modes: &[(String, u32)]) {
+    for (path, _) in modes {
+        let path = work.join(path);
+        let mode = if path.is_dir() { 0o755 } else { 0o644 };
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode));
+    }
+}
+
+#[test]
+fn the_mode_lines_are_paths_with_octal_modes_and_restoring_makes_them_usable() {
+    let dir = TempDir::new("modes");
+    let case = dir.0.join("a.gloss");
+    std::fs::write(case.with_extension("mode"), "d e.csv 000\nd 500\n").unwrap();
+    let modes = case_modes(&case);
+    assert_eq!(
+        modes,
+        [("d e.csv".to_string(), 0), ("d".to_string(), 0o500)]
+    );
+    std::fs::create_dir(dir.0.join("d")).unwrap();
+    std::fs::write(dir.0.join("d/e.csv"), "x").unwrap();
+    for (path, mode) in [("d/e.csv", 0), ("d", 0o500)] {
+        std::fs::set_permissions(dir.0.join(path), std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    restore_modes(&dir.0, &[("d".into(), 0o500), ("d/e.csv".into(), 0)]);
+    assert_eq!(std::fs::read(dir.0.join("d/e.csv")).unwrap(), b"x");
+}
+
 #[test]
 fn every_run_case_builds_and_runs() {
+    let (mut ran, mut skipped) = (0, 0);
+    let wanted = cases()
+        .iter()
+        .filter(|c| c.with_extension("mode").is_file())
+        .count();
     for case in cases() {
         let name = case.file_stem().unwrap().to_str().unwrap();
         let dir = TempDir::new(&format!("run-{name}"));
@@ -143,7 +179,20 @@ fn every_run_case_builds_and_runs() {
         }
         let args = case_lines(&case, "args");
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let Some(ran) = run_case(&dir.0.join(name), &input, DEADLINE, &work, &args, kib) else {
+        let modes = case_modes(&case);
+        // Root ignores permission bits, so the program would not fail: skip, visibly.
+        if !modes.is_empty() && runner().is_some_and(|p| runs_as_root(&p)) {
+            skipped += 1;
+            let _ = writeln!(std::io::stderr(), "SKIP {name}: the runner's user is root");
+            continue;
+        }
+        for (path, mode) in &modes {
+            let mode = std::fs::Permissions::from_mode(*mode);
+            std::fs::set_permissions(work.join(path), mode).unwrap();
+        }
+        let result = run_case(&dir.0.join(name), &input, DEADLINE, &work, &args, kib);
+        restore_modes(&work, &modes);
+        let Some(result) = result else {
             continue;
         };
         let status = beside(&case, "status")
@@ -153,10 +202,22 @@ fn every_run_case_builds_and_runs() {
             beside(&case, "out").expect("every case has an .out file"),
             beside(&case, "err").unwrap_or_default(),
         );
-        assert_eq!(ran.unwrap(), want, "{name}");
+        assert_eq!(result.unwrap(), want, "{name}");
         if let Err(problem) = compare_trees(&read_tree(&work), &expected_tree(&case)) {
             panic!("{name}: the folder differs: {problem}");
         }
+        if !modes.is_empty() {
+            ran += 1;
+            let _ = writeln!(std::io::stderr(), "PASS {name}: ran with modes {modes:?}");
+        }
+    }
+    // Without a runner every case is skipped; otherwise a permission case ran or was counted.
+    if runner().is_some() {
+        let _ = writeln!(
+            std::io::stderr(),
+            "permission cases: {ran} ran, {skipped} skipped"
+        );
+        assert_eq!(ran + skipped, wanted, "a permission case vanished");
     }
 }
 
