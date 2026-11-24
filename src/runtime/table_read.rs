@@ -307,7 +307,12 @@ mod file_tests {
 
     /// Loads the table file `e.csv` of `Expense` records and shows the list. Failures call
     /// the file `shown`.
-    fn load_files(mut files: Files) -> (Outcome, String, String) {
+    fn load_files(files: Files) -> (Outcome, String, String) {
+        load_faulty(files, Faults::default())
+    }
+
+    /// Like `load_files`; a load never leaves a file open, whatever its end.
+    fn load_faulty(mut files: Files, faults: Faults) -> (Outcome, String, String) {
         let mut descs = Module::default();
         let (text, number, truth) = (
             descs.desc(Desc::Text),
@@ -342,7 +347,8 @@ mod file_tests {
         body.extend([Call("show_value".into()), Call("flush".into())]);
         let mut m = program(body, &[b"e.csv\0", b"data/e.csv"]);
         m.descs = descs.descs;
-        let o = irsim::run_with(&m, "_start", b"", &[], Faults::default(), &mut files);
+        let o = irsim::run_with(&m, "_start", b"", &[], faults, &mut files);
+        assert!(o.open_fds.is_empty(), "left open: {:?}", o.open_fds);
         let text = |bytes: &[u8]| String::from_utf8(bytes.to_vec()).unwrap();
         let (shown, err) = (text(&o.stdout), text(&o.stderr));
         (o, shown, err)
@@ -448,5 +454,25 @@ mod file_tests {
         let (o, shown, err) = load_files(files);
         let link = "line 7: failure 6: data/e.csv is reached through a symbolic link\n";
         assert_eq!((o.status, shown.as_str(), err.as_str()), (2, "", link));
+    }
+
+    #[test]
+    fn a_read_error_and_non_utf8_bytes_fail_without_leaving_the_file_open() {
+        let mut files = Files::default();
+        files
+            .files
+            .insert("e.csv".into(), b"name,amount,paid\n\xFF\n".to_vec());
+        let (o, _, err) = load_files(files.clone());
+        let line = "line 7: failure 6: data/e.csv is not UTF-8 text (line 2)\n";
+        assert_eq!((o.status, err.as_str()), (2, line));
+        let faults = Faults {
+            failing_file_read: Some(1),
+            ..Faults::default()
+        };
+        let (o, _, err) = load_faulty(files, faults);
+        assert_eq!(
+            (o.status, err.as_str()),
+            (2, "line 7: failure 6: data/e.csv cannot be read\n")
+        );
     }
 }
