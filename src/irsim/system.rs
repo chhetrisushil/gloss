@@ -70,6 +70,10 @@ impl Machine<'_> {
             Prim::Fork => self.fork(),
             Prim::Wait => {
                 let pid = self.pop();
+                assert!(
+                    pid > 0,
+                    "irsim: wait for a pid of 0 or less is not modelled"
+                );
                 self.a = self.children.remove(&pid).map_or(ECHILD, i64::from);
             }
         }
@@ -99,6 +103,8 @@ impl Machine<'_> {
         let mut child = self.clone();
         (child.stdout, child.stderr, child.files, child.stdin) = (stdout, stderr, files, stdin);
         child.a = 0;
+        // As on Linux, a child has no children of its own.
+        child.children.clear();
         loop {
             match child.step() {
                 None => {}

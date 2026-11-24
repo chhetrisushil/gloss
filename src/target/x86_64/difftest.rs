@@ -138,6 +138,21 @@ fn system_programs_agree() {
     sys::programs(&mut |name, m, stdin| agree_program(name, m, stdin));
 }
 
+/// A child killed by a signal gives `256 + signal` (11, `SIGSEGV`); only the real run can say.
+#[test]
+fn wait_decodes_a_signal() {
+    let m = sys::fork_wait(&sys::child_faults());
+    let Some((status, out, _)) = real(&m, b"") else {
+        return;
+    };
+    let words: Vec<i64> = out
+        .chunks(8)
+        .map(|w| i64::from_le_bytes(w.try_into().unwrap()))
+        .collect();
+    // The status, then `b` and the sentinel word, as for the other fork cases.
+    assert_eq!((status, words), (0, vec![256 + 11, sys::B_VALUE, 0x5eed]));
+}
+
 #[test]
 fn file_programs_agree() {
     files::programs();
