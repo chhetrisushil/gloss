@@ -1,0 +1,20 @@
+record Row
+  name as text
+  qty as number
+
+table rows of Row in "rows.csv"
+
+feature total
+  needs entries as list of Row
+  set sum to 0
+  for each entry in entries
+    add qty of entry to sum
+  give sum
+
+feature start
+  append Row with name "tea", qty 2 to rows
+  append Row with name "jam", qty 5 to rows
+  set copy to rows
+  append Row with name "rye", qty 7 to rows
+  show "Total: ", (total with rows)
+  show count of copy
