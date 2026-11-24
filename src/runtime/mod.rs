@@ -9,6 +9,7 @@ mod args;
 mod asm;
 mod copy;
 mod core;
+mod csv_read;
 mod csv_write;
 mod equal;
 mod file_read;
@@ -59,12 +60,13 @@ const THROUGH_LINK: u32 = 23;
 const CANNOT_READ: u32 = 24;
 const NOT_FOUND_NOTICE: u32 = 25;
 const NOT_UTF8: u32 = 26;
+const LINE_N: u32 = 27;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 27] = [
+const TEXTS: [&[u8]; 28] = [
     b"line ",
     b": failure ",
     b": ",
@@ -92,6 +94,7 @@ const TEXTS: [&[u8]; 27] = [
     b" cannot be read",
     b" not found; starting with an empty table\n",
     b" is not UTF-8 text (line ",
+    b" line ",
 ];
 
 /// The bytes of the runtime text `i`.
@@ -108,6 +111,7 @@ pub fn routines() -> Vec<Function> {
     let mut all = core::routines();
     all.extend(args::routines());
     all.extend(copy::routines());
+    all.extend(csv_read::routines());
     all.extend(csv_write::routines());
     all.extend(equal::routines());
     all.extend(file_read::routines());
