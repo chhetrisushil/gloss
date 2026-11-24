@@ -97,6 +97,9 @@ pub enum Prim {
     Close,
     /// `Sync(fd)`: 0, or a negative error, once the file or folder is on disk.
     Sync,
+    /// `Mode(fd)`: the permission bits (0 to 0o7777) of the file or folder `fd` is on, or a
+    /// negative error. Works on a `Probe` descriptor, which cannot be read.
+    Mode,
     /// `Rename(folder_fd, from, to)`: 0, or a negative error; both names are in that folder
     /// and an existing `to` is replaced.
     Rename,

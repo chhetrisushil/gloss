@@ -290,6 +290,20 @@ fn close_sync_and_rename_pop_their_arguments_in_reverse_and_keep_b() {
 }
 
 #[test]
+fn mode_reads_the_low_permission_bits_of_st_mode_from_fstat() {
+    let mode = one(Inst::System(Prim::Mode));
+    assert_eq!(
+        mode[..3],
+        ["pop rdi", "sub rsp, 144", "mov rsi, rsp"].map(String::from)
+    );
+    assert!(mode.contains(&"movabs rax, 5".to_string()));
+    assert!(mode.contains(&"cmp rax, -4096".to_string()));
+    assert!(mode.contains(&"mov rax, [rsp+24]".to_string()), "{mode:?}");
+    assert!(mode.contains(&"and rax, 4095".to_string()));
+    assert_eq!(mode.last().unwrap(), "add rsp, 144");
+}
+
+#[test]
 fn map_turns_kernel_errors_into_zero_and_stack_size_reads_the_limit() {
     let map = one(Inst::System(Prim::Map));
     assert_eq!(map[0], "pop rsi");

@@ -22,6 +22,8 @@ pub struct Files {
     pub folders: BTreeSet<String>,
     /// Paths that are symbolic links; whatever they point to is never reached.
     pub links: BTreeSet<String>,
+    /// Permission bits other than the default (0o644 for a file, 0o755 for a folder), by path.
+    pub modes: BTreeMap<String, u32>,
     /// The paths passed to `Sync`, in order.
     pub synced: Vec<String>,
     /// `sync <path>` and `rename <from> -> <to>`, in the order they happened; only syncs and
@@ -32,6 +34,12 @@ pub struct Files {
 impl Files {
     pub fn is_folder(&self, path: &str) -> bool {
         path.is_empty() || self.folders.contains(path)
+    }
+
+    /// The permission bits of the file or folder `path`.
+    pub fn mode_of(&self, path: &str) -> u32 {
+        let default = if self.is_folder(path) { 0o755 } else { 0o644 };
+        self.modes.get(path).copied().unwrap_or(default)
     }
 
     /// Whether `path` names a file or a folder.
@@ -121,6 +129,11 @@ impl Files {
             return Err(EISDIR);
         }
         if let Some(bytes) = self.files.remove(&from) {
+            let kept = self.modes.remove(&from);
+            match kept {
+                Some(mode) => self.modes.insert(to.clone(), mode),
+                None => self.modes.remove(&to),
+            };
             self.links.remove(&to);
             self.files.insert(to, bytes);
             Ok(true)
