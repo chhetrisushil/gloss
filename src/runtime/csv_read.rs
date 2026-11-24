@@ -241,26 +241,127 @@ fn csv_read_cell() -> Function {
     s.finish("csv_read_cell", 3, 5)
 }
 
+const LIST: u32 = 1; // the slot of `csv_next`
+
+/// Loads the cursor word at `offset` into `a`.
+fn cursor_word(s: &mut Asm, offset: i32) {
+    s.i(LoadArg(A, 1));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset,
+    });
+}
+
+/// Adds `n` to the cursor word at `offset`.
+fn bump_word(s: &mut Asm, offset: i32, n: i32) {
+    s.i(LoadArg(B, 1));
+    s.i(Load {
+        to: A,
+        base: B,
+        offset,
+    });
+    s.i(AddImm(A, n));
+    s.i(Store {
+        base: B,
+        offset,
+        from: A,
+    });
+}
+
+/// Jumps to `to` when the cursor is at or past the end of its text.
+fn at_text_end(s: &mut Asm, to: Label) {
+    cursor_word(s, 0);
+    s.i(Load {
+        to: B,
+        base: A,
+        offset: 0,
+    });
+    cursor_word(s, POS);
+    s.jump_if(Ge, to);
+}
+
+/// `csv_next(cursor, shown, line)`: the next row as a list of cell texts, or 0 at the end of
+/// the text, leaving the row's first line in the cursor. A comma means another cell follows,
+/// even at the end of the text; a line feed, a CR LF pair or the end of the text ends the
+/// row. The end of the text right after a line break is the end, not an empty row.
+fn csv_next() -> Function {
+    let mut s = Asm::default();
+    let [more, comma, one, done, end] = [(); 5].map(|_| s.label());
+    at_text_end(&mut s, end);
+    cursor_word(&mut s, NEXT_LINE);
+    s.i(LoadArg(B, 1));
+    s.i(Store {
+        base: B,
+        offset: ROW_LINE,
+        from: A,
+    });
+    s.push_const(4);
+    s.push_arg(3);
+    s.call("list_new");
+    s.i(StoreSlot(LIST, A));
+    s.i(Mark(more));
+    s.push_arg(1);
+    s.push_arg(2);
+    s.push_arg(3);
+    s.call("csv_read_cell");
+    s.i(Move { to: B, from: A });
+    s.push_slot(LIST);
+    s.i(Push(B));
+    s.push_arg(3);
+    s.call("list_push");
+    at_text_end(&mut s, done);
+    cursor_word(&mut s, POS);
+    s.i(Move { to: B, from: A });
+    cursor_word(&mut s, 0);
+    s.i(Int(IntOp::Add));
+    s.i(LoadByte {
+        to: A,
+        base: A,
+        offset: 8,
+    });
+    s.i(Const(B, i64::from(b',')));
+    s.jump_if(Eq, comma);
+    s.i(Const(B, i64::from(b'\r')));
+    s.jump_if(Ne, one);
+    bump_word(&mut s, POS, 1);
+    s.i(Mark(one));
+    bump_word(&mut s, POS, 1);
+    bump_word(&mut s, NEXT_LINE, 1);
+    s.i(Jump(done));
+    s.i(Mark(comma));
+    bump_word(&mut s, POS, 1);
+    s.i(Jump(more));
+    s.i(Mark(done));
+    s.i(LoadSlot(A, LIST));
+    s.i(Return);
+    s.i(Mark(end));
+    s.finish("csv_next", 3, 1)
+}
+
 pub fn routines() -> Vec<Function> {
-    vec![csv_cursor(), fail_row(), csv_read_cell()]
+    vec![csv_cursor(), fail_row(), csv_read_cell(), csv_next()]
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::add_reachable;
     use super::super::tests::{program, run};
+    use crate::ir::Cond::Eq;
     use crate::ir::Inst::*;
     use crate::ir::{
-        Data, Function, Inst, Module,
+        Data, Desc, Function, Inst, Label, Module,
         Reg::{A, B},
     };
     use crate::irsim::Outcome;
 
-    /// Runs `after` with a cursor over `input` in slot 1 of a function `t`; `shown` is text 1
-    /// (`e.csv`), a line feed is text 2 and a space text 3.
+    /// Runs `after` with a cursor over `input` in slot 1 of a function `t`; `shown` is text 0
+    /// (`e.csv`), a line feed is text 1 and a space text 2.
     fn with_cursor(input: &[u8], after: Vec<Inst>) -> Outcome {
         let mut m: Module = program(vec![Call("t".into())], &[]);
-        let [text, _shown, _lf, _space] = [input, b"e.csv", b"\n", b" "].map(|t| m.text(t));
+        let text_desc = m.desc(Desc::Text);
+        m.desc(Desc::List(text_desc));
+        let [_shown, _lf, _space, text] = [&b"e.csv"[..], b"\n", b" ", input].map(|t| m.text(t));
         let mut body = vec![Enter(1), AddressOf(A, Data::Text(text)), Push(A)];
         body.extend([
             Const(A, 7),
@@ -289,7 +390,7 @@ mod tests {
 
     /// Prints, on standard error, the number in `a`, then a space.
     fn say() -> Vec<Inst> {
-        let space = AddressOf(A, Data::Text(3));
+        let space = AddressOf(A, Data::Text(2));
         vec![
             Push(A),
             Call("err_int".into()),
@@ -336,7 +437,7 @@ mod tests {
 
     #[test]
     fn fail_row_names_the_file_and_the_line_the_row_started_on() {
-        let mut after = vec![Const(A, 7), Push(A), AddressOf(A, Data::Text(1)), Push(A)];
+        let mut after = vec![Const(A, 7), Push(A), AddressOf(A, Data::Text(0)), Push(A)];
         after.extend([
             Const(A, 9),
             Push(A),
@@ -360,7 +461,7 @@ mod tests {
             from: B,
         };
         let mut after = vec![Const(B, 9), LoadSlot(A, 1), row, LoadSlot(A, 1), Push(A)];
-        after.extend([AddressOf(A, Data::Text(1)), Push(A), Const(A, 7), Push(A)]);
+        after.extend([AddressOf(A, Data::Text(0)), Push(A), Const(A, 7), Push(A)]);
         after.push(Call("csv_read_cell".into()));
         after.extend([Push(A), Call("out_quoted".into()), Call("flush".into())]);
         for offset in [8, 16] {
@@ -448,6 +549,89 @@ mod tests {
         ] {
             let (o, seen) = cell(input);
             assert_eq!((o.status, seen.as_str()), (2, want), "for {input:?}");
+        }
+    }
+
+    /// Reads rows of `input` until the end: each row shown as `show` shows a list, then its
+    /// first line. Gives the outcome and what was shown.
+    fn rows(input: &[u8]) -> (Outcome, String) {
+        let end = Label(1);
+        let mut after = Vec::new();
+        for _ in 0..12 {
+            after.extend([
+                LoadSlot(A, 1),
+                Push(A),
+                AddressOf(A, Data::Text(0)),
+                Push(A),
+            ]);
+            after.extend([Const(A, 7), Push(A), Call("csv_next".into())]);
+            after.extend([Const(B, 0), Compare, JumpIf(Eq, end), Push(A)]);
+            after.extend([
+                AddressOf(A, Data::Desc(1)),
+                Push(A),
+                Call("show_value".into()),
+            ]);
+            after.extend([
+                AddressOf(A, Data::Text(1)),
+                Push(A),
+                Call("out_text".into()),
+            ]);
+            after.extend([
+                LoadSlot(A, 1),
+                Load {
+                    to: A,
+                    base: A,
+                    offset: 24,
+                },
+            ]);
+            after.extend(say());
+        }
+        after.extend([Mark(end), Call("flush".into())]);
+        let o = with_cursor(input, after);
+        let shown = String::from_utf8(o.stdout.clone()).unwrap();
+        let lines = String::from_utf8(o.stderr.clone()).unwrap();
+        (o, format!("{shown}| {lines}"))
+    }
+
+    #[test]
+    fn rows_end_at_a_line_feed_or_a_cr_lf_or_the_end_and_know_their_first_line() {
+        let cases = [
+            (
+                "a,b\n1,2\n",
+                "list of \"a\", \"b\"\nlist of \"1\", \"2\"\n| 1 2 ",
+            ),
+            (
+                "a,b\n1,2",
+                "list of \"a\", \"b\"\nlist of \"1\", \"2\"\n| 1 2 ",
+            ),
+            (
+                "a,b\r\n1,2\r\n",
+                "list of \"a\", \"b\"\nlist of \"1\", \"2\"\n| 1 2 ",
+            ),
+            ("", "| "),
+            ("a\n", "list of \"a\"\n| 1 "),
+            ("\n", "list of \"\"\n| 1 "),
+            ("a\n\n", "list of \"a\"\nlist of \"\"\n| 1 2 "),
+            (
+                "a\n\nb",
+                "list of \"a\"\nlist of \"\"\nlist of \"b\"\n| 1 2 3 ",
+            ),
+            ("a,\n", "list of \"a\", \"\"\n| 1 "),
+            ("a,", "list of \"a\", \"\"\n| 1 "),
+            (",", "list of \"\", \"\"\n| 1 "),
+            (
+                "a\n\"x\ny\"\nb\n",
+                "list of \"a\"\nlist of \"x\ny\"\nlist of \"b\"\n| 1 2 4 ",
+            ),
+            (
+                "a\r\n\"q\r\nz\"\r\nb",
+                "list of \"a\"\nlist of \"q\r\nz\"\nlist of \"b\"\n| 1 2 4 ",
+            ),
+            ("a\rb,c\n", "list of \"a\rb\", \"c\"\n| 1 "),
+        ];
+        for (input, want) in cases {
+            let (o, got) = rows(input.as_bytes());
+            assert_eq!((o.status, got.as_str()), (0, want), "for {input:?}");
         }
     }
 }
