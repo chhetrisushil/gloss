@@ -52,6 +52,28 @@ pub fn skip() {
     let _ = writeln!(std::io::stderr(), "{SKIP}");
 }
 
+pub const LIMITS_SKIP: &str =
+    "memory-limit run skipped: the runner ignores ulimit -v for x86-64 code (QEMU)";
+
+/// Whether the runner enforces `ulimit -v` on x86-64 programs: `dd` needs a 200 MB buffer,
+/// which a 64 MB limit must refuse. QEMU user emulation ignores the limit, so a program
+/// meant to run out of memory would instead be killed by the machine's OOM killer.
+pub fn limits_hold(prefix: &[String]) -> bool {
+    static HOLD: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *HOLD.get_or_init(|| {
+        let probe = "ulimit -v 65536; dd if=/dev/zero of=/dev/null bs=200M count=1";
+        let mut words = prefix.iter().map(String::as_str).chain(["sh", "-c", probe]);
+        let program = words.next().expect("the probe has a program");
+        let status = Command::new(program)
+            .args(words)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("the runner starts");
+        !status.success()
+    })
+}
+
 /// Runs `path` with `stdin`; `None` (after the skip message) when there is no runner.
 pub fn run(path: &Path, stdin: &[u8]) -> Option<Ran> {
     run_within(path, stdin, DEADLINE)
@@ -96,6 +118,10 @@ pub fn run_full(
         skip();
         return None;
     };
+    if kib.is_some() && !limits_hold(&prefix) {
+        let _ = writeln!(std::io::stderr(), "{LIMITS_SKIP}");
+        return None;
+    }
     // OrbStack's `orb` drops the tail of a program's stdout and stderr when the program exits
     // while output is still in flight, so under `orb` (the runner's first word, exactly; a
     // wrapped runner such as `env orb ...` is not covered) the program writes them to files in
