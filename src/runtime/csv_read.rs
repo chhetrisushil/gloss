@@ -95,13 +95,16 @@ fn take(s: &mut Asm, step: i32) {
 }
 
 /// `csv_read_cell(cursor, shown, line)`: reads the cell at the cursor and leaves the cursor on the
-/// `,`, the line break or the end of the text that follows it. A cell is taken as it is, up
-/// to `,`, `\n`, `\r\n` or the end of the text: a lone `\r` and a `"` belong to it, and
-/// nothing is trimmed. Slots: the builder (the text so far, its length and its room), the
-/// text, the position, its length, the next row's line.
+/// `,`, the line break or the end of the text that follows it. A cell that starts with `"`
+/// runs to the closing `"`, `""` being one `"`, and may hold commas and line breaks; any
+/// text after the closing quote up to the next separator is kept as it is. Any other cell is
+/// taken as it is, up to `,`, `\n`, `\r\n` or the end of the text: a lone `\r` and a `"` in
+/// the middle belong to it. Nothing is trimmed. A quoted cell that reaches the end of the
+/// text is failure 6, on the line the row started on. Slots: the builder (the text so far,
+/// its length and its room), the text, the position, its length, the next row's line.
 fn csv_read_cell() -> Function {
     let mut s = Asm::default();
-    let [plain, tail, done] = [(); 3].map(|_| s.label());
+    let [quoted, quote, plain, tail, done, other, open] = [(); 7].map(|_| s.label());
     s.push_const(24);
     s.push_arg(3);
     s.call("alloc");
@@ -140,6 +143,52 @@ fn csv_read_cell() -> Function {
         offset: 0,
     });
     s.i(StoreSlot(END, A));
+    at_end(&mut s, 0, tail);
+    byte_at(&mut s, 0);
+    s.i(Const(B, i64::from(b'"')));
+    s.jump_if(Ne, tail);
+    s.i(LoadSlot(A, AT));
+    s.i(AddImm(A, 1));
+    s.i(StoreSlot(AT, A));
+    s.i(Mark(quoted));
+    at_end(&mut s, 0, open);
+    byte_at(&mut s, 0);
+    s.i(Const(B, i64::from(b'"')));
+    s.jump_if(Eq, quote);
+    s.i(Const(B, i64::from(b'\n')));
+    s.jump_if(Ne, other);
+    s.i(LoadSlot(A, LINE));
+    s.i(AddImm(A, 1));
+    s.i(StoreSlot(LINE, A));
+    s.i(Mark(other));
+    byte_at(&mut s, 0);
+    take(&mut s, 1);
+    s.i(Jump(quoted));
+    // A quote ends the cell, unless another follows it.
+    s.i(Mark(quote));
+    s.i(LoadSlot(A, AT));
+    s.i(AddImm(A, 1));
+    s.i(StoreSlot(AT, A));
+    at_end(&mut s, 0, tail);
+    byte_at(&mut s, 0);
+    s.i(Const(B, i64::from(b'"')));
+    s.jump_if(Ne, tail);
+    take(&mut s, 1);
+    s.i(Jump(quoted));
+    s.i(Mark(open));
+    s.push_arg(3);
+    s.push_arg(2);
+    s.i(LoadArg(A, 1));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: ROW_LINE,
+    });
+    s.i(Push(A));
+    s.call("fail_row");
+    s.push_text(super::UNCLOSED);
+    s.call("err_text");
+    s.call("fail_end");
     s.i(Mark(tail));
     at_end(&mut s, 0, done);
     byte_at(&mut s, 0);
@@ -201,7 +250,10 @@ mod tests {
     use super::super::add_reachable;
     use super::super::tests::{program, run};
     use crate::ir::Inst::*;
-    use crate::ir::{Data, Function, Inst, Module, Reg::A};
+    use crate::ir::{
+        Data, Function, Inst, Module,
+        Reg::{A, B},
+    };
     use crate::irsim::Outcome;
 
     /// Runs `after` with a cursor over `input` in slot 1 of a function `t`; `shown` is text 1
@@ -302,13 +354,14 @@ mod tests {
     /// Reads one cell of `input` (the failure messages call the file `e.csv`, and the row
     /// started on line 9): the cell, then where the cursor is and the line it is on.
     fn cell(input: &[u8]) -> (Outcome, String) {
-        let mut after = vec![
-            LoadSlot(A, 1),
-            Push(A),
-            AddressOf(A, Data::Text(1)),
-            Push(A),
-        ];
-        after.extend([Const(A, 7), Push(A), Call("csv_read_cell".into())]);
+        let row = Store {
+            base: A,
+            offset: 24,
+            from: B,
+        };
+        let mut after = vec![Const(B, 9), LoadSlot(A, 1), row, LoadSlot(A, 1), Push(A)];
+        after.extend([AddressOf(A, Data::Text(1)), Push(A), Const(A, 7), Push(A)]);
+        after.push(Call("csv_read_cell".into()));
         after.extend([Push(A), Call("out_quoted".into()), Call("flush".into())]);
         for offset in [8, 16] {
             after.extend([
@@ -352,6 +405,49 @@ mod tests {
                 "for {input:?}"
             );
             assert_eq!(seen, format!("{at} 1 "), "for {input:?}");
+        }
+    }
+
+    #[test]
+    fn a_quoted_cell_holds_commas_quotes_and_line_breaks_and_counts_the_lines() {
+        // The input, the cell, the position the cursor is left at, and its line.
+        let cases: [(&[u8], &str, usize, u32); 11] = [
+            (b"\"a,b\",c", "a,b", 5, 1),
+            (b"\"a\"\"b\"", "a\"b", 6, 1),
+            (b"\"\"", "", 2, 1),
+            (b"\"\"\"\"", "\"", 4, 1),
+            (b"\"\"\"\"\"\",x", "\"\"", 6, 1),
+            (b"\"a\nb\",c", "a\nb", 5, 2),
+            (b"\"a\r\nb\"\r\nz", "a\r\nb", 6, 2),
+            (b"\"\n\n\n\"", "\n\n\n", 5, 4),
+            (b"\"x\"y,z", "xy", 4, 1),
+            (b"\"x\" ,z", "x ", 4, 1),
+            ("\"\u{e9},\u{fc}\"".as_bytes(), "\u{e9},\u{fc}", 7, 1),
+        ];
+        for (input, want, at, line) in cases {
+            let (o, seen) = cell(input);
+            let quoted = format!("\"{}\"", want.replace('"', "\"\""));
+            assert_eq!(
+                String::from_utf8(o.stdout).unwrap(),
+                quoted,
+                "for {input:?}"
+            );
+            assert_eq!(seen, format!("{at} {line} "), "for {input:?}");
+        }
+    }
+
+    #[test]
+    fn a_quoted_cell_left_open_is_failure_6_on_the_line_the_row_started_on() {
+        let want = "line 7: failure 6: e.csv line 9: a quoted cell is not closed\n";
+        for input in [
+            &b"\""[..],
+            b"\"abc",
+            b"\"a\"\"",
+            b"\"a\nb\nc,d",
+            b"\"a,\"\"b",
+        ] {
+            let (o, seen) = cell(input);
+            assert_eq!((o.status, seen.as_str()), (2, want), "for {input:?}");
         }
     }
 }
