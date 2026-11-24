@@ -112,12 +112,28 @@ fn every_run_case_gives_the_expected_output_in_irsim() {
         let args = case_lines(&case, "args");
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let input = beside("in").unwrap_or_default();
-        let faults = mode_faults(&files, &case_modes(&case));
+        let modes = case_modes(&case);
+        let faults = mode_faults(&files, &modes);
+        for (path, mode) in &modes {
+            files.set_mode(path, *mode);
+        }
         let o = run_with(&module, "_start", &input, &args, faults, &mut files);
         let left = left_behind(&o.files, &targets);
         if let Err(problem) = compare_trees(&left, &expected_tree(&case)) {
             panic!("{case:?}: the files differ: {problem}");
         }
+        let kept: Vec<(String, u32)> = case_after_modes(&case)
+            .into_iter()
+            .map(|(path, _)| {
+                let mode = o.files.mode_of(&path);
+                (path, mode)
+            })
+            .collect();
+        assert_eq!(
+            kept,
+            case_after_modes(&case),
+            "{case:?}: permissions after the run"
+        );
         let status =
             beside("status").map_or(0, |s| String::from_utf8(s).unwrap().trim().parse().unwrap());
         let want = (

@@ -4,7 +4,8 @@
 //! `.args` (one argument per line), `.allow` (copied beside the source), `.files/` (seeded into
 //! the program's current folder, `work/`), `.links` (`link -> target` lines, made inside
 //! `work/`), `.mode` (`path octal-mode` lines, applied to `work/` after seeding, deepest path
-//! first; skipped, and counted, when the runner's user is root) and `.after/` (the files that
+//! first; skipped, and counted, when the runner's user is root), `.after_mode` (`path
+//! octal-mode` lines: the permission bits those paths must have when the program ends) and `.after/` (the files that
 //! must be left in `work/`, besides the links; without it `work/` must end up as `.files/`
 //! was).
 
@@ -39,8 +40,17 @@ fn the_sweep_reports_an_orphan() {
     std::fs::write(dir.0.join("a.out"), "").unwrap();
     assert_eq!(sweep(&dir.0).unwrap().len(), 1);
     for orphan in [
-        "x.out", "b.GLOSS", "a.txt", "x.ulimit", "x.files", "y.links", "x.after", "x.allow",
-        "x.args", "x.mode",
+        "x.out",
+        "b.GLOSS",
+        "a.txt",
+        "x.ulimit",
+        "x.files",
+        "y.links",
+        "x.after",
+        "x.allow",
+        "x.args",
+        "x.mode",
+        "x.after_mode",
     ] {
         std::fs::write(dir.0.join(orphan), "").unwrap();
         let err = sweep(&dir.0).unwrap_err();
@@ -53,7 +63,14 @@ fn the_sweep_reports_an_orphan() {
 fn the_sweep_accepts_case_folders_and_rejects_plain_files_for_them() {
     let dir = TempDir::new("sweep-folders");
     std::fs::write(dir.0.join("a.gloss"), "").unwrap();
-    for file in ["a.out", "a.args", "a.allow", "a.links", "a.mode"] {
+    for file in [
+        "a.out",
+        "a.args",
+        "a.allow",
+        "a.links",
+        "a.mode",
+        "a.after_mode",
+    ] {
         std::fs::write(dir.0.join(file), "").unwrap();
     }
     for folder in ["a.files", "a.after"] {
@@ -236,6 +253,15 @@ fn every_run_case_builds_and_runs() {
         }
         let guard = Modes::apply(&work, &modes);
         let result = run_case(&dir.0.join(name), &input, DEADLINE, &work, &args, kib);
+        // Read before the guard gives every path back a readable mode.
+        let kept: Vec<(String, u32)> = case_after_modes(&case)
+            .into_iter()
+            .map(|(path, _)| {
+                let mode = std::fs::metadata(work.join(&path))
+                    .map_or(0, |m| m.permissions().mode() & 0o777);
+                (path, mode)
+            })
+            .collect();
         // Restored before the folder is read; the guard also restores if the run panics.
         drop(guard);
         let Some(result) = result else {
@@ -252,6 +278,11 @@ fn every_run_case_builds_and_runs() {
         if let Err(problem) = compare_trees(&read_tree(&work), &expected_tree(&case)) {
             panic!("{name}: the folder differs: {problem}");
         }
+        assert_eq!(
+            kept,
+            case_after_modes(&case),
+            "{name}: permissions after the run"
+        );
         if !modes.is_empty() {
             ran += 1;
             let _ = writeln!(std::io::stderr(), "PASS {name}: ran with modes {modes:?}");

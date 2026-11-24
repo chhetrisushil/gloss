@@ -5,8 +5,8 @@
 const MIN_CASES: usize = 145;
 
 /// The `.gloss` programs in `dir`, sorted; an error naming every file that is not part of a
-/// case: an extension other than gloss, out, in, err, status, ulimit, allow, args, links, mode
-/// (files) or files, after (folders), or no `<stem>.gloss`, or a folder where a file belongs
+/// case: an extension other than gloss, out, in, err, status, ulimit, allow, args, links, mode,
+/// after_mode (files) or files, after (folders), or no `<stem>.gloss`, or a folder where a file belongs
 /// or the reverse.
 fn sweep(dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut programs = Vec::new();
@@ -17,7 +17,7 @@ fn sweep(dir: &Path) -> Result<Vec<PathBuf>, String> {
         match path.extension().and_then(|x| x.to_str()) {
             Some("gloss") => programs.push(path),
             Some("files" | "after") if owned && path.is_dir() => {}
-            Some("out" | "in" | "err" | "status" | "ulimit" | "links" | "allow" | "args" | "mode")
+            Some("out" | "in" | "err" | "status" | "ulimit" | "links" | "allow" | "args" | "mode" | "after_mode")
                 if owned && path.is_file() => {}
             _ => orphans.push(path.display().to_string()),
         }
@@ -63,11 +63,20 @@ fn case_lines(case: &Path, ext: &str) -> Vec<String> {
 
 /// The `path mode` lines of `<case>.mode`, the mode in octal; applied after the folder is seeded.
 fn case_modes(case: &Path) -> Vec<(String, u32)> {
+    modes_in(case, "mode")
+}
+
+/// The `path mode` lines of `<case>.after_mode`: the permission bits the program must leave.
+fn case_after_modes(case: &Path) -> Vec<(String, u32)> {
+    modes_in(case, "after_mode")
+}
+
+fn modes_in(case: &Path, ext: &str) -> Vec<(String, u32)> {
     let parse = |l: String| {
         let (path, mode) = l.rsplit_once(' ').expect("a `path mode` line");
         (path.to_string(), u32::from_str_radix(mode, 8).expect("an octal mode"))
     };
-    case_lines(case, "mode").into_iter().map(parse).collect()
+    case_lines(case, ext).into_iter().map(parse).collect()
 }
 
 /// The files the program's folder must hold after the run: `.after/` (else `.files/`) plus the
