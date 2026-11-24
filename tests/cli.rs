@@ -364,7 +364,6 @@ fn allow_may_repeat_after_the_file() {
 
 const E_HEAD: &str = "record E\n  amount as number\ntable es of E in \"e.csv\"\n";
 const LISTED: &str = "This program can:\n  read only          e.csv\n  nothing else\n";
-const REFUSED: &str = "line 5: load es. this compiler cannot build this statement yet.\n";
 
 fn allow_body(lines: &str) -> String {
     format!("note Files this program may touch; approved for t.gloss.\n{lines}")
@@ -391,9 +390,9 @@ fn allow_writes_the_approval() {
     let p = tabled("writes", "feature start\n  load es\n  save es\n");
     let (code, out, err) = gloss(&["build", p.to_str().unwrap(), "--allow", "e.csv"]);
     let list = "This program can:\n  read and replace   e.csv\n  nothing else\n";
-    assert_eq!(code, 3);
-    assert_eq!(out, format!("{list}Approval saved in t.allow\n"));
-    assert_eq!(err, REFUSED);
+    assert_eq!(code, 0);
+    assert_eq!(out, format!("{list}Approval saved in t.allow\nBuilt t\n"));
+    assert_eq!(err, "");
     let want = allow_body("  read and replace   e.csv\n");
     assert_eq!(
         std::fs::read_to_string(p.with_extension("allow")).unwrap(),
@@ -415,7 +414,8 @@ fn a_recorded_approval_asks_nothing() {
         .modified()
         .unwrap();
     let (code, out, err) = gloss(&["build", p.to_str().unwrap()]);
-    assert_eq!((code, out.as_str(), err.as_str()), (3, LISTED, REFUSED));
+    let built = format!("{LISTED}Built t\n");
+    assert_eq!((code, out.as_str(), err.as_str()), (0, built.as_str(), ""));
     let after = std::fs::metadata(p.with_extension("allow"))
         .unwrap()
         .modified()
@@ -444,8 +444,11 @@ fn a_dropped_table_shrinks_allow() {
     let old = allow_body("  read only          e.csv\n  read only          f.csv\n");
     std::fs::write(p.with_extension("allow"), old).unwrap();
     let (code, out, _) = gloss(&["build", p.to_str().unwrap()]);
-    assert_eq!(code, 3);
-    assert!(out.ends_with("Approval saved in t.allow\n"), "{out}");
+    assert_eq!(code, 0);
+    assert!(
+        out.ends_with("Approval saved in t.allow\nBuilt t\n"),
+        "{out}"
+    );
     let want = allow_body("  read only          e.csv\n");
     assert_eq!(
         std::fs::read_to_string(p.with_extension("allow")).unwrap(),

@@ -145,6 +145,12 @@ impl Lowerer<'_> {
                 self.clear_table(index);
                 Ok(())
             }
+            StmtKind::Load(name) => {
+                self.line = s.line;
+                self.emit(Inst::Line(s.line));
+                let index = self.table_index(name).expect("the checker found the table");
+                self.read_table(index)
+            }
             StmtKind::Save(name) => {
                 self.line = s.line;
                 self.emit(Inst::Line(s.line));
