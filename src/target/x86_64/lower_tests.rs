@@ -290,6 +290,13 @@ fn close_sync_and_rename_pop_their_arguments_in_reverse_and_keep_b() {
     assert_eq!(one(Inst::System(Prim::Close)), close.collect::<Vec<_>>());
     let sync = ["pop rdi".to_string()].into_iter().chain(call("74"));
     assert_eq!(one(Inst::System(Prim::Sync)), sync.collect::<Vec<_>>());
+    // fchmod(fd, permissions)
+    let set_mode = ["pop rsi", "pop rdi"].map(String::from);
+    let set_mode = set_mode.into_iter().chain(call("91"));
+    assert_eq!(
+        one(Inst::System(Prim::SetMode)),
+        set_mode.collect::<Vec<_>>()
+    );
     // renameat(folder, from, folder, to): rdx repeats the folder in rdi.
     let rename = ["pop r10", "pop rsi", "pop rdi", "mov rdx, rdi"].map(String::from);
     let rename = rename.into_iter().chain(call("264"));

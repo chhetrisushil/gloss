@@ -61,6 +61,7 @@ impl Machine<'_> {
             }
             Prim::Sync => self.sync(),
             Prim::Mode => self.mode(),
+            Prim::SetMode => self.set_mode(),
             Prim::Rename => self.rename(),
         }
         None
@@ -234,6 +235,21 @@ impl Machine<'_> {
                 | OpenFile::Probe(path),
             ) => i64::from(self.files.mode_of(path)),
             Some(_) => 0o644,
+            None => EBADF,
+        };
+    }
+
+    /// `fchmod`: sets the permission bits of the file, exactly; no umask.
+    fn set_mode(&mut self) {
+        let permissions = self.pop();
+        let fd = self.pop();
+        self.a = match self.fds.get(&fd) {
+            Some(OpenFile::Create(Target::Path(path))) => {
+                let path = path.clone();
+                self.files.set_mode(&path, permissions as u32 & 0o777);
+                0
+            }
+            Some(_) => 0,
             None => EBADF,
         };
     }
