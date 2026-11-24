@@ -1,0 +1,18 @@
+record Purchase
+  product as text
+  price as number
+  paid as truth
+
+table purchases of Purchase in "report.csv"
+
+feature start
+  load purchases
+  set total to 0
+  set owed to 0
+  for each purchase in purchases
+    add price of purchase to total
+    if not paid of purchase
+      add price of purchase to owed
+  show "Items: ", count of purchases
+  show "Total: ", total
+  show "Still to pay: ", owed

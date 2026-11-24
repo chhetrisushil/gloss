@@ -1,5 +1,6 @@
 //! Every `examples/<name>.gloss` is built by the real `gloss` binary and run on Linux, and its
-//! output must equal `<name>.out` beside it. Each example must also already be in the layout
+//! output must equal `<name>.out` beside it. Each runs in a temporary copy of `examples/` as its
+//! current folder, so a program that saves never changes the committed files. Each example must also already be in the layout
 //! `gloss format` writes, so the examples read as canonical Gloss.
 
 mod run_support;
@@ -7,10 +8,10 @@ mod run_support;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use run_support::{TempDir, run};
+use run_support::{DEADLINE, TempDir, run_case};
 
 /// Raised by every change that adds examples, so a lost file fails the sweep.
-const MIN_EXAMPLES: usize = 9;
+const MIN_EXAMPLES: usize = 11;
 
 fn examples() -> Vec<PathBuf> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
@@ -31,23 +32,43 @@ fn gloss(args: &[&str], file: &Path) -> std::process::Output {
         .unwrap()
 }
 
+/// The names of the files in `examples/` and their contents, to check a run changed none.
+fn snapshot() -> Vec<(PathBuf, Vec<u8>)> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let mut files: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .map(|p| (p.clone(), std::fs::read(&p).unwrap()))
+        .collect();
+    files.sort();
+    files
+}
+
 #[test]
 fn every_example_builds_runs_and_shows_its_output() {
     let found = examples();
     assert!(found.len() >= MIN_EXAMPLES, "too few examples");
+    let before = snapshot();
+    let folder = TempDir::new("examples");
+    // Every file of `examples/` (sources, approvals, data) is copied beside the executables.
+    for (path, bytes) in &before {
+        std::fs::write(folder.0.join(path.file_name().unwrap()), bytes).unwrap();
+    }
     for example in found {
         let name = example.file_stem().unwrap().to_str().unwrap();
-        let dir = TempDir::new(&format!("example-{name}"));
-        let source = dir.0.join(format!("{name}.gloss"));
-        std::fs::copy(&example, &source).unwrap();
+        let source = folder.0.join(format!("{name}.gloss"));
         let built = gloss(&["build"], &source);
         assert_eq!(built.status.code(), Some(0), "{name}: {built:?}");
-        let Some(ran) = run(&dir.0.join(name), b"") else {
+        let Some(ran) = run_case(&folder.0.join(name), b"", DEADLINE, &folder.0, &[], None) else {
             continue;
         };
         let want = std::fs::read(example.with_extension("out")).expect("every example has an .out");
         assert_eq!(ran.unwrap(), (0, want, Vec::new()), "{name}");
     }
+    assert!(
+        snapshot() == before,
+        "running the examples changed the committed examples/ folder"
+    );
 }
 
 #[test]
