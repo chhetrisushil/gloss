@@ -201,20 +201,6 @@ fn permissions_text(text: u32) -> Function {
 
 /// Lowers a checked program to an IR module, with the runtime it reaches.
 pub fn lower(program: &Program, types: &TypeInfo, src: &Source) -> Result<Module, Diagnostic> {
-    if program.tables().next().is_some() {
-        return Err(Diagnostic::program("tables arrive in milestone 3"));
-    }
-    lower_program(program, types, src)
-}
-
-/// `lower` without the refusal of tables, for tests of what already works with them.
-/// Task 7a removes this and the refusal in `lower`.
-#[cfg(test)]
-pub(crate) fn lower_allowing_tables(
-    program: &Program,
-    types: &TypeInfo,
-    src: &Source,
-) -> Result<Module, Diagnostic> {
     lower_program(program, types, src)
 }
 

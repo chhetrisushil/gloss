@@ -164,6 +164,11 @@ impl Lowerer<'_> {
                 self.emit(Inst::LoadArg(Reg::A, at as u32 + 1));
                 Ok(())
             }
+            Some(NameKind::Table) => {
+                let index = self.table_index(name).expect("the checker found the table");
+                self.load_table(index);
+                Ok(())
+            }
             Some(NameKind::FeatureCall) => self.feature_call(name, &[]),
             _ => Err(Diagnostic::error(
                 self.src,

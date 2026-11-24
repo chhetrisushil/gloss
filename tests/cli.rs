@@ -77,14 +77,17 @@ fn build_writes_an_executable_beside_the_source() {
 }
 
 #[test]
-fn a_table_program_is_not_built_yet() {
+fn a_table_program_builds() {
     let text = "record Row\n  name as text\n\ntable rows of Row in \"rows.csv\"\n\nfeature start\n  show \"x\"\n";
     let p = temp_file("tabled", text);
     let (code, out, err) = gloss(&["build", p.to_str().unwrap(), "--allow", "rows.csv"]);
-    assert_eq!(code, 3);
-    assert!(out.ends_with("Approval saved in tabled.allow\n"), "{out}");
-    assert_eq!(err, "tables arrive in milestone 3.\n");
-    assert!(!p.with_extension("").exists());
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.ends_with("Approval saved in tabled.allow\nBuilt tabled\n"),
+        "{out}"
+    );
+    assert_eq!(err, "");
+    assert!(p.with_extension("").exists());
 }
 
 #[test]
@@ -117,17 +120,16 @@ fn build_with_only_warnings_exits_0() {
 }
 
 #[test]
-fn warnings_print_before_a_build_the_compiler_cannot_do_yet() {
-    // A warning prints even when the build then stops on something not built yet.
+fn warnings_print_for_a_table_program_that_builds() {
+    // The warning prints, and the build goes on.
     let p = temp_file(
         "warn2",
         "record Row\n  name as text\n\ntable rows of Row in \"rows.csv\"\n\nfeature start\n  set xs to 1\n",
     );
     let (code, _, err) = gloss(&["build", p.to_str().unwrap(), "--allow", "rows.csv"]);
-    assert_eq!(code, 3);
+    assert_eq!(code, 0, "{err}");
     assert!(err.starts_with("line 7: warning: "), "{err}");
-    assert!(err.ends_with("tables arrive in milestone 3.\n"), "{err}");
-    assert!(!p.with_extension("").exists());
+    assert!(p.with_extension("").exists());
 }
 
 #[test]
@@ -362,7 +364,7 @@ fn allow_may_repeat_after_the_file() {
 
 const E_HEAD: &str = "record E\n  amount as number\ntable es of E in \"e.csv\"\n";
 const LISTED: &str = "This program can:\n  read only          e.csv\n  nothing else\n";
-const REFUSED: &str = "tables arrive in milestone 3.\n";
+const REFUSED: &str = "line 5: load es. this compiler cannot build this statement yet.\n";
 
 fn allow_body(lines: &str) -> String {
     format!("note Files this program may touch; approved for t.gloss.\n{lines}")
