@@ -1,0 +1,16 @@
+record Row
+  name as text
+
+table rows of Row in "rows.csv"
+
+feature start
+  append Row with name "tea" to rows
+  append Row with name "jam" to rows
+  set before to rows
+  clear rows
+  show before
+  show rows
+  show count of rows
+  append Row with name "rye" to rows
+  show rows
+  show before

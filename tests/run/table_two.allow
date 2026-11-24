@@ -1,0 +1,3 @@
+note Files this program may touch; approved for table_two.gloss.
+  read only          a.csv
+  read only          b.csv

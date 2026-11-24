@@ -1,0 +1,22 @@
+record Item
+  name as text
+
+record Person
+  age as number
+
+table items of Item in "a.csv"
+table people of Person in "b.csv"
+
+feature start
+  append Item with name "tea" to items
+  append Item with name "jam" to items
+  append Person with age 30 to people
+  show items
+  show people
+  show count of items, " ", count of people
+  clear people
+  show items
+  show people
+  show count of items, " ", count of people
+  append Person with age 41 to people
+  show people
