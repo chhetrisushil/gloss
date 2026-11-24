@@ -428,6 +428,13 @@ fn a_saved_table_path_is_a_folder_and_two_plain_names() {
         "a/",
         "",
         "a\0b",
+        ".",
+        "..",
+        "a/..",
+        "./e.csv",
+        "a/./e.csv",
+        "a/.",
+        "./",
     ] {
         assert!(save_names(bad).is_err(), "{bad:?}");
     }

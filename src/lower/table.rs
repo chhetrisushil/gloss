@@ -26,11 +26,12 @@ pub fn save_names(path: &str) -> Result<SaveNames, String> {
     let (folder, name) = path.rsplit_once('/').unwrap_or((".", path));
     let temp = format!("{name}{TEMP_SUFFIX}");
     let plain = |part: &str| !part.is_empty() && !part.contains(['/', '\0']);
-    let safe = plain(name)
-        && plain(&temp)
-        && !folder.starts_with('/')
-        && !folder.contains('\0')
-        && folder.split('/').all(|c| !c.is_empty() && c != "..");
+    let dotted = |part: &str| part == "." || part == "..";
+    let folder_ok = !path.contains('/')
+        || (!folder.starts_with('/')
+            && !folder.contains('\0')
+            && folder.split('/').all(|c| !c.is_empty() && !dotted(c)));
+    let safe = plain(name) && !dotted(name) && plain(&temp) && folder_ok;
     match safe {
         true => Ok(SaveNames {
             folder: folder.to_string(),
