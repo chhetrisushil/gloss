@@ -1025,16 +1025,25 @@ fn push_text_n(n: u32) -> [Inst; 3] {
     [AddressOf(A, Data::Text(n)), AddImm(A, 8), Push(A)]
 }
 
-/// Runs `body` on `files` and exits with `a`; gives that as a signed byte. The `texts` are
-/// paths, so they end with a NUL.
-fn run_on(files: &mut super::Files, texts: &[&[u8]], slots: u32, mut body: Vec<Inst>) -> i64 {
+/// Runs `body` on `files`, which `Exit`s with `a`.
+fn run_out(
+    files: &mut super::Files,
+    texts: &[&[u8]],
+    slots: u32,
+    mut body: Vec<Inst>,
+) -> super::Outcome {
     body.extend([Push(A), System(Prim::Exit)]);
     let mut m = with_slots(slots, body);
     for text in texts {
         m.text(text);
     }
-    let faults = super::Faults::default();
-    super::run_with(&m, "f", b"", &[], faults, files).status as u8 as i8 as i64
+    super::run_with(&m, "f", b"", &[], super::Faults::default(), files)
+}
+
+/// Like `run_out`, giving the exit status as a signed byte. The `texts` are paths, so they
+/// end with a NUL.
+fn run_on(files: &mut super::Files, texts: &[&[u8]], slots: u32, body: Vec<Inst>) -> i64 {
+    run_out(files, texts, slots, body).status as u8 as i8 as i64
 }
 
 /// `Open(mode)` of text `n` in the folder `dir` puts in `a`; the result is in `a`.
@@ -1165,4 +1174,62 @@ fn rename_needs_a_folder_descriptor_and_single_names() {
     body.extend(push_text_n(0));
     body.push(System(Prim::Rename));
     assert_eq!(run_on(&mut files, &[b"a\0"], 0, body), -9);
+}
+
+/// `prim(fd, buf, len)`, with `fd` put in `a` by `fd`.
+fn transfer(prim: Prim, fd: Inst, buf: &[Inst], len: i64) -> Vec<Inst> {
+    let mut body = vec![fd, Push(A)];
+    body.extend_from_slice(buf);
+    body.extend(push_const(len));
+    body.push(System(prim));
+    body
+}
+
+/// Opens text 0 for `mode` into slot `slot`.
+fn open_slot(mode: OpenMode, n: u32, slot: u32) -> Vec<Inst> {
+    let mut body = open_text(mode, n);
+    body.push(StoreSlot(slot, A));
+    body
+}
+
+#[test]
+fn writes_append_and_reads_continue_where_they_stopped() {
+    let mut files = super::Files::default();
+    let mut body = open_slot(OpenMode::Create, 0, 1);
+    for text in [1, 2] {
+        body.extend(transfer(Prim::Write, LoadSlot(A, 1), &push_text_n(text), 2));
+    }
+    run_on(&mut files, &[b"f\0", b"ab", b"cd"], 1, body);
+    assert_eq!(files.files["f"], b"abcd".to_vec());
+    let mut body = open_slot(OpenMode::Read, 0, 1);
+    let in_buf = push_global(Global::InBuf);
+    for _ in 0..2 {
+        body.extend(transfer(Prim::Read, LoadSlot(A, 1), &in_buf, 2));
+        body.extend(transfer(Prim::Write, Const(A, 1), &in_buf, 2));
+    }
+    body.extend(transfer(Prim::Read, LoadSlot(A, 1), &in_buf, 2));
+    let out = run_out(&mut files, &[b"f\0"], 1, body);
+    assert_eq!((out.stdout, out.status), (b"abcd".to_vec(), 0));
+}
+
+#[test]
+fn a_descriptor_follows_its_file_through_a_rename_and_keeps_a_replaced_one() {
+    let mut files = super::Files::default();
+    files.files.insert("b".to_string(), b"old".to_vec());
+    let texts: [&[u8]; 4] = [b"a\0", b"b\0", b"xy", b"z"];
+    let mut body = open_slot(OpenMode::Read, 1, 1);
+    body.extend(open_slot(OpenMode::Create, 0, 2));
+    body.extend(transfer(Prim::Write, LoadSlot(A, 2), &push_text_n(2), 2));
+    body.extend(push_const(CWD));
+    body.extend(push_text_n(0));
+    body.extend(push_text_n(1));
+    body.push(System(Prim::Rename));
+    body.extend(transfer(Prim::Write, LoadSlot(A, 2), &push_text_n(3), 1));
+    let in_buf = push_global(Global::InBuf);
+    body.extend(transfer(Prim::Read, LoadSlot(A, 1), &in_buf, 8));
+    body.extend(transfer(Prim::Write, Const(A, 1), &in_buf, 3));
+    let out = run_out(&mut files, &texts, 2, body);
+    assert_eq!(out.stdout, b"old");
+    assert_eq!(files.files.keys().collect::<Vec<_>>(), ["b"]);
+    assert_eq!(files.files["b"], b"xyz".to_vec());
 }

@@ -11,10 +11,18 @@ const EIO: i64 = -5;
 
 /// A descriptor `Open` handed out.
 pub enum OpenFile {
-    Read(String),
+    /// Read only, with how much has been read.
+    Read(Target, usize),
     Folder(String),
-    Create(String),
+    Create(Target),
     Probe,
+}
+
+/// The file a descriptor is on. Like an inode, it follows the file when `Rename` moves it;
+/// when `Rename` replaces it, the descriptor keeps the old bytes, which no name reaches.
+pub enum Target {
+    Path(String),
+    Detached(Vec<u8>),
 }
 
 impl Machine<'_> {
@@ -60,6 +68,10 @@ impl Machine<'_> {
     fn write(&mut self) {
         let (fd, addr, len) = self.pop_transfer();
         self.writes += 1;
+        if fd >= 3 {
+            self.write_file(fd, addr, len);
+            return;
+        }
         if fd != 1 && fd != 2 {
             self.a = EBADF;
             return;
@@ -82,6 +94,10 @@ impl Machine<'_> {
 
     fn read(&mut self) {
         let (fd, addr, len) = self.pop_transfer();
+        if fd >= 3 {
+            self.read_file(fd, addr, len);
+            return;
+        }
         if fd != 0 {
             self.a = EBADF;
             return;
@@ -145,12 +161,15 @@ impl Machine<'_> {
             return Err(ENOTDIR);
         }
         match mode {
-            OpenMode::Read if is_file => Ok(OpenFile::Read(full)),
+            OpenMode::Read if is_file => Ok(OpenFile::Read(Target::Path(full), 0)),
             OpenMode::Folder if is_file => Err(ENOTDIR),
             OpenMode::Folder if self.files.is_folder(&full) => Ok(OpenFile::Folder(full)),
             OpenMode::Probe if self.files.exists(&full) => Ok(OpenFile::Probe),
             OpenMode::Create if slash => Err(EISDIR),
-            OpenMode::Create => self.files.create(&full).map(|()| OpenFile::Create(full)),
+            OpenMode::Create => self
+                .files
+                .create(&full)
+                .map(|()| OpenFile::Create(Target::Path(full))),
             _ => Err(NOT_FOUND),
         }
     }
@@ -158,12 +177,17 @@ impl Machine<'_> {
     fn sync(&mut self) {
         let fd = self.pop();
         self.a = match self.fds.get(&fd) {
-            Some(OpenFile::Read(path) | OpenFile::Folder(path) | OpenFile::Create(path)) => {
+            Some(
+                OpenFile::Read(Target::Path(path), _)
+                | OpenFile::Folder(path)
+                | OpenFile::Create(Target::Path(path)),
+            ) => {
                 self.files.synced.push(path.clone());
                 0
             }
             // `fsync` on an `O_PATH` descriptor fails, so a probe cannot be synced.
             Some(OpenFile::Probe) | None => EBADF,
+            Some(_) => 0,
         };
     }
 
@@ -174,30 +198,80 @@ impl Machine<'_> {
         let from = self.pop() as u64;
         let dir = self.pop();
         let (from, to) = (self.cstr(from), self.cstr(to));
-        self.a = match self.folder(dir).map(str::to_string) {
-            Ok(folder) => match self.files.rename(&folder, &from, &to) {
-                Ok(moved) => {
-                    let (from, to) = (join(&folder, &from), join(&folder, &to));
-                    if moved && from != to {
-                        self.follow(&from, &to);
-                    }
-                    0
-                }
-                Err(error) => error,
-            },
+        self.a = match self.rename_in(dir, &from, &to) {
+            Ok(()) => 0,
             Err(error) => error,
         };
     }
 
-    /// Points the descriptors on the file `from` at its new name `to`.
-    fn follow(&mut self, from: &str, to: &str) {
+    fn rename_in(&mut self, dir: i64, from: &str, to: &str) -> Result<(), i64> {
+        let folder = self.folder(dir)?.to_string();
+        let (full_from, full_to) = (join(&folder, from), join(&folder, to));
+        let replaced = self.files.files.get(&full_to).cloned();
+        if self.files.rename(&folder, from, to)? && full_from != full_to {
+            self.follow(&full_from, &full_to, replaced);
+        }
+        Ok(())
+    }
+
+    /// After the file `from` moved to `to`: descriptors on the file it replaced are detached
+    /// with its bytes, and those on `from` follow it.
+    fn follow(&mut self, from: &str, to: &str, replaced: Option<Vec<u8>>) {
         for file in self.fds.values_mut() {
-            match file {
-                OpenFile::Read(path) | OpenFile::Create(path) if path == from => {
-                    *path = to.to_string();
+            let (OpenFile::Read(target, _) | OpenFile::Create(target)) = file else {
+                continue;
+            };
+            match target {
+                Target::Path(path) if path == to => {
+                    if let Some(bytes) = &replaced {
+                        *target = Target::Detached(bytes.clone());
+                    }
                 }
+                Target::Path(path) if path == from => *path = to.to_string(),
                 _ => {}
             }
         }
+    }
+
+    fn write_file(&mut self, fd: i64, addr: u64, len: u64) {
+        if !matches!(self.fds.get(&fd), Some(OpenFile::Create(_))) {
+            self.a = EBADF;
+            return;
+        }
+        self.check(addr, len, false);
+        let bytes: Vec<u8> = (0..len).map(|i| self.memory.read_byte(addr + i)).collect();
+        if let Some(OpenFile::Create(target)) = self.fds.get_mut(&fd) {
+            match target {
+                Target::Path(path) => self.files.files.entry(path.clone()).or_default(),
+                Target::Detached(content) => content,
+            }
+            .extend(bytes);
+        }
+        self.a = len as i64;
+    }
+
+    fn read_file(&mut self, fd: i64, addr: u64, len: u64) {
+        let Some(OpenFile::Read(target, pos)) = self.fds.get(&fd) else {
+            self.a = EBADF;
+            return;
+        };
+        let content = match target {
+            Target::Path(path) => self.files.files.get(path).map_or(&[][..], Vec::as_slice),
+            Target::Detached(content) => content,
+        };
+        let chunk: Vec<u8> = content
+            .iter()
+            .skip(*pos)
+            .take(len as usize)
+            .copied()
+            .collect();
+        self.check(addr, chunk.len() as u64, true);
+        for (i, &byte) in chunk.iter().enumerate() {
+            self.memory.write_byte(addr + i as u64, byte);
+        }
+        if let Some(OpenFile::Read(_, pos)) = self.fds.get_mut(&fd) {
+            *pos += chunk.len();
+        }
+        self.a = chunk.len() as i64;
     }
 }
