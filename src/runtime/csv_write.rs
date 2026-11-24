@@ -22,7 +22,7 @@ fn store_byte(s: &mut Asm, base: Reg, offset: i32, from: Reg) {
 }
 
 /// The bytes a cell must be quoted for.
-const SPECIAL: [u8; 4] = [b',', b'"', b'\r', b'\n'];
+const SPECIAL: [u8; 4] = *b",\"\r\n";
 
 /// Pushes the word at `offset` of the builder (argument 1).
 fn push_builder(s: &mut Asm, offset: i32) {
