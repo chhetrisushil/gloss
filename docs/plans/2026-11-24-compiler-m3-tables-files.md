@@ -236,7 +236,7 @@ Tests: unit tests in `files.rs` for each rule (open beneath, link refusal at any
 
 **5b — Linux (`m3/t05b-linux-files`).** Files: `src/target/x86_64/linux.rs`, `src/target/x86_64/difftest/sys.rs`, `src/target/x86_64/lower_tests.rs`.
 
-`Open(mode)`: build `struct open_how { u64 flags; u64 mode; u64 resolve; }` in 24 bytes reserved on the stack; `openat2(dirfd, path, &how, 24)` = syscall 437; `resolve = RESOLVE_BENEATH (0x08) | RESOLVE_NO_SYMLINKS (0x04)`; flags: Read `O_RDONLY|O_CLOEXEC`, Folder `O_PATH|O_DIRECTORY|O_CLOEXEC`, Create `O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC` with mode 0o644, Probe `O_PATH|O_CLOEXEC`. `Close` = 3, `Sync` = `fsync` 74, `Rename` = `renameat` 264 (same folder fd twice). `rcx` (IR `b`) is kept as for every primitive.
+`Open(mode)`: build `struct open_how { u64 flags; u64 mode; u64 resolve; }` in 24 bytes reserved on the stack; `openat2(dirfd, path, &how, 24)` = syscall 437; `resolve = RESOLVE_BENEATH (0x08) | RESOLVE_NO_SYMLINKS (0x04)`; flags: Read `O_RDONLY|O_CLOEXEC`, Folder `O_RDONLY|O_DIRECTORY|O_CLOEXEC` (R8: `fsync` on an `O_PATH` fd fails), Create `O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC` with mode 0o644, Probe `O_PATH|O_CLOEXEC`. `Close` = 3, `Sync` = `fsync` 74, `Rename` = `renameat` 264 (same folder fd twice). `rcx` (IR `b`) is kept as for every primitive.
 
 Tests: difftest programs per primitive (open a file the test created, read it back; open through a link gives the link error; create and rename; `b` survives each); `lower_tests` instruction text for `Open(Read)`.
 
