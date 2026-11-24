@@ -2,7 +2,7 @@
 //! message pieces.
 
 use super::asm::Asm;
-use crate::ir::Cond::{Ge, Le, Ne};
+use crate::ir::Cond::{Ge, Gt, Le, Lt, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Data, Function, Global, Inst::*, IntOp, Prim};
 
@@ -41,6 +41,44 @@ fn write_all() -> Function {
     s.i(System(Prim::Exit));
     s.i(Mark(done));
     s.finish("write_all", 3, 2)
+}
+
+/// `file_write(fd, addr, len)`: writes every byte, looping on short writes; 0 when done, or
+/// the first negative error (a write that gives 0 is `-5`, an I/O error). Unlike `write_all`
+/// it never ends the program, so a save can name the failure. Slots: 1 the address, 2 what
+/// is left.
+fn file_write() -> Function {
+    let mut s = Asm::default();
+    let (again, advance, error, done) = (s.label(), s.label(), s.label(), s.label());
+    s.i(LoadArg(A, 2));
+    s.i(StoreSlot(1, A));
+    s.i(LoadArg(A, 3));
+    s.i(StoreSlot(2, A));
+    s.i(Mark(again));
+    s.i(LoadSlot(A, 2));
+    s.i(Const(B, 0));
+    s.jump_if(Le, done);
+    s.push_arg(1);
+    s.push_slot(1);
+    s.push_slot(2);
+    s.i(System(Prim::Write));
+    s.i(Const(B, 0));
+    s.jump_if(Gt, advance);
+    s.jump_if(Lt, error);
+    s.i(Const(A, -5));
+    s.i(Mark(error));
+    s.i(Return);
+    s.i(Mark(advance));
+    s.i(Move { to: B, from: A });
+    s.i(LoadSlot(A, 1));
+    s.i(Int(IntOp::Add));
+    s.i(StoreSlot(1, A));
+    s.i(LoadSlot(A, 2));
+    s.i(Int(IntOp::Sub));
+    s.i(StoreSlot(2, A));
+    s.i(Jump(again));
+    s.i(Mark(done));
+    s.finish("file_write", 3, 2)
 }
 
 fn flush() -> Function {
@@ -238,6 +276,7 @@ fn fail_end() -> Function {
 pub fn routines() -> Vec<Function> {
     vec![
         write_all(),
+        file_write(),
         flush(),
         out_bytes(),
         out_text(),
