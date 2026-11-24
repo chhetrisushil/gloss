@@ -3,7 +3,7 @@
 //! `rcx` is saved around the call, `r11` is scratch.
 
 use super::inst::{AluOp, Cc, Mem, R, X};
-use crate::ir::Prim;
+use crate::ir::{OpenMode, Prim};
 
 const READ: i64 = 0;
 const WRITE: i64 = 1;
@@ -13,6 +13,23 @@ const EXIT_GROUP: i64 = 231;
 const RLIMIT_STACK: i64 = 3;
 const PROT_READ_WRITE: i64 = 3;
 const MAP_PRIVATE_ANONYMOUS: i64 = 0x22;
+const CLOSE: i64 = 3;
+const FSYNC: i64 = 74;
+const RENAMEAT: i64 = 264;
+const OPENAT2: i64 = 437;
+const O_RDONLY: i64 = 0;
+const O_WRONLY: i64 = 1;
+const O_CREAT: i64 = 0o100;
+const O_TRUNC: i64 = 0o1000;
+const O_DIRECTORY: i64 = 0o200000;
+const O_CLOEXEC: i64 = 0o2000000;
+const O_PATH: i64 = 0o10000000;
+const RESOLVE_NO_SYMLINKS: i64 = 0x04;
+const RESOLVE_BENEATH: i64 = 0x08;
+/// The permissions of a created file.
+const CREATE_PERMISSIONS: i64 = 0o644;
+/// `sizeof(struct open_how)`: `u64` flags, mode and resolve.
+const OPEN_HOW_SIZE: i64 = 24;
 /// The kernel reports an error as a result in `-4095..=-1`.
 const FIRST_ERROR: i32 = -4096;
 
@@ -24,9 +41,10 @@ pub fn system(prim: Prim, unique: &str, out: &mut Vec<X>) {
         Prim::Exit => out.extend([X::Pop(R::Rdi), X::MovRI(R::Rax, EXIT_GROUP), X::Syscall]),
         Prim::Map => map(unique, out),
         Prim::StackSize => stack_size(out),
-        Prim::Open(_) | Prim::Close | Prim::Sync | Prim::Rename => {
-            panic!("file primitives arrive in task 5b")
-        }
+        Prim::Open(mode) => open(mode, out),
+        Prim::Close => single(CLOSE, out),
+        Prim::Sync => single(FSYNC, out),
+        Prim::Rename => rename(out),
     }
 }
 
@@ -80,4 +98,40 @@ fn stack_size(out: &mut Vec<X>) {
         X::AluI(AluOp::Add, R::Rsp, 16),
         X::Pop(R::Rcx),
     ]);
+}
+
+/// `openat2(folder, path, &open_how, 24)`, always `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`.
+/// The struct is built on the stack (flags at the lowest address) before `call` saves `rcx`,
+/// so `rdx` is its address; it is released after `rcx` comes back, and `rax` is untouched.
+fn open(mode: OpenMode, out: &mut Vec<X>) {
+    let (flags, permissions) = match mode {
+        OpenMode::Read => (O_RDONLY | O_CLOEXEC, 0),
+        OpenMode::Folder => (O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0),
+        OpenMode::Create => (O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, CREATE_PERMISSIONS),
+        OpenMode::Probe => (O_PATH | O_CLOEXEC, 0),
+    };
+    out.extend([X::Pop(R::Rsi), X::Pop(R::Rdi)]);
+    for field in [RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS, permissions, flags] {
+        out.extend([X::MovRI(R::R11, field), X::Push(R::R11)]);
+    }
+    out.extend([X::MovRR(R::Rdx, R::Rsp), X::MovRI(R::R10, OPEN_HOW_SIZE)]);
+    call(OPENAT2, out);
+    out.push(X::AluI(AluOp::Add, R::Rsp, OPEN_HOW_SIZE as i32));
+}
+
+/// A system call of one descriptor argument.
+fn single(number: i64, out: &mut Vec<X>) {
+    out.push(X::Pop(R::Rdi));
+    call(number, out);
+}
+
+/// `renameat(folder, from, folder, to)`.
+fn rename(out: &mut Vec<X>) {
+    out.extend([
+        X::Pop(R::R10),
+        X::Pop(R::Rsi),
+        X::Pop(R::Rdi),
+        X::MovRR(R::Rdx, R::Rdi),
+    ]);
+    call(RENAMEAT, out);
 }
