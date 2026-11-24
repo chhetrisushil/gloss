@@ -16,6 +16,8 @@ fn link_name(line: &str) -> &str {
 
 /// What the program left behind, listed like `read_tree` lists a real folder: the files, and
 /// each link as its `.links` line; a link the `.links` file does not give is `name -> ?`.
+/// `Files` keeps link names, not targets, so a link renamed over another listed link would
+/// show the old target; nothing in the runtime makes or moves links, so no case can do that.
 fn left_behind(files: &Files, links: &[String]) -> Tree {
     let mut tree: Tree = files.files.clone();
     for name in &files.links {

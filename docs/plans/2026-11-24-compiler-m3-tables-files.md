@@ -251,7 +251,7 @@ Tests: difftest programs per primitive (open a file the test created, read it ba
 - Suffixes accepted by the sweep: `.files` (folder), `.after` (folder), `.links`, `.allow`, `.args`, besides the existing ones, each only beside a `.gloss` of the same stem. The orphan test gains `x.files` and `y.links` without a `.gloss`.
 - Each case runs in `TempDir/<name>/` holding the source, `<name>.allow` (copied when present) and the executable, and a `work/` folder: `.files/` is copied into `work/`; `.links` lines `link -> target` become symbolic links inside `work/`; `.args` lines become arguments. The program's current folder is `work/` (`current_dir` when run directly; under `orb`, the `sh -c` wrapper `cd`s first — extend the existing wrapper with the folder as one more positional argument).
 - After the run, the files under `work/` (regular files only, recursively, relative paths, symbolic links listed as `link -> target`) must equal the files under `.after/` plus the `.links` lines, byte for byte, when `.after` exists; when it does not, `work/` must equal `.files/` (nothing changed).
-- `run_support` gains `run_in(path, stdin, deadline, folder, args)`.
+- `run_support` gains `run_case(path, stdin, deadline, folder, args, kib)` (as built: the brief's `run_in` was folded into it).
 
 Tests: `the_sweep_reports_an_orphan` extended; unit tests of the folder comparison (equal, an extra file, a missing file, different bytes, a link listed differently); run case `permissions_flag` (`.args` holding `--permissions`, `.out` the list of a table program, `.allow` committed); run case `files_untouched` (a program without tables, `.files/` seeded, no `.after/`: proves seeding and comparison run).
 

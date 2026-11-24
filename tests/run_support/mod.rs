@@ -176,7 +176,8 @@ fn run_core(
         script.push_str(&format!(r#"ulimit -v "${}"; "#, tail.len()));
         tail.push(l.as_ref());
     }
-    if let Some(f) = folder {
+    // Run directly, the folder is set with `current_dir` below; under a runner, by `cd`.
+    if let Some(f) = folder.filter(|_| !prefix.is_empty()) {
         script.push_str(&format!(r#"cd "${}" || exit 125; "#, tail.len()));
         tail.push(f.as_os_str());
     }
