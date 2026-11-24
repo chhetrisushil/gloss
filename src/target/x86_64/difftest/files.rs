@@ -112,6 +112,7 @@ fn model(setup: &Setup) -> Files {
         folders: setup.folders.iter().map(|f| f.to_string()).collect(),
         links: setup.links.iter().map(|(l, _)| l.to_string()).collect(),
         synced: Vec::new(),
+        log: Vec::new(),
     }
 }
 

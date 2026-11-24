@@ -254,6 +254,12 @@ mod table_tests {
         assert_eq!((o.status, o.stderr.len()), (0, 0));
         assert_eq!(files.files, files_with(&[], &[("e.csv", "a,b\n")]).files);
         assert_eq!(files.synced, ["e.csv.gloss-new", ""]);
+        let log = [
+            "sync e.csv.gloss-new",
+            "rename e.csv.gloss-new -> e.csv",
+            "sync ",
+        ];
+        assert_eq!(files.log, log);
     }
 
     #[test]
@@ -264,6 +270,13 @@ mod table_tests {
         let want = files_with(&["data"], &[("data/e.csv", "a,b\n"), ("e.csv", "keep")]);
         assert_eq!(files.files, want.files);
         assert_eq!(files.synced, ["data/e.csv.gloss-new", "data"]);
+        // The rename sits between the two syncs: the folder sync is what makes it durable.
+        let log = [
+            "sync data/e.csv.gloss-new",
+            "rename data/e.csv.gloss-new -> data/e.csv",
+            "sync data",
+        ];
+        assert_eq!(files.log, log);
     }
 
     fn refused(files: &mut Files, folder: &str, faults: Faults) -> String {

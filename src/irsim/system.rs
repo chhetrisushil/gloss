@@ -207,6 +207,7 @@ impl Machine<'_> {
                 | OpenFile::Create(Target::Path(path)),
             ) => {
                 self.files.synced.push(path.clone());
+                self.files.log.push(format!("sync {path}"));
                 0
             }
             // `fsync` on an `O_PATH` descriptor fails, so a probe cannot be synced.
@@ -237,6 +238,9 @@ impl Machine<'_> {
         let (full_from, full_to) = (join(&folder, from), join(&folder, to));
         let replaced = self.files.files.get(&full_to).cloned();
         let moved = self.files.rename(&folder, from, to)?;
+        self.files
+            .log
+            .push(format!("rename {full_from} -> {full_to}"));
         if full_from != full_to {
             self.follow(&full_from, &full_to, replaced, moved);
         }
