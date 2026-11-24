@@ -41,7 +41,7 @@ Agents now write most code, and fewer people read it. Gloss aims to make program
 
 ## Status
 
-Milestones 1 to 3 are built. The compiler reads a Gloss program, reports every compile error and warning the spec defines, formats source into its one accepted form, and `gloss build` writes a static x86-64 Linux executable. Programs can declare tables, and `load`, `save` and `clear` work on CSV files. A program that touches files needs approval at build time (see [Tables and files](#tables-and-files)). Test blocks (`expect`, `input`) are left out of the built program until milestone 4.
+Milestones 1 to 3 are built. The compiler reads a Gloss program, reports every compile error and warning the spec defines, formats source into its one accepted form, and `gloss build` writes a static x86-64 Linux executable. Programs can declare tables, and `load` and `save` read and write CSV files, and `clear` empties a table. A program that touches files needs approval at build time (see [Tables and files](#tables-and-files)). Test blocks (`expect`, `input`) are left out of the built program until milestone 4.
 
 | Milestone | What it adds | State |
 |---|---|---|
@@ -112,7 +112,7 @@ table expenses of Expense in "expenses.csv"
 
 - `load expenses` reads the file into the table. A missing file prints a notice and gives an empty table. Bad data stops the program with run-time failure 6 and names the file line.
 - `save expenses` writes the table back. It writes `expenses.csv.gloss-new` beside the file, syncs it, and renames it over the original, so a failed save never leaves a half-written file. A table must be loaded or cleared before it is saved (failure 8). Failure 7 is a write that cannot happen.
-- `clear expenses` empties the table.
+- `clear expenses` empties the table in memory; a later `save` writes it.
 - Files are found relative to the folder the program runs from. Paths that go through a symbolic link are refused.
 
 File access is approved when you build, not when the program runs. `gloss build` prints what the program can touch and asks:
@@ -128,7 +128,7 @@ Built expenses
 ```
 
 - Approval is stored in `expenses.allow` beside the source. After every successful build the file holds exactly the current list, so a file the program stops using loses its approval.
-- `--allow expenses.csv` approves a file without the question, once per file. Use it where there is no terminal. A file the program does not declare is a compile error (status 3).
+- `gloss build expenses.gloss --allow expenses.csv` approves a file without the question, once per file. `--allow` comes after the source file. Use it where there is no terminal. A file the program does not declare is a compile error (status 3).
 - With no terminal and no approval, the build prints `Not approved: ...`, writes no executable and exits with status **4**.
 - `./expenses --permissions` prints the same list from the built executable and exits 0.
 
@@ -136,7 +136,7 @@ Built expenses
 
 | Command | What it does | Available |
 |---|---|---|
-| `gloss build FILE` | Checks the program, then writes the executable beside the source and prints `Built NAME`. Prints errors and warnings to standard error. | Now |
+| `gloss build FILE [--allow F]...` | Checks the program, then writes the executable beside the source and prints `Built NAME`. Prints errors and warnings to standard error. | Now |
 | `gloss format FILE` | Rewrites the file into the one accepted form. A file that does not parse is left untouched. | Now |
 | `gloss test FILE` | Runs every test block and prints each title with pass or fail | Milestone 4 |
 | `gloss trace FILE` | Runs the program and narrates each step in plain words | Milestone 5 |
