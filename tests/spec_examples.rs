@@ -477,47 +477,63 @@ fn every_run_time_failure_says_what_the_spec_says() {
             "{name}: standard output {shown:?}"
         );
     }
-    // Failures 6 to 8 are about table files; the spec's row for each carries the design's
-    // messages (design spec section 6), the first in full and the rest as `...: <message>`.
-    for (n, message) in TABLE_FAILURES {
-        let row = SPEC
-            .lines()
-            .find(|l| l.starts_with(&format!("| {n} |")))
-            .unwrap();
-        let full = format!("`line 5: failure {n}: {message}`");
-        let later = format!("`…: {message}`");
-        assert!(
-            row.contains(&full) || row.contains(&later),
-            "failure {n}: the spec row lacks {message:?}: {row}"
-        );
-    }
+    // Failures 6 to 8 are about table files: their messages are compared in
+    // `table_failure_messages_match_the_design`.
 }
 
-/// The design's messages for failures 6 to 8 (design spec section 6, D26), without the lead.
-const TABLE_FAILURES: &[(u8, &str)] = &[
-    (6, "expenses.csv line 7: amount \"12,50\" is not a number"),
-    (6, "expenses.csv line 7: amount is empty"),
-    (6, "expenses.csv line 7: paid \"maybe\" is not yes or no"),
-    (6, "expenses.csv line 7: has 4 cells; the header has 3"),
-    (
-        6,
-        "expenses.csv line 1: column amout is not a field of Expense",
-    ),
-    (6, "expenses.csv line 1: column amount is missing"),
-    (6, "expenses.csv line 1: column amount appears twice"),
-    (6, "expenses.csv line 9: a quoted cell is not closed"),
-    (6, "expenses.csv line 8: a quote is out of place"),
-    (6, "expenses.csv is not UTF-8 text (line 4)"),
-    (6, "expenses.csv is reached through a symbolic link"),
-    (6, "expenses.csv cannot be read"),
-    (
-        7,
-        "data/expenses.csv cannot be written (its folder data does not exist)",
-    ),
-    (7, "expenses.csv cannot be written"),
-    (7, "expenses.csv is reached through a symbolic link"),
-    (
-        8,
-        "expenses is saved here but was not loaded or cleared first",
-    ),
-];
+const DESIGN: &str = include_str!("../docs/specs/2026-11-22-compiler-design.md");
+
+/// The backtick-quoted spans of one table row.
+fn spans(row: &str) -> Vec<&str> {
+    row.split('`').skip(1).step_by(2).collect()
+}
+
+/// `(number, message)` for every failure 6 to 8 message in the rows of `text` that start with
+/// `| N |`. The design writes every
+/// message in full as `line N: failure K: ...`; the spec writes the first of a row that way
+/// and the rest as `...: <message>`.
+fn table_messages(text: &str, is_design: bool) -> Vec<(u8, String)> {
+    let mut found = Vec::new();
+    for n in 6..=8u8 {
+        for row in text.lines().filter(|l| l.starts_with(&format!("| {n} |"))) {
+            let lead = if is_design { "line N" } else { "line 5" };
+            let full = format!("{lead}: failure {n}: ");
+            // Other tables (the task list) have rows `| 6 |` with no failure message.
+            let all = spans(row);
+            if !all.iter().any(|s| s.starts_with(&full)) {
+                continue;
+            }
+            // The design's cause column may hold backticks; its message is the last span.
+            let quoted = if is_design {
+                vec![all[all.len() - 1]]
+            } else {
+                all
+            };
+            for span in quoted {
+                let message = span
+                    .strip_prefix(&full)
+                    .or_else(|| span.strip_prefix("…: "))
+                    .unwrap_or_else(|| panic!("failure {n}: unexpected span {span:?} in {row}"));
+                found.push((n, message.to_string()));
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+#[test]
+fn table_failure_messages_match_the_design() {
+    let design = table_messages(DESIGN, true);
+    // Guard against a vacuous pass: 12 for failure 6, 3 for failure 7, 1 for failure 8.
+    assert_eq!(
+        design.len(),
+        16,
+        "the design's failure 6-8 table: {design:?}"
+    );
+    let spec = table_messages(SPEC, false);
+    assert_eq!(
+        spec, design,
+        "spec section 10 rows 6-8 and the design's table must hold the same messages"
+    );
+}
