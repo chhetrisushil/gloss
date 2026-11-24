@@ -65,12 +65,14 @@ const LINE_N: u32 = 27;
 const UNCLOSED: u32 = 28;
 const COLUMN: u32 = 29;
 const NOT_A_FIELD: u32 = 30;
+const TWICE: u32 = 31;
+const MISSING: u32 = 32;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 31] = [
+const TEXTS: [&[u8]; 33] = [
     b"line ",
     b": failure ",
     b": ",
@@ -102,6 +104,8 @@ const TEXTS: [&[u8]; 31] = [
     b"a quoted cell is not closed",
     b"column ",
     b" is not a field of ",
+    b" appears twice",
+    b" is missing",
 ];
 
 /// The bytes of the runtime text `i`.
