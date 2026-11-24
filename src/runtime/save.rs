@@ -265,4 +265,44 @@ mod table_tests {
         assert_eq!(files.files, want.files);
         assert_eq!(files.synced, ["data/e.csv.gloss-new", "data"]);
     }
+
+    fn refused(files: &mut Files, folder: &str, faults: Faults) -> String {
+        let o = save(files, folder, "e.csv", faults);
+        assert_eq!(o.status, 2);
+        String::from_utf8(o.stderr).unwrap()
+    }
+
+    #[test]
+    fn a_missing_folder_a_link_and_a_failed_write_are_failure_7_and_leave_the_table_alone() {
+        let mut files = files_with(&[], &[("e.csv", "old\n")]);
+        let err = refused(&mut files, "data", Faults::default());
+        assert_eq!(
+            err,
+            "line 7: failure 7: data/e.csv cannot be written (its folder data does not exist)\n"
+        );
+        files.links.insert("data".into());
+        let err = refused(&mut files, "data", Faults::default());
+        assert_eq!(
+            err,
+            "line 7: failure 7: data/e.csv is reached through a symbolic link\n"
+        );
+        let mut files = files_with(&[], &[("e.csv", "old\n")]);
+        files.links.insert("e.csv".into());
+        let err = refused(&mut files, ".", Faults::default());
+        assert_eq!(
+            err,
+            "line 7: failure 7: e.csv is reached through a symbolic link\n"
+        );
+        assert_eq!(files.files, files_with(&[], &[("e.csv", "old\n")]).files);
+        let mut files = files_with(&[], &[("e.csv", "old\n")]);
+        let faults = Faults {
+            failing_file_write: true,
+            ..Faults::default()
+        };
+        assert_eq!(
+            refused(&mut files, ".", faults),
+            "line 7: failure 7: e.csv cannot be written\n"
+        );
+        assert_eq!(files.files["e.csv"], b"old\n");
+    }
 }
