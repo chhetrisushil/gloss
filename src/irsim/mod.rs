@@ -26,6 +26,8 @@ pub struct Outcome {
     pub writes: u32,
     /// The files when the program ended.
     pub files: Files,
+    /// The descriptors from `Open` still open when it ended.
+    pub open_fds: Vec<i64>,
 }
 
 /// Faults a test can make `Write` show, as a real kernel sometimes does.
@@ -47,6 +49,8 @@ pub struct Faults {
     pub failing_open: Option<String>,
     /// `Write` to a descriptor from `Open` fails with an I/O error.
     pub failing_file_write: bool,
+    /// The Nth `Read` (counting from 1) of a descriptor from `Open` fails with an I/O error.
+    pub failing_file_read: Option<u32>,
 }
 
 /// Runs the function `entry` as a program, feeding it `stdin`.
@@ -80,6 +84,7 @@ pub fn run_with(
         stderr: machine.stderr,
         status,
         writes: machine.writes,
+        open_fds: machine.fds.keys().copied().collect(),
         files: machine.files,
     }
 }

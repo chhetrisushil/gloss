@@ -266,7 +266,7 @@ mod tests {
             let mut files = files_with(&[], &[("e.csv", &bytes)]);
             let o = read(&mut files, "e.csv", Faults::default());
             assert_eq!((o.status, o.stderr.len()), (0, 0), "length {len}");
-            assert!(o.stdout == bytes, "length {len}");
+            assert!(o.stdout == bytes && o.open_fds.is_empty(), "length {len}");
         }
     }
 
@@ -282,7 +282,11 @@ mod tests {
     /// The status and standard error of a read that ends the program.
     fn refused(mut files: Files, path: &str, faults: Faults) -> (i32, String) {
         let o = read(&mut files, path, faults);
-        assert!(o.stdout.is_empty());
+        assert!(
+            o.stdout.is_empty() && o.open_fds.is_empty(),
+            "{:?}",
+            o.open_fds
+        );
         (o.status, String::from_utf8(o.stderr).unwrap())
     }
 
@@ -307,6 +311,25 @@ mod tests {
         // A folder opens, and then cannot be read.
         let files = files_with(&["data"], &[]);
         assert_eq!(refused(files, "data", Faults::default()), (2, plain.into()));
+    }
+
+    #[test]
+    fn a_read_that_fails_after_bytes_were_read_is_cannot_be_read_and_closes_the_file() {
+        let big = vec![b'a'; 20000];
+        for nth in [1, 2, 3] {
+            let mut files = files_with(&[], &[("e.csv", &big)]);
+            let faults = Faults {
+                failing_file_read: Some(nth),
+                ..Faults::default()
+            };
+            let o = read(&mut files, "e.csv", faults);
+            let want = "line 7: failure 6: data/e.csv cannot be read\n";
+            assert_eq!(
+                (o.status, String::from_utf8(o.stderr).unwrap()),
+                (2, want.into())
+            );
+            assert!(o.open_fds.is_empty() && o.stdout.is_empty());
+        }
     }
 
     #[test]

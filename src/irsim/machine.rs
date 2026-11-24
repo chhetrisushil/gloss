@@ -64,6 +64,8 @@ pub struct Machine<'m> {
     pub stderr: Vec<u8>,
     /// How many `Write` calls the program made.
     pub writes: u32,
+    /// How many `Read` calls on a file from `Open` were made.
+    pub file_reads: u32,
     /// The file system the file primitives work on.
     pub files: super::Files,
     /// The descriptors `Open` handed out, from 3 up.
@@ -99,6 +101,7 @@ impl<'m> Machine<'m> {
             args: Vec::new(),
             stderr: Vec::new(),
             writes: 0,
+            file_reads: 0,
             files: super::Files::default(),
             fds: std::collections::BTreeMap::new(),
         }

@@ -304,6 +304,11 @@ impl Machine<'_> {
                 return;
             }
         };
+        self.file_reads += 1;
+        if self.faults.failing_file_read == Some(self.file_reads) {
+            self.a = EIO;
+            return;
+        }
         let content = match target {
             Target::Path(path) => self.files.files.get(path).cloned().unwrap_or_default(),
             Target::Detached(content) => content.borrow().clone(),
