@@ -43,6 +43,10 @@ pub struct Faults {
     pub failing_fds: Vec<i64>,
     /// `Read` fails with a negative result.
     pub failing_read: bool,
+    /// `Open` of this normalised path fails with a permission error.
+    pub failing_open: Option<String>,
+    /// `Write` to a descriptor from `Open` fails with an I/O error.
+    pub failing_file_write: bool,
 }
 
 /// Runs the function `entry` as a program, feeding it `stdin`.

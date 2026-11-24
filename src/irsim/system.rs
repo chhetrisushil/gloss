@@ -8,6 +8,8 @@ use crate::ir::{CWD, NOT_FOUND, OpenMode, Prim};
 const EBADF: i64 = -9;
 /// What a `Write` that a test makes fail, and what such a `Read` gives.
 const EIO: i64 = -5;
+/// What a test's `failing_open` gives: Linux's permission error.
+const EACCES: i64 = -13;
 
 /// A descriptor `Open` handed out.
 pub enum OpenFile {
@@ -155,6 +157,9 @@ impl Machine<'_> {
 
     fn open_path(&mut self, dir: i64, path: &str, mode: OpenMode) -> Result<OpenFile, i64> {
         let full = self.files.resolve(self.folder(dir)?, path)?;
+        if self.faults.failing_open.as_deref() == Some(&full) {
+            return Err(EACCES);
+        }
         let is_file = self.files.files.contains_key(&full);
         let slash = path.ends_with('/');
         if is_file && slash {
@@ -236,6 +241,10 @@ impl Machine<'_> {
     fn write_file(&mut self, fd: i64, addr: u64, len: u64) {
         if !matches!(self.fds.get(&fd), Some(OpenFile::Create(_))) {
             self.a = EBADF;
+            return;
+        }
+        if self.faults.failing_file_write {
+            self.a = EIO;
             return;
         }
         self.check(addr, len, false);
