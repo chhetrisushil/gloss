@@ -27,21 +27,33 @@ fn left_behind(files: &Files, links: &[String]) -> Tree {
     tree
 }
 
-/// The faults that stand for `.mode` lines: a file without read permission is refused by
-/// `Open` (one such file per case); a folder without write permission refuses to create files.
+/// The faults that stand for `.mode` lines. Linux checks the owner's bits (the runner owns the
+/// files): a file without 0o400 is refused by `Open` (one such file or folder per case); a
+/// folder without 0o200 refuses to create files; a folder without 0o100 refuses every path
+/// through it, which is shown by refusing the first file under it. A file may lose its write
+/// bit freely: the runtime replaces a table by renaming a new file over it.
 fn mode_faults(files: &Files, modes: &[(String, u32)]) -> Faults {
     let mut faults = Faults::default();
+    let refuse = |faults: &mut Faults, path: &str| {
+        assert!(faults.failing_open.is_none(), "one refused path per case");
+        faults.failing_open = Some(path.to_string());
+    };
     for (path, mode) in modes {
-        if files.files.contains_key(path) && mode & 0o444 == 0 {
-            assert!(
-                faults.failing_open.is_none(),
-                "one unreadable file per case"
-            );
-            faults.failing_open = Some(path.clone());
-        } else if files.folders.contains(path) && mode & 0o222 == 0 {
-            faults.read_only_folders.insert(path.clone());
+        if files.files.contains_key(path) {
+            if mode & 0o400 == 0 {
+                refuse(&mut faults, path);
+            }
+        } else if files.folders.contains(path) {
+            if mode & 0o200 == 0 {
+                faults.read_only_folders.insert(path.clone());
+            }
+            if mode & 0o100 == 0 {
+                let inside = format!("{path}/");
+                let first = files.files.keys().find(|f| f.starts_with(&inside));
+                refuse(&mut faults, first.expect("a file inside the closed folder"));
+            }
         } else {
-            panic!("{path} {mode:o}: irsim models only an unreadable file and a read-only folder");
+            panic!("{path}: the .mode path is neither a seeded file nor a folder");
         }
     }
     faults
