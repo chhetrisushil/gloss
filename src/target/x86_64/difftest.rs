@@ -3,6 +3,7 @@
 //! runner and says so on standard error when there is none.
 
 mod calls;
+mod files;
 mod memory;
 mod num;
 mod ops;
