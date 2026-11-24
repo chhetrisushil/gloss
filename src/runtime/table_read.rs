@@ -3,9 +3,9 @@
 use super::asm::Asm;
 use super::csv_header::{get, load_at, set};
 use super::csv_write::count_up;
-use crate::ir::Cond::Eq;
+use crate::ir::Cond::{Eq, Ne};
 use crate::ir::Reg::{A, B};
-use crate::ir::{Function, Inst::*, IntOp, Shift};
+use crate::ir::{CWD, Function, Inst::*, IntOp, Shift};
 
 // Slots of `table_record`.
 const RECORD: u32 = 1;
@@ -89,8 +89,106 @@ fn table_record() -> Function {
     s.finish("table_record", 7, 10)
 }
 
+const LIST: u32 = 1; // slots of `table_read`
+const CURSOR: u32 = 2;
+const HEADER: u32 = 3;
+const HEADER_MAP: u32 = 4;
+const WIDTH: u32 = 5;
+const ROW: u32 = 6;
+
+/// The next row of the cursor in slot `CURSOR` into `a`, or 0 at the end.
+fn next_row(s: &mut Asm) {
+    s.push_slot(CURSOR);
+    s.push_arg(2);
+    s.push_arg(4);
+    s.call("csv_next");
+}
+
+/// `table_read(path, shown, desc, line)`: the rows of the table file `path` (a NUL-terminated
+/// text in the current folder) as a new list of records of `desc`; `shown` names the file in
+/// messages. A missing, empty or header-only file gives an empty list; a row with other than
+/// the header's number of cells is failure 6. Nothing is shared until the caller stores it.
+fn table_read() -> Function {
+    let mut s = Asm::default();
+    let [rows, done, wrong] = [(); 3].map(|_| s.label());
+    s.push_const(4);
+    s.push_arg(4);
+    s.call("list_new");
+    s.i(StoreSlot(LIST, A));
+    s.push_const(CWD);
+    for arg in [1, 2, 4] {
+        s.push_arg(arg);
+    }
+    s.call("file_bytes");
+    s.i(Const(B, 0));
+    s.jump_if(Eq, done);
+    s.i(Push(A));
+    s.push_arg(4);
+    s.call("csv_cursor");
+    s.i(StoreSlot(CURSOR, A));
+    next_row(&mut s);
+    s.i(StoreSlot(HEADER, A));
+    s.i(Const(B, 0));
+    s.jump_if(Eq, done);
+    s.push_slot(HEADER);
+    for arg in [3, 2, 4] {
+        s.push_arg(arg);
+    }
+    s.call("csv_header");
+    s.i(StoreSlot(HEADER_MAP, A));
+    s.i(LoadSlot(A, HEADER));
+    load_at(&mut s, 0);
+    s.i(StoreSlot(WIDTH, A));
+    s.i(Mark(rows));
+    next_row(&mut s);
+    s.i(StoreSlot(ROW, A));
+    s.i(Const(B, 0));
+    s.jump_if(Eq, done);
+    load_at(&mut s, 0);
+    s.i(LoadSlot(B, WIDTH));
+    s.jump_if(Ne, wrong);
+    s.push_slot(ROW);
+    s.push_slot(HEADER_MAP);
+    s.push_slot(WIDTH);
+    for arg in [3, 2, 4] {
+        s.push_arg(arg);
+    }
+    s.i(LoadSlot(A, CURSOR));
+    load_at(&mut s, 24);
+    s.i(Push(A));
+    s.call("table_record");
+    s.i(Move { to: B, from: A });
+    s.push_slot(LIST);
+    s.i(Push(B));
+    s.push_arg(4);
+    s.call("list_push");
+    s.i(Jump(rows));
+    s.i(Mark(done));
+    s.i(LoadSlot(A, LIST));
+    s.i(Return);
+    s.i(Mark(wrong));
+    s.push_arg(4);
+    s.push_arg(2);
+    s.i(LoadSlot(A, CURSOR));
+    load_at(&mut s, 24);
+    s.i(Push(A));
+    s.call("fail_row");
+    s.push_text(super::HAS);
+    s.call("err_text");
+    s.i(LoadSlot(A, ROW));
+    load_at(&mut s, 0);
+    s.i(Push(A));
+    s.call("err_int");
+    s.push_text(super::CELLS_HEADER);
+    s.call("err_text");
+    s.push_slot(WIDTH);
+    s.call("err_int");
+    s.call("fail_end");
+    s.finish("table_read", 4, 6)
+}
+
 pub fn routines() -> Vec<Function> {
-    vec![table_record()]
+    vec![table_record(), table_read()]
 }
 
 #[cfg(test)]
@@ -178,5 +276,95 @@ mod tests {
             record(&format!("{head},0,no")).1,
             "Expense with name \"\", amount 0, paid no"
         );
+    }
+}
+
+#[cfg(test)]
+mod file_tests {
+    use super::super::tests::program;
+    use crate::ir::Inst::*;
+    use crate::ir::{Data, Desc, Module, Reg::A};
+    use crate::irsim::{self, Faults, Files, Outcome};
+
+    /// Loads the table file `e.csv` of `Expense` records and shows the list. Failures call
+    /// the file `shown`.
+    fn load(content: Option<&str>) -> (Outcome, String, String) {
+        let mut descs = Module::default();
+        let (text, number, truth) = (
+            descs.desc(Desc::Text),
+            descs.desc(Desc::Number),
+            descs.desc(Desc::Truth),
+        );
+        let fields = ["name", "amount", "paid"].map(String::from);
+        let fields = fields.into_iter().zip([text, number, truth]).collect();
+        let record = descs.desc(Desc::Record {
+            name: "Expense".into(),
+            fields,
+        });
+        let list = descs.desc(Desc::List(record));
+        let mut body = vec![
+            AddressOf(A, Data::Text(0)),
+            Push(A),
+            AddressOf(A, Data::Text(1)),
+        ];
+        body.extend([
+            Push(A),
+            AddressOf(A, Data::Desc(record)),
+            Push(A),
+            Const(A, 7),
+            Push(A),
+        ]);
+        body.extend([
+            Call("table_read".into()),
+            Push(A),
+            AddressOf(A, Data::Desc(list)),
+            Push(A),
+        ]);
+        body.extend([Call("show_value".into()), Call("flush".into())]);
+        let mut m = program(body, &[b"e.csv\0", b"data/e.csv"]);
+        m.descs = descs.descs;
+        let mut files = Files::default();
+        if let Some(content) = content {
+            files
+                .files
+                .insert("e.csv".into(), content.as_bytes().to_vec());
+        }
+        let o = irsim::run_with(&m, "_start", b"", &[], Faults::default(), &mut files);
+        let text = |bytes: &[u8]| String::from_utf8(bytes.to_vec()).unwrap();
+        let (shown, err) = (text(&o.stdout), text(&o.stderr));
+        (o, shown, err)
+    }
+
+    #[test]
+    fn the_rows_of_a_file_become_a_list_of_records() {
+        let want = "list of (Expense with name \"A\", amount 1, paid yes), \
+                    (Expense with name \"B, c\", amount -2.5, paid no)";
+        for content in [
+            "name,amount,paid\nA,1,yes\n\"B, c\",-2.5,no\n",
+            "paid,name,amount\r\nyes,A,1\r\nno,\"B, c\",-2.5",
+        ] {
+            let (o, shown, err) = load(Some(content));
+            assert_eq!(
+                (o.status, shown.as_str(), err.as_str()),
+                (0, want, ""),
+                "for {content:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_missing_empty_or_header_only_file_is_an_empty_table() {
+        let none = "empty list of Expense";
+        let (o, shown, err) = load(None);
+        let notice = "data/e.csv not found; starting with an empty table\n";
+        assert_eq!((o.status, shown.as_str(), err.as_str()), (0, none, notice));
+        for content in ["", "name,amount,paid", "name,amount,paid\n"] {
+            let (o, shown, err) = load(Some(content));
+            assert_eq!(
+                (o.status, shown.as_str(), err.as_str()),
+                (0, none, ""),
+                "for {content:?}"
+            );
+        }
     }
 }

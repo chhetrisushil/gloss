@@ -73,12 +73,14 @@ const IS_EMPTY: u32 = 33;
 const SPACE_QUOTE: u32 = 34;
 const NOT_NUMBER: u32 = 35;
 const NOT_YES_NO: u32 = 36;
+const HAS: u32 = 37;
+const CELLS_HEADER: u32 = 38;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 37] = [
+const TEXTS: [&[u8]; 39] = [
     b"line ",
     b": failure ",
     b": ",
@@ -116,6 +118,8 @@ const TEXTS: [&[u8]; 37] = [
     b" \"",
     b"\" is not a number",
     b"\" is not yes or no",
+    b"has ",
+    b" cells; the header has ",
 ];
 
 /// The bytes of the runtime text `i`.
