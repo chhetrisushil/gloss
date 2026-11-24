@@ -1050,3 +1050,41 @@ fn report_lines_keeps_blank_lines_and_takes_indent_0_and_long_input() {
     let o = report_call("report_lines", text.as_bytes(), Some(4), Faults::default());
     assert_eq!((o.status, String::from_utf8(o.stdout).unwrap()), (0, want));
 }
+
+#[test]
+fn test_begin_remembers_the_title() {
+    let body = vec![
+        AddressOf(A, Data::Text(0)),
+        Push(A),
+        Call("test_begin".into()),
+        AddressOf(B, Data::Global(Global::TestState)),
+        Load {
+            to: A,
+            base: B,
+            offset: 0,
+        },
+        Push(A),
+        Call("report_text".into()),
+    ];
+    assert_eq!(run(&program(body, &[b"title"])).stdout, b"title");
+}
+
+/// Calls `routine` with the number arguments, after `test_begin` of text 0 when `title`.
+fn report_numbers(routine: &str, args: &[i64], title: bool) -> Outcome {
+    let mut body = Vec::new();
+    if title {
+        body.extend([AddressOf(A, Data::Text(0)), Push(A)]);
+        body.push(Call("test_begin".into()));
+    }
+    for &n in args {
+        body.extend([Const(A, n), Push(A)]);
+    }
+    body.push(Call(routine.into()));
+    run(&program(body, &[b"my title"]))
+}
+
+#[test]
+fn test_pass_prints_the_title_and_exits_0() {
+    let o = report_numbers("test_pass", &[], true);
+    assert_eq!((o.status, o.stdout), (0, b"pass  my title\n".to_vec()));
+}

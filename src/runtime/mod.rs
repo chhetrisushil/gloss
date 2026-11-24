@@ -30,6 +30,7 @@ mod save;
 mod shown;
 mod table_read;
 mod test_backend;
+mod test_state;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -79,12 +80,13 @@ const HAS: u32 = 37;
 const CELLS_HEADER: u32 = 38;
 const MISPLACED: u32 = 39;
 const INDENT: u32 = 40;
+const PASS: u32 = 41;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 41] = [
+const TEXTS: [&[u8]; 42] = [
     b"line ",
     b": failure ",
     b": ",
@@ -126,6 +128,7 @@ const TEXTS: [&[u8]; 41] = [
     b" cells; the header has ",
     b"a quote is out of place",
     b"        ",
+    b"pass  ",
 ];
 
 /// The bytes of the runtime text `i`.
