@@ -1,0 +1,8 @@
+record Row
+  name as text
+
+table rows of Row in "data/e.csv"
+
+feature start
+  clear rows
+  save rows
