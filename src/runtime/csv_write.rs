@@ -164,6 +164,10 @@ fn csv_cell() -> Function {
 const BUILDER: u32 = 1;
 const FIELDS: u32 = 2;
 const FIELD: u32 = 3;
+const ROWS: u32 = 4;
+const ROW: u32 = 5;
+const RECORD: u32 = 6;
+const VALUE: u32 = 7;
 
 /// Calls `routine(builder, <the pushed word>, line)`; `push` pushes the second argument.
 fn call_with(s: &mut Asm, routine: &str, push: impl FnOnce(&mut Asm)) {
@@ -200,9 +204,53 @@ fn comma_between(s: &mut Asm) {
     s.i(Mark(first));
 }
 
+/// The field descriptor of the field in slot `FIELD`, into `a`.
+fn field_desc(s: &mut Asm) {
+    s.i(LoadSlot(A, FIELD));
+    s.i(Shift(Shift::Left, 4));
+    s.i(LoadArg(B, 2));
+    s.i(Int(IntOp::Add));
+    load(s, A, A, 32);
+}
+
+/// Appends the value of the field in slot `FIELD` of the record in slot `RECORD`.
+fn put_cell(s: &mut Asm) {
+    let (text, truth, no, done) = (s.label(), s.label(), s.label(), s.label());
+    s.i(LoadSlot(A, FIELD));
+    s.i(Shift(Shift::Left, 3));
+    s.i(LoadSlot(B, RECORD));
+    s.i(Int(IntOp::Add));
+    load(s, A, A, 0);
+    s.i(StoreSlot(VALUE, A));
+    field_desc(s);
+    load(s, A, A, 0);
+    s.i(Const(B, 1));
+    s.jump_if(Eq, text);
+    s.i(Const(B, 2));
+    s.jump_if(Eq, truth);
+    s.push_slot(VALUE);
+    s.call("number_format");
+    s.i(Move { to: B, from: A });
+    call_with(s, "csv_add", |s| s.i(Push(B)));
+    s.i(Jump(done));
+    s.i(Mark(text));
+    call_with(s, "csv_cell", |s| s.push_slot(VALUE));
+    s.i(Jump(done));
+    s.i(Mark(truth));
+    s.i(LoadSlot(A, VALUE));
+    s.i(Const(B, 0));
+    s.jump_if(Eq, no);
+    call_with(s, "csv_add", |s| s.push_text(super::YES));
+    s.i(Jump(done));
+    s.i(Mark(no));
+    call_with(s, "csv_add", |s| s.push_text(super::NO));
+    s.i(Mark(done));
+}
+
 /// `csv_text(list, desc, line)`: a fresh text holding the header, the field names of the
-/// record descriptor `desc` in order, comma-separated, ending `\n`. The lines for the
-/// records of `list` follow in the next change.
+/// record descriptor `desc` in order, then one line per record of `list`, each ending `\n`.
+/// Numbers are in their `show` form, truths `yes` or `no`, and a text is quoted only when it
+/// must be (`csv_cell`).
 fn csv_text() -> Function {
     let mut s = Asm::default();
     s.push_const(24);
@@ -233,12 +281,29 @@ fn csv_text() -> Function {
         call_with(s, "csv_add", |s| s.i(Push(B)));
     });
     call_with(&mut s, "csv_byte", |s| s.push_const(i64::from(b'\n')));
+    s.i(LoadArg(A, 1));
+    load(&mut s, A, A, 0);
+    s.i(StoreSlot(ROWS, A));
+    count_up(&mut s, ROW, ROWS, |s| {
+        s.i(LoadArg(A, 1));
+        load(s, B, A, 16);
+        s.i(LoadSlot(A, ROW));
+        s.i(Shift(Shift::Left, 3));
+        s.i(Int(IntOp::Add));
+        load(s, A, A, 0);
+        s.i(StoreSlot(RECORD, A));
+        count_up(s, FIELD, FIELDS, |s| {
+            comma_between(s);
+            put_cell(s);
+        });
+        call_with(s, "csv_byte", |s| s.push_const(i64::from(b'\n')));
+    });
     s.i(LoadSlot(A, BUILDER));
     load(&mut s, B, A, 8);
     load(&mut s, A, A, 0);
     store(&mut s, A, 0, B);
     s.i(Return);
-    s.finish("csv_text", 3, 3)
+    s.finish("csv_text", 3, 7)
 }
 
 pub fn routines() -> Vec<Function> {
@@ -349,29 +414,60 @@ mod tests {
 #[cfg(test)]
 mod table_tests {
     use super::super::tests::{program, run};
-    use crate::ir::{Data, Desc, Inst::*, Module, Reg::A};
+    use crate::ir::{
+        Data, Desc,
+        Inst::*,
+        Module,
+        Reg::{A, B},
+    };
 
-    /// The CSV text of an empty table `E` with the fields `name`, `amount` and `paid`.
-    fn csv() -> Vec<u8> {
+    /// A row of the table `E` with the fields `name` (text), `amount` (number), `paid` (truth).
+    type Row = (u32, i64, i64);
+
+    /// The CSV text of the table holding `rows`; `texts` are the names' text, by index.
+    fn csv(texts: &[&[u8]], rows: &[Row]) -> Vec<u8> {
         let mut descs = Module::default();
         let kinds = [Desc::Text, Desc::Number, Desc::Truth];
-        let names = ["name", "amount", "paid"];
+        let fields = ["name", "amount", "paid"];
         let list = (0..3)
-            .map(|i| (names[i].to_string(), descs.desc(kinds[i].clone())))
+            .map(|i| (fields[i].to_string(), descs.desc(kinds[i].clone())))
             .collect();
         let at = descs.desc(Desc::Record {
             name: "E".into(),
             fields: list,
         });
         let mut body = vec![Const(A, 4), Push(A), Const(A, 0), Push(A)];
+        body.extend([Call("list_new".into()), StoreSlot(1, A)]);
+        for (name, amount, paid) in rows {
+            body.extend([Const(A, 24), Push(A), Const(A, 0), Push(A)]);
+            body.extend([Call("alloc".into()), StoreSlot(2, A)]);
+            let cells = [
+                AddressOf(B, Data::Text(*name)),
+                Const(B, *amount),
+                Const(B, *paid),
+            ];
+            for (i, cell) in cells.into_iter().enumerate() {
+                let store = Store {
+                    base: A,
+                    offset: 8 * i as i32,
+                    from: B,
+                };
+                body.extend([cell, store]);
+            }
+            body.extend([LoadSlot(A, 1), Push(A), LoadSlot(A, 2), Push(A)]);
+            body.extend([Const(A, 0), Push(A), Call("list_push".into())]);
+        }
         body.extend([
-            Call("list_new".into()),
+            LoadSlot(A, 1),
             Push(A),
             AddressOf(A, Data::Desc(at)),
+            Push(A),
         ]);
-        body.extend([Push(A), Const(A, 0), Push(A), Call("csv_text".into())]);
+        body.extend([Const(A, 0), Push(A), Call("csv_text".into())]);
         body.extend([Push(A), Call("out_text".into()), Call("flush".into())]);
-        let mut m = program(body, &[]);
+        let mut m = program(body, texts);
+        m.functions[0].slots = 2;
+        m.functions[0].body[0] = Enter(2);
         m.descs = descs.descs;
         let out = run(&m);
         assert_eq!(out.status, 0);
@@ -380,6 +476,25 @@ mod table_tests {
 
     #[test]
     fn an_empty_table_is_its_header_line() {
-        assert_eq!(csv(), b"name,amount,paid\n");
+        assert_eq!(csv(&[], &[]), b"name,amount,paid\n");
+    }
+
+    #[test]
+    fn each_record_is_a_line_of_show_numbers_yes_or_no_and_quoted_text() {
+        let rows = [(0, 1_205_000, 1), (1, -30_000, 0), (0, 0, 1), (2, 5, 0)];
+        let texts: [&[u8]; 3] = [b"tea", b"a, \"b\"", b""];
+        let want =
+            "name,amount,paid\ntea,120.5,yes\n\"a, \"\"b\"\"\",-3,no\ntea,0,yes\n,0.0005,no\n";
+        assert_eq!(csv(&texts, &rows), want.as_bytes());
+    }
+
+    #[test]
+    fn a_table_longer_than_the_first_room_is_written_in_full() {
+        let long = vec![b'z'; 200];
+        let mut want = b"name,amount,paid\n".to_vec();
+        for _ in 0..30 {
+            want.extend([&long[..], b",1,yes\n"].concat());
+        }
+        assert_eq!(csv(&[&long], &[(0, 10_000, 1); 30]), want);
     }
 }
