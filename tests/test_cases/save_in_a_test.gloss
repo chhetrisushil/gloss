@@ -1,0 +1,13 @@
+record R
+  s as text
+
+table rs of R in "r.csv"
+
+feature start
+  show 1
+
+test "saves straight away"
+  append R with s "a" to rs
+  save rs
+  load rs
+  expect count of rs is 1
