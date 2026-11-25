@@ -9,7 +9,7 @@
 use super::asm::Asm;
 use super::trace_state::{ESCAPING, FAILING, OPEN, get, set};
 use super::values::out_const;
-use super::{FAIL_CLOSE, FAIL_EVENT, FAIL_LINE, FAIL_MESSAGE};
+use super::{FAIL_CLOSE, FAIL_EVENT, FAIL_LINE, FAIL_MESSAGE, NEWLINE};
 use crate::ir::Cond::{Eq, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Function, Inst::*, Prim};
@@ -73,8 +73,19 @@ fn fail_begin() -> Function {
 }
 
 /// `fail_end()`: ends the message (`"}` and a newline), flushes and exits with status 2.
+/// With no `fail_begin` before it (`FAILING` is 0: the internal error of a feature that ends
+/// without giving) it is the real one: a newline on descriptor 2 and exit 2, no event.
 fn fail_end() -> Function {
     let mut s = Asm::default();
+    let failing = s.label();
+    get(&mut s, A, FAILING);
+    s.i(Const(B, 0));
+    s.jump_if(Ne, failing);
+    s.push_text(NEWLINE);
+    s.call("err_text");
+    s.push_const(2);
+    s.i(System(Prim::Exit));
+    s.i(Mark(failing));
     put_word(&mut s, ESCAPING, 0);
     out_const(&mut s, FAIL_CLOSE);
     s.call("flush");

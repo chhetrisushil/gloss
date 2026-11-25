@@ -166,3 +166,14 @@ fn a_quote_in_the_message_is_escaped() {
     let line = "{\"line\":1,\"event\":\"fail\",\"failure\":1,\"message\":\"say \\\"hi\\\"\\n\"}\n";
     assert_eq!(got, (2, line.to_string(), String::new()));
 }
+
+#[test]
+fn a_fail_end_without_a_fail_begin_is_the_real_one() {
+    // The internal error of a feature that ends without giving: no event, no `"}`.
+    let body = [err_text(0), vec![Call("fail_end".into())]].concat();
+    let (status, out, err) = outcome(body, &[b"internal error"]);
+    assert_eq!(
+        (status, out.as_str(), err.as_str()),
+        (2, "", "internal error\n")
+    );
+}
