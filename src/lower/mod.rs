@@ -227,11 +227,21 @@ fn size_stack_checks(module: &mut Module) {
         .map(|f| (f.name.clone(), f.slots))
         .collect();
     for f in &mut module.functions {
-        for i in 1..f.body.len() {
-            if let (Inst::Call(name), Inst::StackCheck { bytes, .. }) =
-                (&f.body[i].clone(), &mut f.body[i - 1])
-            {
-                *bytes = 8 * (slots[name] + 3) + 64;
+        // A trace build writes the `enter` event between a check and its call, so the check
+        // belongs to the next call of a user feature, whatever lies between (runtime calls).
+        let mut open: Option<usize> = None;
+        for i in 0..f.body.len() {
+            match &f.body[i] {
+                Inst::StackCheck { .. } => open = Some(i),
+                Inst::Call(name) if name.starts_with("f_") => {
+                    if let Some(check) = open.take() {
+                        let bytes = 8 * (slots[name] + 3) + 64;
+                        if let Inst::StackCheck { bytes: b, .. } = &mut f.body[check] {
+                            *b = bytes;
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
