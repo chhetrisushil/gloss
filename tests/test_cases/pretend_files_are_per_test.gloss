@@ -1,0 +1,18 @@
+record Expense
+  name as text
+  amount as number
+
+table expenses of Expense in "expenses.csv"
+
+feature start
+  load expenses
+  show 1
+
+test "one test saves a row"
+  append Expense with name "Lunch", amount 120 to expenses
+  save expenses
+  expect count of expenses is 1
+
+test "the next test finds the file missing"
+  load expenses
+  expect count of expenses is 0

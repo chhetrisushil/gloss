@@ -1,0 +1,3 @@
+pass  a missing pretend file loads as an empty table
+
+1 passed, 0 failed
