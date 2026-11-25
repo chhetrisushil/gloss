@@ -567,10 +567,6 @@ fn test_mode_refuses_what_is_not_built_yet() {
     );
     assert_eq!(refusal("load rows"), format!("line 10: load rows. {stmt}"));
     assert_eq!(
-        refusal("input \"x\""),
-        format!("line 10: input \"x\". {stmt}")
-    );
-    assert_eq!(
         refusal("show shown"),
         "line 10: show shown. this compiler cannot build this expression yet."
     );
@@ -605,7 +601,6 @@ fn test_mode_refuses_what_is_not_built_yet() {
             "for each i from 1 to 2\n    ask \"q\" into a\n    show a",
             "ask \"q\" into a",
         ),
-        ("if 1 is 1\n    input \"x\"", "input \"x\""),
     ] {
         assert_eq!(refusal(body), format!("line 11: {shown}. {stmt}"), "{body}");
     }
@@ -616,6 +611,21 @@ fn test_mode_refuses_what_is_not_built_yet() {
         lowered_tests(text).expect_err("refused").render(),
         format!("line 7: load rows. {stmt}")
     );
+}
+
+#[test]
+fn input_lowers_each_answer_to_a_test_input_call_with_its_line() {
+    let text = format!("{ROWS}test \"t\"\n  input \"a\", \"b\"\n");
+    let m = lowered_tests(&text).unwrap();
+    let body = function_text(function(&m, "t_0"));
+    let call = "push a\n  a = 10\n  push a\n  call test_input\n";
+    assert_eq!(body.matches(call).count(), 2, "{body}");
+    assert!(m.functions.iter().any(|f| f.name == "test_input"));
+    assert!(m.functions.iter().any(|f| f.name == "list_push"));
+    assert!(!has_file_primitive(&m));
+    // Nested under an `if`, the statement lowers too.
+    let nested = format!("{ROWS}test \"t\"\n  if 1 is 1\n    input \"x\"\n");
+    assert!(lowered_tests(&nested).is_ok());
 }
 
 #[test]

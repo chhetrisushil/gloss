@@ -4,7 +4,7 @@
 
 use super::asm::Asm;
 use super::report::report_title;
-use super::test_state::{FAIL_BYTES, FAIL_LEN, FAILING, SHOWN, SHOWN_LEN, get, set};
+use super::test_state::{ANSWERS, FAIL_BYTES, FAIL_LEN, FAILING, SHOWN, SHOWN_LEN, get, set};
 use crate::ir::Cond::{Le, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Data, Function, Global, Inst::*, Prim};
@@ -117,6 +117,27 @@ fn test_expect() -> Function {
     s.finish("test_expect", 2, 0)
 }
 
+/// `test_input(text, line)`: puts `text` at the end of the answers. The first call makes the
+/// list, `list_new(4, line)`, so running out of memory names the line of the `input`.
+fn test_input() -> Function {
+    let mut s = Asm::default();
+    let have = s.label();
+    get(&mut s, A, ANSWERS);
+    s.i(Const(B, 0));
+    s.jump_if(Ne, have);
+    s.push_const(4);
+    s.push_arg(2);
+    s.call("list_new");
+    set(&mut s, ANSWERS, A, B);
+    s.i(Mark(have));
+    get(&mut s, A, ANSWERS);
+    s.i(Push(A));
+    s.push_arg(1);
+    s.push_arg(2);
+    s.call("list_push");
+    s.finish("test_input", 2, 0)
+}
+
 /// The test versions, appended after the real routines that are kept.
 pub fn routines() -> Vec<Function> {
     vec![
@@ -125,5 +146,6 @@ pub fn routines() -> Vec<Function> {
         fail_end(),
         test_fail(),
         test_expect(),
+        test_input(),
     ]
 }

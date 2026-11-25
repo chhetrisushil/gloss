@@ -1,6 +1,6 @@
 //! Tests of the test backend, run on hand-made modules under `irsim`.
 
-use super::test_state::CURRENT_LINE;
+use super::test_state::{ANSWERS, CURRENT_LINE};
 use super::tests::{program_for, run};
 use super::{Backend, routines_for, test_backend};
 use crate::ir::Reg::{A, B};
@@ -249,4 +249,60 @@ fn a_show_too_big_to_grow_shown_is_out_of_memory_at_its_line_and_its_bytes_are_l
     let (out, err, status) = run_test(&body, &[b"abcdef"]);
     let want = "fail  t\n      line 9: failure 10: out of memory\n      shown:\n        abc\n";
     assert_eq!((out.as_str(), err.as_str(), status), (want, "", 1));
+}
+
+/// Shows answer `i` of the queue, read straight from the state.
+fn show_answer(i: i32) -> Vec<Inst> {
+    let items = [
+        AddressOf(A, Data::Global(Global::TestState)),
+        Load {
+            to: A,
+            base: A,
+            offset: ANSWERS as i32 * 8,
+        },
+        Load {
+            to: A,
+            base: A,
+            offset: 16,
+        },
+        Load {
+            to: A,
+            base: A,
+            offset: i * 8,
+        },
+        Push(A),
+    ];
+    call("out_text", &[items.to_vec()])
+}
+
+fn input(answer: u32, line: i64) -> Vec<Inst> {
+    call("test_input", &[text(answer), number(line)])
+}
+
+#[test]
+fn input_queues_answers_in_order() {
+    let mut body = vec![input(1, 3), input(2, 3)];
+    body.extend([show_answer(0), show_answer(1), call("test_fail", &[])]);
+    let (out, err, status) = run_test(&body, &[b"a\n", b"b\n"]);
+    let want = "fail  t\n      shown:\n        a\n        b\n";
+    assert_eq!((out.as_str(), err.as_str(), status), (want, "", 1));
+}
+
+#[test]
+fn a_second_input_statement_adds_to_the_queue() {
+    // Six answers from two statements: the list grows past `list_new`'s room of 4.
+    let mut body: Vec<Vec<Inst>> = (0..6).map(|i| input(1 + i % 2, 3 + i64::from(i))).collect();
+    body.extend((0..6).map(show_answer));
+    body.push(call("test_fail", &[]));
+    let (out, _, _) = run_test(&body, &[b"a\n", b"b\n"]);
+    let want =
+        "fail  t\n      shown:\n        a\n        b\n        a\n        b\n        a\n        b\n";
+    assert_eq!(out, want);
+}
+
+#[test]
+fn input_shows_nothing_and_reads_nothing() {
+    let body = [input(1, 3), call("test_fail", &[])];
+    let (out, _, _) = run_test(&body, &[b"a\n"]);
+    assert_eq!(out, "fail  t\n");
 }
