@@ -157,13 +157,30 @@ impl Lowerer<'_> {
     }
 
     /// `save t`: failure 8 when the table's loaded flag is 0, then `table_save`, with the folder,
-    /// file name, temporary name and display names as compile-time texts.
+    /// file name, temporary name and display names as compile-time texts. A test build has no
+    /// failure 8 (the flag is always 1) and no file: `pretend_save` takes the table's index,
+    /// the list, the descriptor and the line, and keeps the CSV text as the pretend file.
     pub fn save_table(&mut self, index: usize) -> Result<(), Diagnostic> {
         let table = self
             .program
             .tables()
             .nth(index)
             .expect("a table of that index");
+        if self.mode == Mode::Test {
+            check_table_path(&table.path)
+                .map_err(|message| Diagnostic::error(self.src, self.line, &message))?;
+            self.emit(Inst::Const(Reg::A, index as i64));
+            self.emit(Inst::Push(Reg::A));
+            self.load_table(index);
+            self.emit(Inst::Push(Reg::A));
+            let desc = self.record_desc(&table.record);
+            self.emit(Inst::AddressOf(Reg::A, Data::Desc(desc)));
+            self.emit(Inst::Push(Reg::A));
+            self.emit(Inst::Const(Reg::A, i64::from(self.line)));
+            self.emit(Inst::Push(Reg::A));
+            self.call("pretend_save");
+            return Ok(());
+        }
         let names = save_names(&table.path)
             .map_err(|message| Diagnostic::error(self.src, self.line, &message))?;
         let unloaded = self.fail_label(
