@@ -1,6 +1,6 @@
-//! The routines a trace build swaps in for the real ones: `out_bytes`, and the failure
-//! routines, which turn a run-time failure into one `fail` event on standard output. Later
-//! tasks add the event writers and the replaced input routines.
+//! The routines a trace build swaps in for the real ones: `out_bytes`, the failure routines,
+//! which turn a run-time failure into one `fail` event on standard output, and `ask`, whose
+//! question is a `show` event. Later tasks add the event writers.
 //!
 //! Text enters the output buffer through `out_bytes`; a trace build's one decides, by the
 //! trace state's `ESCAPING` word, whether it is JSON-escaped on the way (`json_bytes`, in
@@ -9,13 +9,13 @@
 use super::asm::Asm;
 use super::trace_state::{CARRY, ESCAPING, FAILING, OPEN, get, set};
 use super::values::out_const;
-use super::{FAIL_CLOSE, FAIL_EVENT, FAIL_LINE, FAIL_MESSAGE, NEWLINE};
+use super::{FAIL_CLOSE, FAIL_EVENT, FAIL_LINE, FAIL_MESSAGE, NEWLINE, SHOW_EVENT};
 use crate::ir::Cond::{Eq, Ge, Lt, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Data, Function, Global, Inst::*, IntOp, Prim};
 
 /// Names of the real routines a trace build replaces.
-pub const REPLACED: [&str; 4] = ["out_bytes", "write_all", "fail_begin", "fail_end"];
+pub const REPLACED: [&str; 5] = ["out_bytes", "write_all", "fail_begin", "fail_end", "ask"];
 
 /// Stores the constant `n` in the trace state word at `offset`.
 fn put_word(s: &mut Asm, offset: i32, n: i64) {
@@ -251,6 +251,27 @@ fn out_bytes() -> Function {
     s.finish("out_bytes", 2, 0)
 }
 
+/// `ask(question, line)`: the question is written as a `show` event, flushed, and then the
+/// answer is read by `ask_read`, as in a real build.
+fn ask() -> Function {
+    let mut s = Asm::default();
+    put_word(&mut s, ESCAPING, 0);
+    out_const(&mut s, FAIL_LINE);
+    s.push_arg(2);
+    s.call("json_int");
+    out_const(&mut s, SHOW_EVENT);
+    put_word(&mut s, ESCAPING, 1);
+    s.push_arg(1);
+    s.call("out_text");
+    put_word(&mut s, ESCAPING, 0);
+    out_const(&mut s, FAIL_CLOSE);
+    s.call("flush");
+    s.push_arg(2);
+    s.call("ask_read");
+    s.i(Return);
+    s.finish("ask", 2, 0)
+}
+
 /// The routines a trace build adds.
 pub fn routines() -> Vec<Function> {
     vec![
@@ -260,5 +281,6 @@ pub fn routines() -> Vec<Function> {
         fail_piece(),
         fail_begin(),
         fail_end(),
+        ask(),
     ]
 }

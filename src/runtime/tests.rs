@@ -1139,7 +1139,7 @@ fn the_trace_backend_swaps_only_its_replaced_routines() {
     use super::{Backend, routines, routines_for, trace_backend};
     assert_eq!(
         trace_backend::REPLACED,
-        ["out_bytes", "write_all", "fail_begin", "fail_end"]
+        ["out_bytes", "write_all", "fail_begin", "fail_end", "ask"]
     );
     let mut expected: Vec<Function> = routines()
         .into_iter()

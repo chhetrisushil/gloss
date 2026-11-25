@@ -92,24 +92,35 @@ fn store_byte(s: &mut Asm) {
     });
 }
 
-/// `ask(question, line)`: shows the question on its own line, flushes, and reads one line,
-/// whose text it gives. The bytes come from `in_buf`, refilled by `in_fill` (which ends the
-/// program on a read error); the line is built in an allocated text that doubles when full, so
-/// the bytes are never trusted to be short or to be UTF-8. A `\n` ends the line and is dropped,
-/// and so is a `\r` just before it, wherever the refills fall. The spec removes only a line
-/// ending, so a last line with no `\n` is kept whole, a final `\r` included. End of input
-/// before any byte is failure 9; a line of only `\n` is an empty text, not that failure.
+/// `ask(question, line)`: shows the question on its own line, flushes, and reads the answer
+/// with `ask_read`. A trace build replaces this routine (the question is an event there) and
+/// keeps `ask_read`.
 fn ask() -> Function {
     let mut s = Asm::default();
-    let (next, room) = (s.label(), s.label());
-    let (ending, finish, eof) = (s.label(), s.label(), s.label());
     s.push_arg(1);
     s.call("out_text");
     s.push_text(super::NEWLINE);
     s.call("out_text");
     s.call("flush");
-    s.push_const(8 + FIRST_ROOM);
     s.push_arg(2);
+    s.call("ask_read");
+    s.i(Return);
+    s.finish("ask", 2, 0)
+}
+
+/// `ask_read(line)`: reads one line from standard input, whose text it gives. The bytes come
+/// from `in_buf`, refilled by `in_fill` (which ends the program on a read error); the line is
+/// built in an allocated text that doubles when full, so the bytes are never trusted to be
+/// short or to be UTF-8. A `\n` ends the line and is dropped, and so is a `\r` just before
+/// it, wherever the refills fall. The spec removes only a line ending, so a last line with no
+/// `\n` is kept whole, a final `\r` included. End of input before any byte is failure 9; a
+/// line of only `\n` is an empty text, not that failure.
+fn ask_read() -> Function {
+    let mut s = Asm::default();
+    let (next, room) = (s.label(), s.label());
+    let (ending, finish, eof) = (s.label(), s.label(), s.label());
+    s.push_const(8 + FIRST_ROOM);
+    s.push_arg(1);
     s.call("alloc");
     s.i(StoreSlot(TEXT, A));
     put(&mut s, &[ROOM], FIRST_ROOM);
@@ -140,7 +151,7 @@ fn ask() -> Function {
         s.i(LoadSlot(A, slot));
         s.i(Push(A));
     }
-    s.push_arg(2);
+    s.push_arg(1);
     s.call("grow_text");
     s.i(StoreSlot(TEXT, A));
     s.i(LoadSlot(A, ROOM));
@@ -177,16 +188,16 @@ fn ask() -> Function {
     s.i(LoadSlot(A, ANY));
     s.i(Const(B, 0));
     s.jump_if(Ne, finish);
-    s.push_arg(2);
+    s.push_arg(1);
     s.push_const(9);
     s.call("fail_begin");
     s.push_text(super::INPUT_ENDED);
     s.call("err_text");
     s.call("fail_end");
     s.i(Return);
-    s.finish("ask", 2, 5)
+    s.finish("ask_read", 1, 5)
 }
 
 pub fn routines() -> Vec<Function> {
-    vec![in_fill(), ask()]
+    vec![in_fill(), ask(), ask_read()]
 }

@@ -609,12 +609,13 @@ fn ask_with_no_answer_fails_the_test_with_the_spec_message() {
 fn real_ask_is_unchanged() {
     let real = lowered("feature start\n  ask \"Q\" into s\n  show s\n").unwrap();
     let real_ask = function(&real, "ask");
-    // Reads standard input (through in_fill) and shows the question.
+    // Shows the question, then reads standard input (`ask_read`, through in_fill).
     let text = function_text(real_ask);
     assert!(
-        text.contains("call in_fill") && text.contains("call out_text"),
+        text.contains("call ask_read") && text.contains("call out_text"),
         "{text}"
     );
+    assert!(function_text(function(&real, "ask_read")).contains("call in_fill"));
     assert_eq!(real_ask.params, 2);
     // A test build swaps it for the queue's version, which calls neither.
     let test = lowered_tests(&format!("{ROWS}test \"t\"\n  ask \"q\" into x\n")).unwrap();
