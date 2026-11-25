@@ -1,0 +1,4 @@
+line 12: xs is list of 4, 9, 2
+put
+pick
+line 13: item 1 of xs becomes 5

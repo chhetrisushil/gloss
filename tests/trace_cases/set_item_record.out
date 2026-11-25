@@ -1,0 +1,2 @@
+line 6: expenses is list of (Expense with name "Rent", amount 10)
+line 7: item 1 of expenses becomes Expense with name "Food", amount 3

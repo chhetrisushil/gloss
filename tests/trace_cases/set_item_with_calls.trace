@@ -1,0 +1,4 @@
+{"line":12,"event":"set","name":"xs","to":{"list":[{"number":"4"},{"number":"9"},{"number":"2"}]}}
+{"line":8,"event":"show","text":"put"}
+{"line":3,"event":"show","text":"pick"}
+{"line":13,"event":"set","name":"xs","item":1,"from":{"number":"4"},"to":{"number":"5"}}

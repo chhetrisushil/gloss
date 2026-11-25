@@ -2,7 +2,7 @@
 // the trace cases the same way. Needs `std::path::{Path, PathBuf}` in scope.
 
 /// Raised by every task that adds cases.
-const MIN_TRACE_CASES: usize = 26;
+const MIN_TRACE_CASES: usize = 29;
 
 /// The `.gloss` programs in `dir`, sorted; an error naming every file that is not part of a
 /// case: an extension other than gloss, trace, out, in, err, status (files) or files (a

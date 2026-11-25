@@ -1,0 +1,9 @@
+record Expense
+  name as text
+  amount as number
+
+feature start
+  set expenses to list of (Expense with name "Rent", amount 10), (Expense with name "Food", amount 3)
+  for each e in expenses
+    set amount of e to 12
+  show expenses
