@@ -177,3 +177,31 @@ fn a_fail_end_without_a_fail_begin_is_the_real_one() {
         (2, "", "internal error\n")
     );
 }
+
+/// The message a failure of `pieces`, each written by one `err_text`, gives in a trace build.
+fn message(pieces: &[&[u8]]) -> String {
+    let middle: Vec<Inst> = (0..pieces.len() as u32).flat_map(err_text).collect();
+    let (status, out, err) = outcome(failing(1, 5, middle), pieces);
+    assert_eq!((status, err.as_str()), (2, ""));
+    let head = "{\"line\":1,\"event\":\"fail\",\"failure\":5,\"message\":\"";
+    out.strip_prefix(head)
+        .and_then(|m| m.strip_suffix("\"}\n"))
+        .expect("one fail event")
+        .to_string()
+}
+
+#[test]
+fn a_character_cut_between_two_pieces_arrives_whole() {
+    for text in ["aé", "a€b", "a😀b"] {
+        let bytes = text.as_bytes();
+        for cut in 1..bytes.len() {
+            assert_eq!(
+                message(&[&bytes[..cut], &bytes[cut..]]),
+                text,
+                "{text} at {cut}"
+            );
+        }
+        let singles: Vec<&[u8]> = bytes.chunks(1).collect();
+        assert_eq!(message(&singles), text, "{text} a byte at a time");
+    }
+}
