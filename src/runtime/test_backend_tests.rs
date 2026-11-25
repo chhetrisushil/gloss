@@ -2,8 +2,8 @@
 
 use super::tests::{program_for, run};
 use super::{Backend, routines_for, test_backend};
-use crate::ir::Reg::A;
-use crate::ir::{Data, Inst, Inst::*};
+use crate::ir::Reg::{A, B};
+use crate::ir::{Cond, Data, Global, Inst, Inst::*, Prim};
 
 /// Pushes the runtime text `i`'s address.
 fn text(i: u32) -> Vec<Inst> {
@@ -32,6 +32,46 @@ fn run_test(body: &[Vec<Inst>], texts: &[&[u8]]) -> (String, String, i32) {
         String::from_utf8(err).unwrap(),
         o.status,
     )
+}
+
+fn failure(line: i64, code: i64, message: u32) -> Vec<Inst> {
+    let begin = call("fail_begin", &[number(line), number(code)]);
+    [
+        begin,
+        call("err_text", &[text(message)]),
+        call("fail_end", &[]),
+    ]
+    .concat()
+}
+
+#[test]
+fn a_failure_goes_to_the_failure_text() {
+    let body = failure(5, 1, 1);
+    let (out, err, status) = run_test(&[body], &[b"dividing by zero (n is 0)"]);
+    assert_eq!(
+        out,
+        "fail  t\n      line 5: failure 1: dividing by zero (n is 0)\n"
+    );
+    assert_eq!((err.as_str(), status), ("", 1));
+}
+
+#[test]
+fn shown_output_comes_after_the_message() {
+    let show = call("out_text", &[text(1)]);
+    let (out, err, status) = run_test(&[show, failure(5, 1, 2)], &[b"hi\n", b"oops"]);
+    assert_eq!(
+        out,
+        "fail  t\n      line 5: failure 1: oops\n      shown:\n        hi\n"
+    );
+    assert_eq!((err.as_str(), status), ("", 1));
+}
+
+#[test]
+fn a_failure_inside_a_show_flushes_into_shown() {
+    // `a` has no newline and is still in the output buffer when the failure begins.
+    let show = call("out_text", &[text(1)]);
+    let (out, _, _) = run_test(&[show, failure(2, 3, 2)], &[b"a", b"x"]);
+    assert!(out.ends_with("      shown:\n        a\n"), "{out}");
 }
 
 #[test]
@@ -91,4 +131,75 @@ fn replaced_routines_keep_their_parameters() {
         assert!(params(&real).is_some(), "{name}");
         assert_eq!(params(&real), params(&test), "{name}");
     }
+}
+
+#[test]
+fn a_failure_flushes_3000_pending_bytes_into_shown() {
+    let lines = "ab\n".repeat(1000);
+    let show = call("out_text", &[text(1)]);
+    let (out, err, status) = run_test(&[show, failure(2, 3, 2)], &[lines.as_bytes(), b"oops"]);
+    let shown = "        ab\n".repeat(1000);
+    let want = format!("fail  t\n      line 2: failure 3: oops\n      shown:\n{shown}");
+    assert_eq!((out, err.as_str(), status), (want, "", 1));
+}
+
+/// The status of a test whose `body` runs after 3000 bytes are shown and the heap is noted,
+/// with `test_fail` replaced by a stub that exits 1 if the heap has moved since, else 0.
+fn heap_moved_during(body: Vec<Inst>) -> i32 {
+    let state = AddressOf(B, Data::Global(Global::TestState));
+    let heap = AddressOf(A, Data::Global(Global::HeapNext));
+    let load = |to, base| Load {
+        to,
+        base,
+        offset: 40 * (to == B) as i32,
+    };
+    let show = call("out_text", &[text(1)]);
+    let note = [
+        heap.clone(),
+        load(A, A),
+        state.clone(),
+        Store {
+            base: B,
+            offset: 40,
+            from: A,
+        },
+    ];
+    let begin = call("test_begin", &[text(0)]);
+    let all = [begin, show, note.to_vec(), body].concat();
+    let mut m = program_for(
+        Backend::Test,
+        all,
+        &[b"t", "ab\n".repeat(1000).as_bytes(), b"x"],
+    );
+    let stub = [Enter(0), heap, load(A, A), state, load(B, B)];
+    let stub = [
+        &stub[..],
+        &[Compare, SetIf(Cond::Ne), Push(A), System(Prim::Exit)],
+    ]
+    .concat();
+    let at = m
+        .functions
+        .iter()
+        .position(|f| f.name == "test_fail")
+        .unwrap();
+    m.functions[at].body = stub;
+    m.functions[at].slots = 0;
+    run(&m).status
+}
+
+#[test]
+fn a_failure_with_pending_output_does_not_allocate() {
+    assert_eq!(heap_moved_during(failure(2, 3, 2)), 0);
+    // The check can tell: an allocation before the failure moves the heap.
+    let alloc = call("alloc", &[number(8), number(0)]);
+    assert_eq!(heap_moved_during([alloc, failure(2, 3, 2)].concat()), 1);
+}
+
+#[test]
+fn running_out_of_memory_inside_a_test_is_a_failure_of_the_test() {
+    let show = call("out_text", &[text(1)]);
+    let alloc = call("alloc", &[number(-1), number(7)]);
+    let (out, err, status) = run_test(&[show, alloc], &[b"hi\n"]);
+    let want = "fail  t\n      line 7: failure 10: out of memory\n      shown:\n        hi\n";
+    assert_eq!((out.as_str(), err.as_str(), status), (want, "", 1));
 }

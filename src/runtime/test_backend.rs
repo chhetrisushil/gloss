@@ -10,7 +10,7 @@ use crate::ir::Reg::{A, B};
 use crate::ir::{Data, Function, Global, Inst::*, Prim};
 
 /// Names of the real routines a test build replaces.
-pub const REPLACED: [&str; 1] = ["write_all"];
+pub const REPLACED: [&str; 3] = ["write_all", "fail_begin", "fail_end"];
 
 /// `write_all(fd, addr, len)`: descriptor 1 is shown, 2 is the failure text, any other is
 /// ignored. It never fails and never exits.
@@ -30,6 +30,35 @@ fn write_all() -> Function {
     }
     s.i(Mark(done));
     s.finish("write_all", 3, 0)
+}
+
+/// Marks the test as failing, then flushes what `show` left in the output buffer.
+fn start_failing(s: &mut Asm) {
+    s.i(Const(A, 1));
+    set(s, FAILING, A, B);
+    s.call("flush");
+}
+
+/// `fail_begin(line, code)`: `line <line>: failure <code>: ` into the failure text.
+fn fail_begin() -> Function {
+    let mut s = Asm::default();
+    start_failing(&mut s);
+    for (text, number) in [(super::LINE, 1), (super::FAILURE, 2)] {
+        s.push_text(text);
+        s.call("err_text");
+        s.push_arg(number);
+        s.call("err_int");
+    }
+    s.push_text(super::COLON);
+    s.call("err_text");
+    s.finish("fail_begin", 2, 0)
+}
+
+/// `fail_end()`: reports the failure. No newline is added to the failure text.
+fn fail_end() -> Function {
+    let mut s = Asm::default();
+    s.call("test_fail");
+    s.finish("fail_end", 0, 0)
 }
 
 /// `test_fail()`: `fail  <title>`, the failure text and, if anything was shown, the shown
@@ -71,5 +100,5 @@ fn test_fail() -> Function {
 
 /// The test versions, appended after the real routines that are kept.
 pub fn routines() -> Vec<Function> {
-    vec![write_all(), test_fail()]
+    vec![write_all(), fail_begin(), fail_end(), test_fail()]
 }
