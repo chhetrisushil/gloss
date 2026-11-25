@@ -1,0 +1,2 @@
+{"line":8,"event":"show","text":"going down"}
+{"line":5,"event":"fail","failure":10,"message":"calls nested too deep (deep)"}

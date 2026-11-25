@@ -1,0 +1,4 @@
+feature start
+  set xs to list of 4, 9, 2
+  show "have xs"
+  show item 7 of xs

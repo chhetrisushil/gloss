@@ -205,6 +205,10 @@ fn lower_feature(
 /// Fills in every `StackCheck`: the callee's frame is `8 * (slots + 3)` bytes (a return
 /// address, a saved frame pointer, a saved `b` and the slots), plus 64 for the helpers that
 /// run below it (M2-R12). The callee's hidden slots are known only after it is lowered.
+/// The deeper chains of runtime helpers (a trace build's `json_value` or failure message
+/// writing: about 550 bytes of frames and arguments at most, measured in task 6) run in the
+/// `STACK_MARGIN` of 64 KiB that `stack_limit` leaves below the checked limit, not in these 64
+/// bytes, so the margin needs no change for trace builds.
 fn size_stack_checks(module: &mut Module) {
     let slots: BTreeMap<String, u32> = module
         .functions

@@ -1,0 +1,2 @@
+{"line":3,"event":"show","text":"have xs"}
+{"line":4,"event":"fail","failure":2,"message":"there is no item 7 in xs; it has 3 items"}
