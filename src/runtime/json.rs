@@ -47,6 +47,27 @@ fn hex_digit(s: &mut Asm, slot: u32) {
     s.i(AddImm(A, i32::from(b'0')));
 }
 
+/// The Rust twin of `json_bytes` for text known at compile time: the same escapes, applied
+/// to a `str` (always valid UTF-8, so nothing becomes `U+FFFD`). The compiler writes fixed
+/// event pieces (names, conditions) through this, so the runtime escaper never sees them.
+// First used by the `show` event (next task).
+#[allow(dead_code)]
+pub fn json_escape_host(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\0'..='\x1f' | '\x7f' => out.push_str(&format!("\\u{:04x}", u32::from(c))),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// `json_bytes(addr, len)`: writes the bytes through `buf_bytes` as the inside of a JSON
 /// string. `"` and `\` get a backslash, `\n`, `\r` and `\t` their short forms, every other
 /// byte below 0x20 and 0x7F `\u00xx`; a valid UTF-8 sequence is copied; each byte that starts
