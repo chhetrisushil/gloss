@@ -1,0 +1,6 @@
+line 2: n is 3
+line 3: ready is yes
+line 4: 3 is greater than 5 is no, so the block is skipped
+small
+line 8: ready is yes, so the block runs
+go

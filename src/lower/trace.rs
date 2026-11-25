@@ -1,9 +1,11 @@
 //! The `_start` of a trace executable: the real one without `args_check`, which a traced
 //! program (it takes no flags) has no use for.
 use super::{Lowerer, Mode};
+use crate::ast::print;
 use crate::ast::program::Program;
 use crate::ast::stmt::Target;
-use crate::check::Ty;
+use crate::ast::{Expr, ExprKind};
+use crate::check::{NameKind, Ty};
 use crate::ir::{Data, Function, Global, Inst, Module, Prim, Reg};
 use crate::runtime::json_escape_host;
 use crate::runtime::trace_state::{ESCAPING, OPEN};
@@ -229,6 +231,76 @@ impl Lowerer<'_> {
         self.ev_key("to");
         self.ev_value_from_slot(item, ty);
         self.ev_close();
+    }
+
+    /// Writes the `check` event of `cond`, whose truth is in `a`: the condition's text, the
+    /// variables and field reads it names read again now (a plain load, never a call or an
+    /// item, so nothing runs twice or fails), and the result. Leaves the truth in `a`.
+    pub(super) fn check_event(&mut self, cond: &Expr) {
+        let truth = self.new_temp();
+        self.emit(Inst::StoreSlot(truth, Reg::A));
+        let mut named = Vec::new();
+        self.condition_values(cond, &mut named);
+        let mut values = Vec::new();
+        for (text, e) in named {
+            let ty = self.types.expr_types[e.id.0 as usize].clone();
+            let (Some(ty), Ok(())) = (ty, self.expr(e)) else {
+                continue;
+            };
+            let slot = self.new_temp();
+            self.emit(Inst::StoreSlot(slot, Reg::A));
+            values.push((text, slot, ty));
+        }
+        self.ev_open(cond.line, "check");
+        self.ev_key("condition");
+        self.ev_fixed_text(&print::expr(cond));
+        self.ev_raw(",\"values\":{");
+        for (i, (text, slot, ty)) in values.iter().enumerate() {
+            let comma = if i == 0 { "" } else { "," };
+            self.ev_raw(&format!("{comma}\"{}\":", json_escape_host(text)));
+            self.ev_value_from_slot(*slot, ty);
+        }
+        self.ev_raw("}");
+        self.ev_key("result");
+        let (no, end) = (self.new_label(), self.new_label());
+        self.emit(Inst::LoadSlot(Reg::A, truth));
+        self.jump_if_a_is(0, no);
+        self.ev_fixed_text("yes");
+        self.emit(Inst::Jump(end));
+        self.emit(Inst::Mark(no));
+        self.ev_fixed_text("no");
+        self.emit(Inst::Mark(end));
+        self.ev_close();
+        self.emit(Inst::LoadSlot(Reg::A, truth));
+    }
+
+    /// The variables, loop variables, inputs and field reads of them that `e` names, each
+    /// once by printed form, in order of first appearance. An item is left out with
+    /// everything inside it; the root of a field read is not a value of its own.
+    fn condition_values<'e>(&self, e: &'e Expr, out: &mut Vec<(String, &'e Expr)>) {
+        let plain = |x: &Expr| {
+            matches!(x.kind, ExprKind::Name(_))
+                && matches!(
+                    self.types.names.get(&x.id),
+                    Some(NameKind::Variable | NameKind::LoopVariable | NameKind::Input)
+                )
+        };
+        let read = match &e.kind {
+            ExprKind::ItemOf { .. } => return,
+            ExprKind::Name(_) => plain(e),
+            ExprKind::FieldOf { of, .. } if plain(of) => true,
+            _ => false,
+        };
+        if read {
+            let text = print::expr(e);
+            if !out.iter().any(|(t, _)| *t == text) {
+                out.push((text, e));
+            }
+            return;
+        }
+        for child in crate::ast::walk::children(e) {
+            self.condition_values(child, out);
+        }
     }
 
     /// Sets `name`'s made flag (see `Lowerer::made`); clobbers `a`.

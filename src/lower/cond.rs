@@ -1,5 +1,5 @@
 //! Lowering truths and conditions: a truth is 1 or 0 in register `a`.
-use super::Lowerer;
+use super::{Lowerer, Mode};
 use crate::ast::stmt::Stmt;
 use crate::ast::{CompareOp, Expr, ExprKind};
 use crate::check::Ty;
@@ -176,6 +176,9 @@ impl Lowerer<'_> {
     pub fn condition(&mut self, cond: &Expr, else_to: Label) -> Result<(), Diagnostic> {
         self.mark_line(cond.line);
         self.expr(cond)?;
+        if self.mode == Mode::Trace {
+            self.check_event(cond);
+        }
         self.jump_if_a_is(0, else_to);
         Ok(())
     }

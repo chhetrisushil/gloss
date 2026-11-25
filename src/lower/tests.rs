@@ -1553,3 +1553,39 @@ fn a_failing_verb_or_position_on_an_item_writes_no_set_event() {
         assert!(out.lines().last().unwrap().contains(&want), "{out}");
     }
 }
+
+#[test]
+fn a_condition_with_a_call_reads_no_call_twice() {
+    let m = lowered_trace(
+        "feature one\n  show \"called\"\n  give 1\n\nfeature start\n  set n to 1\n  \
+         if one is n\n    show \"yes\"\n",
+    );
+    let o = crate::irsim::run(&m, "_start", b"");
+    let out = String::from_utf8(o.stdout).unwrap();
+    assert_eq!(out.matches("\"text\":\"called\"").count(), 1, "{out}");
+    assert!(
+        out.contains("\"condition\":\"one is n\",\"values\":{\"n\":"),
+        "{out}"
+    );
+}
+
+#[test]
+fn item_reads_are_not_in_values() {
+    let out =
+        traced("  set xs to list of 4, 9\n  set i to 2\n  if item i of xs is 9\n    show \"y\"\n");
+    let check = out.lines().find(|l| l.contains("\"check\"")).unwrap();
+    assert!(check.contains("\"values\":{}"), "{check}");
+    assert!(check.ends_with("\"result\":\"yes\"}"), "{check}");
+}
+
+#[test]
+fn and_or_conditions_list_each_name_once() {
+    let out = traced(
+        "  set a to 1\n  set b to 2\n  if a is 1 and b is 2 and a is at most b\n    show \"y\"\n",
+    );
+    let check = out.lines().find(|l| l.contains("\"check\"")).unwrap();
+    assert!(
+        check.contains("\"values\":{\"a\":{\"number\":\"1\"},\"b\":{\"number\":\"2\"}},"),
+        "{check}"
+    );
+}
