@@ -1,0 +1,4 @@
+feature start
+  set total to 0
+  set total to 150
+  show total
