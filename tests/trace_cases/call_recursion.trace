@@ -1,0 +1,10 @@
+{"line":8,"event":"enter","feature":"gcd","inputs":{"a":{"number":"48"},"b":{"number":"36"}}}
+{"line":3,"event":"check","condition":"b is 0","values":{"b":{"number":"36"}},"result":"no"}
+{"line":5,"event":"enter","feature":"gcd","inputs":{"a":{"number":"36"},"b":{"number":"12"}}}
+{"line":3,"event":"check","condition":"b is 0","values":{"b":{"number":"12"}},"result":"no"}
+{"line":5,"event":"enter","feature":"gcd","inputs":{"a":{"number":"12"},"b":{"number":"0"}}}
+{"line":3,"event":"check","condition":"b is 0","values":{"b":{"number":"0"}},"result":"yes"}
+{"line":5,"event":"leave","feature":"gcd","result":{"number":"12"}}
+{"line":5,"event":"leave","feature":"gcd","result":{"number":"12"}}
+{"line":8,"event":"leave","feature":"gcd","result":{"number":"12"}}
+{"line":8,"event":"show","text":"gcd is 12"}

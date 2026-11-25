@@ -1,0 +1,10 @@
+line 8: calling gcd with a = 48, b = 36
+  line 3: 36 is 0 is no, so the block is skipped
+  line 5: calling gcd with a = 36, b = 12
+    line 3: 12 is 0 is no, so the block is skipped
+    line 5: calling gcd with a = 12, b = 0
+      line 3: 0 is 0, so the block runs
+    line 5: gcd gives 12
+  line 5: gcd gives 12
+line 8: gcd gives 12
+gcd is 12

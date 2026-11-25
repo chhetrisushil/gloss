@@ -1,0 +1,6 @@
+feature greet
+  show "hi"
+
+feature start
+  run greet
+  run greet

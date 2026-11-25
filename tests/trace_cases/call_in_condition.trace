@@ -1,0 +1,4 @@
+{"line":5,"event":"enter","feature":"seven","inputs":{}}
+{"line":5,"event":"leave","feature":"seven","result":{"number":"7"}}
+{"line":5,"event":"check","condition":"seven is greater than 5","values":{},"result":"yes"}
+{"line":6,"event":"show","text":"big"}

@@ -1,0 +1,8 @@
+feature gcd
+  needs a as number, b as number
+  if b is 0
+    give a
+  give gcd with b, remainder of a by b
+
+feature start
+  show "gcd is ", (gcd with 48, 36)
