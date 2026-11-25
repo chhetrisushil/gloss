@@ -1,0 +1,2 @@
+{"line":2,"event":"show","text":"Q?"}
+{"line":2,"event":"fail","failure":9,"message":"input ended while ask was waiting"}

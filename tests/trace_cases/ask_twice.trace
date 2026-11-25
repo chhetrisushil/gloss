@@ -1,0 +1,5 @@
+{"line":2,"event":"show","text":"Name?"}
+{"line":2,"event":"ask","name":"name","question":"Name?","answer":"Ann"}
+{"line":3,"event":"show","text":"Say \"when\""}
+{"line":3,"event":"ask","name":"reply","question":"Say \"when\"","answer":"\"quoted\" \\ done"}
+{"line":4,"event":"show","text":"Ann/\"quoted\" \\ done"}

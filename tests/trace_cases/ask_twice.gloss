@@ -1,0 +1,4 @@
+feature start
+  ask "Name?" into name
+  ask "Say ""when""" into reply
+  show name, "/", reply
