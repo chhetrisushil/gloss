@@ -1,0 +1,17 @@
+feature report
+  show "Largest so far: Bus at 40"
+
+test "a passing test that shows is quiet"
+  show "first line"
+  show "second line"
+  expect 1 is 1
+
+test "a failing test shows what it printed"
+  run report
+  expect 1 is 2
+
+test "a test after the failure is quiet again"
+  expect 2 is 2
+
+feature start
+  show 1

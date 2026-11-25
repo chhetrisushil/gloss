@@ -1,0 +1,6 @@
+pass  fine before
+fail  calls nested too deep
+      line 3: failure 10: calls nested too deep (countdown)
+pass  fine after
+
+2 passed, 1 failed

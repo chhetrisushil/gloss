@@ -1,0 +1,8 @@
+pass  a passing test that shows is quiet
+fail  a failing test shows what it printed
+      line 11: expect 1 is 2
+      shown:
+        Largest so far: Bus at 40
+pass  a test after the failure is quiet again
+
+2 passed, 1 failed
