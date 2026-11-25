@@ -553,40 +553,6 @@ fn a_test_body_that_can_fail_gets_its_failure_block_frame_and_routines() {
 }
 
 #[test]
-fn test_mode_refuses_what_is_not_built_yet() {
-    let stmt = "this compiler cannot build this statement yet.";
-    let head = "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\n";
-    // `save` needs a feature that loads or clears the table; the statement is line 10.
-    let in_test = |body: &str| {
-        let text = format!("{head}feature start\n  clear rows\n\ntest \"t\"\n  {body}\n");
-        lowered_tests(&text).expect_err("refused").render()
-    };
-    assert_eq!(in_test("save rows"), format!("line 10: save rows. {stmt}"));
-    // Nested in a test body (its statement is line 11).
-    for body in [
-        "if 1 is 1\n    save rows",
-        "for each i from 1 to 2\n    save rows",
-    ] {
-        assert_eq!(
-            in_test(body),
-            format!("line 11: save rows. {stmt}"),
-            "{body}"
-        );
-    }
-    // The same refusals in a feature no test calls, plain and nested under if and for each.
-    let in_features = [
-        ("clear rows\n  save rows", 8),
-        ("clear rows\n  if 1 is 1\n    save rows", 9),
-        ("clear rows\n  for each i from 1 to 2\n    save rows", 9),
-    ];
-    for (body, line) in in_features {
-        let text = format!("{head}feature start\n  {body}\n\ntest \"t\"\n  show 1\n");
-        let err = lowered_tests(&text).expect_err("refused").render();
-        assert_eq!(err, format!("line {line}: save rows. {stmt}"));
-    }
-}
-
-#[test]
 fn input_lowers_each_answer_to_a_test_input_call_with_its_line() {
     let text = format!("{ROWS}test \"t\"\n  input \"a\", \"b\"\n");
     let m = lowered_tests(&text).unwrap();
@@ -1257,4 +1223,100 @@ fn a_test_load_of_a_missing_pretend_file_gives_an_empty_table() {
         run_tests(text),
         ("pass  t\n\n1 passed, 0 failed\n".into(), 0)
     );
+}
+
+const FILES: &str = "record Row\n  n as number\n\ntable rows of Row in \"data/rows.csv\"\n\n\
+                     feature start\n  load rows\n  save rows\n\ntest \"t\"\n  show 1\n";
+
+#[test]
+fn a_test_save_uses_the_pretend_save_routine_and_no_failure_8_check() {
+    let m = lowered_tests(FILES).unwrap();
+    let text = function_text(function(&m, "f_start"));
+    let save = text.find("call pretend_save").expect("the call");
+    assert!(text[..save].ends_with("a = 8\n  push a\n  "), "{text}");
+    assert!(
+        !text.contains("table_save") && !text.contains("not loaded"),
+        "{text}"
+    );
+    assert!(
+        text.contains("a = 0\n  push a\n  a = address of tables\n  a = [a]\n  a = [a]\n  push a"),
+        "{text}"
+    );
+    assert!(!m.functions.iter().any(|f| f.name == "table_save"));
+}
+
+#[test]
+fn a_test_module_that_loads_and_saves_has_no_real_file_primitive_but_the_real_one_has() {
+    assert!(!has_file_primitive(&lowered_tests(FILES).unwrap()));
+    assert!(has_file_primitive(&lowered(FILES).unwrap()));
+}
+
+#[test]
+fn real_mode_save_is_unchanged() {
+    let m = lowered(FILES).unwrap();
+    let text = function_text(function(&m, "f_start"));
+    assert!(
+        text.contains("call table_save") && !text.contains("pretend"),
+        "{text}"
+    );
+    assert!(!m.functions.iter().any(|f| f.name == "pretend_save"));
+}
+
+#[test]
+fn a_test_saves_a_table_and_loads_it_back_and_the_next_test_starts_with_no_file() {
+    let text = "record Row\n  n as number\n\ntable rows of Row in \"data/rows.csv\"\n\n\
+                feature start\n  clear rows\n\ntest \"a\"\n  clear rows\n  \
+                append Row with n 4 to rows\n  save rows\n  clear rows\n  \
+                expect count of rows is 0\n  load rows\n  expect count of rows is 1\n  \
+                expect n of first of rows is 4\n\ntest \"b\"\n  load rows\n  \
+                expect count of rows is 0\n";
+    assert_eq!(
+        run_tests(text),
+        ("pass  a\npass  b\n\n2 passed, 0 failed\n".into(), 0)
+    );
+}
+
+const AB: &str = "record Row\n  n as number\n\ntable a of Row in \"a.csv\"\ntable b of Row in \"b.csv\"\n\n\
+                  feature start\n  clear a\n  clear b\n\n";
+
+#[test]
+fn with_two_tables_each_load_and_save_keeps_to_its_own_table_and_file() {
+    let fill = "  clear a\n  clear b\n  append Row with n 1 to a\n  append Row with n 2 to b\n  \
+                append Row with n 3 to b\n";
+    let both = format!(
+        "test \"both\"\n{fill}  save a\n  save b\n  clear a\n  clear b\n  load a\n  load b\n  \
+         expect count of a is 1\n  expect n of item 1 of a is 1\n  expect count of b is 2\n  \
+         expect n of item 2 of b is 3\n\n"
+    );
+    // Saving b leaves a's file as it was: missing, then holding a's row.
+    let apart = "test \"apart\"\n  clear b\n  append Row with n 7 to b\n  save b\n  load a\n  \
+                 expect count of a is 0\n  append Row with n 1 to a\n  save a\n  save b\n  \
+                 clear a\n  load a\n  expect count of a is 1\n  expect n of item 1 of a is 1\n";
+    let want = (
+        "pass  both\npass  apart\n\n2 passed, 0 failed\n".to_string(),
+        0,
+    );
+    assert_eq!(run_tests(&format!("{AB}{both}{apart}")), want);
+}
+
+#[test]
+fn a_table_path_the_runtime_could_not_use_is_refused_by_load_and_save_in_both_modes() {
+    let unsafe_path = "internal error: the table path \"../x.csv\" is not safe to use";
+    for stmt in ["load a", "save a"] {
+        let text = format!("{AB}feature other\n  {stmt}\n\ntest \"t\"\n  show 1\n");
+        let src = Source::new(&text);
+        let mut program = crate::parse_source(&src).expect("parses");
+        let types = check(&program, &src).types.expect("checks clean");
+        for item in &mut program.items {
+            if let crate::ast::program::Item::Table(t) = item {
+                t.path = "../x.csv".into();
+            }
+        }
+        let real = lower(&program, &types, &src).expect_err("refused").render();
+        let test = super::lower_tests(&program, &types, &src)
+            .expect_err("refused")
+            .render();
+        assert!(real.contains(unsafe_path), "{stmt}: {real}");
+        assert_eq!(real, test, "{stmt}");
+    }
 }
