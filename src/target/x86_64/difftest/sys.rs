@@ -203,6 +203,13 @@ fn wait_stranger() -> Module {
     m
 }
 
+/// `DefaultChildSignal`: 0 and `b` kept, on both.
+fn default_child_signal() -> Module {
+    let mut m = Module::default();
+    finish(&mut m, Vec::new(), Prim::DefaultChildSignal, Vec::new());
+    m
+}
+
 /// Calls `each` with the name, module and standard input of every program.
 pub fn programs(each: &mut dyn FnMut(&str, &Module, &[u8])) {
     each("write out", &write_to(1), b"");
@@ -227,4 +234,5 @@ pub fn programs(each: &mut dyn FnMut(&str, &Module, &[u8])) {
         );
     }
     each("wait stranger", &wait_stranger(), b"");
+    each("default child signal", &default_child_signal(), b"");
 }

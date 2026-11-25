@@ -70,6 +70,8 @@ impl Machine<'_> {
             Prim::SetMode => self.set_mode(),
             Prim::Rename => self.rename(),
             Prim::Fork => self.fork(),
+            // No signals are modelled, so there is nothing to reset.
+            Prim::DefaultChildSignal => self.a = 0,
             Prim::Wait => {
                 let pid = self.pop();
                 assert!(

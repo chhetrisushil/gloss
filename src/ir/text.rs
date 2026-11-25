@@ -133,6 +133,7 @@ pub fn inst_text(inst: &Inst) -> String {
         Inst::System(Prim::Rename) => "  system rename".to_string(),
         Inst::System(Prim::Fork) => "  system fork".to_string(),
         Inst::System(Prim::Wait) => "  system wait".to_string(),
+        Inst::System(Prim::DefaultChildSignal) => "  system default_child_signal".to_string(),
     }
 }
 
@@ -182,6 +183,7 @@ mod tests {
             Inst::System(Prim::Rename),
             Inst::System(Prim::Fork),
             Inst::System(Prim::Wait),
+            Inst::System(Prim::DefaultChildSignal),
         ];
         Function {
             name: "f".to_string(),
@@ -217,6 +219,7 @@ L3:
   system rename
   system fork
   system wait
+  system default_child_signal
 ";
 
     #[test]
@@ -334,6 +337,7 @@ L3:
             Inst::System(Prim::Rename),
             Inst::System(Prim::Fork),
             Inst::System(Prim::Wait),
+            Inst::System(Prim::DefaultChildSignal),
         ];
         Function {
             name: "f".to_string(),
@@ -421,6 +425,7 @@ L3:
   system rename
   system fork
   system wait
+  system default_child_signal
 ";
 
     #[test]
@@ -440,6 +445,7 @@ L3:
         };
         assert!(one(Prim::Fork).ends_with("  system fork\n"));
         assert!(one(Prim::Wait).ends_with("  system wait\n"));
+        assert!(one(Prim::DefaultChildSignal).ends_with("  system default_child_signal\n"));
     }
 
     #[test]

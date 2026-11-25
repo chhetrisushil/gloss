@@ -116,6 +116,10 @@ pub enum Prim {
     /// exited, `256 + signal number` when a signal ended it, or a negative error (`-10`, no
     /// such child). Each target decodes its own wait status to this.
     Wait,
+    /// `DefaultChildSignal()`: gives `SIGCHLD` its default disposition, so a process that
+    /// inherited it as ignored can `Wait` for its children (an ignored `SIGCHLD` makes the
+    /// kernel reap them, and every `Wait` gives `-10`). 0, or a negative error.
+    DefaultChildSignal,
 }
 
 /// A runtime global, addressed with `Data::Global`.

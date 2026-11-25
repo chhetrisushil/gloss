@@ -1645,3 +1645,14 @@ fn a_failing_fork_gives_eagain_and_starts_no_child() {
     assert_eq!(o.status, (-11i64 & 0xff) as i32);
     assert!(o.stdout.is_empty());
 }
+
+#[test]
+fn default_child_signal_does_nothing_and_gives_0() {
+    let body = vec![
+        Const(A, 5),
+        System(Prim::DefaultChildSignal),
+        Push(A),
+        System(Prim::Exit),
+    ];
+    assert_eq!(run(&with_slots(0, body), "f", b"").status, 0);
+}

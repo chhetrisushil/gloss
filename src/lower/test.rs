@@ -118,6 +118,8 @@ pub(super) fn lower_driver(
     };
     let mut start = Lowerer::new((module, mode), context, (&[], &[]), Vec::new());
     let result = start.new_temp();
+    // An inherited ignored SIGCHLD would make every Wait fail: reset it before any fork.
+    start.emit(Inst::System(Prim::DefaultChildSignal));
     for routine in ["heap_init", "stack_init", "tables_init", "test_main"] {
         start.call(routine);
     }

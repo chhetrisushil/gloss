@@ -574,3 +574,27 @@ fn wait_is_wait4_into_8_bytes_of_stack_and_decodes_the_status() {
     ];
     assert_eq!(w, want.map(String::from));
 }
+
+#[test]
+fn default_child_signal_is_rt_sigaction_of_sigchld_with_an_all_zero_action() {
+    let zero = [
+        "movabs r11, 0",
+        "push r11",
+        "push r11",
+        "push r11",
+        "push r11",
+    ];
+    let rest = [
+        "movabs rdi, 17",
+        "mov rsi, rsp",
+        "movabs rdx, 0",
+        "movabs r10, 8",
+        "movabs rax, 13",
+        "push rcx",
+        "syscall",
+        "pop rcx",
+        "add rsp, 32",
+    ];
+    let want: Vec<String> = zero.iter().chain(&rest).map(|s| s.to_string()).collect();
+    assert_eq!(one(Inst::System(Prim::DefaultChildSignal)), want);
+}

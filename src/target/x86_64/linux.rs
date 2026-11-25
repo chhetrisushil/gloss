@@ -18,6 +18,10 @@ const FSYNC: i64 = 74;
 const FSTAT: i64 = 5;
 const FORK: i64 = 57;
 const WAIT4: i64 = 61;
+const RT_SIGACTION: i64 = 13;
+const SIGCHLD: i64 = 17;
+/// `sizeof(struct sigaction)` as the kernel reads it: handler, flags, restorer and mask.
+const SIGACTION_SIZE: i32 = 32;
 const FCHMOD: i64 = 91;
 const RENAMEAT: i64 = 264;
 const OPENAT2: i64 = 437;
@@ -59,6 +63,7 @@ pub fn system(prim: Prim, unique: &str, out: &mut Vec<X>) {
         Prim::Rename => rename(out),
         Prim::Fork => call(FORK, out),
         Prim::Wait => wait(unique, out),
+        Prim::DefaultChildSignal => default_child_signal(out),
     }
 }
 
@@ -198,6 +203,21 @@ fn wait(unique: &str, out: &mut Vec<X>) {
         X::Label(done),
         X::AluI(AluOp::Add, R::Rsp, 8),
     ]);
+}
+
+/// `rt_sigaction(SIGCHLD, &action, NULL, 8)` with an all-zero action (handler `SIG_DFL`, no
+/// flags, no restorer, an empty mask) built on the stack and released afterwards.
+fn default_child_signal(out: &mut Vec<X>) {
+    out.push(X::MovRI(R::R11, 0));
+    out.extend(std::iter::repeat_n(X::Push(R::R11), 4));
+    out.extend([
+        X::MovRI(R::Rdi, SIGCHLD),
+        X::MovRR(R::Rsi, R::Rsp),
+        X::MovRI(R::Rdx, 0),
+        X::MovRI(R::R10, 8),
+    ]);
+    call(RT_SIGACTION, out);
+    out.push(X::AluI(AluOp::Add, R::Rsp, SIGACTION_SIZE));
 }
 
 /// `renameat(folder, from, folder, to)`.

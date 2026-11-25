@@ -638,7 +638,7 @@ fn reaches_files(p: crate::ir::Prim) -> bool {
     use crate::ir::Prim::*;
     match p {
         Open(_) | Rename | Sync | Mode | SetMode | Read => true,
-        Write | Map | Exit | StackSize | Close | Fork | Wait => false,
+        Write | Map | Exit | StackSize | Close | Fork | Wait | DefaultChildSignal => false,
     }
 }
 
@@ -954,4 +954,14 @@ fn a_wait_that_gives_no_such_child_is_a_lost_test_not_a_pass() {
         (String::from_utf8(o.stdout).unwrap().as_str(), o.status),
         (want, 1)
     );
+}
+
+#[test]
+fn the_test_start_resets_sigchld_before_anything_else() {
+    // An inherited ignored SIGCHLD would make every Wait fail (no such child).
+    let m = lowered_tests(TWO_TESTS).unwrap();
+    let start = function_text(function(&m, "_start"));
+    let want = "enter 1\n  system default_child_signal\n  call heap_init\n  call stack_init\n  \
+                call tables_init\n  call test_main\n";
+    assert!(start.contains(want), "{start}");
 }
