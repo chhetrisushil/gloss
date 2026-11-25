@@ -127,10 +127,15 @@ fn only_the_reachable_routines_are_added_once_each() {
     );
     let mut names: Vec<&str> = m.functions.iter().map(|f| f.name.as_str()).collect();
     names.sort();
-    assert_eq!(
-        names,
-        ["buf_bytes", "flush", "out_bytes", "out_text", "write_all"]
-    );
+    let want = [
+        "buf_bytes",
+        "flush",
+        "out_bytes",
+        "out_text",
+        "write_all",
+        "write_loop",
+    ];
+    assert_eq!(names, want);
 }
 
 #[test]

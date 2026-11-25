@@ -9,9 +9,20 @@ use crate::ir::{Data, Function, Global, Inst::*, IntOp, Prim};
 /// The size of `Global::OutBuf`.
 const OUT_BUF: i64 = crate::ir::IO_BUF_BYTES as i64;
 
-/// `write_all(fd, addr, len)`: writes every byte, looping on short writes; a result that is
-/// not positive ends the program with status 2.
+/// `write_all(fd, addr, len)`: writes every byte through `write_loop`. A trace build replaces
+/// it, and calls `write_loop` itself for what is not a failure message.
 fn write_all() -> Function {
+    let mut s = Asm::default();
+    s.push_arg(1);
+    s.push_arg(2);
+    s.push_arg(3);
+    s.call("write_loop");
+    s.finish("write_all", 3, 0)
+}
+
+/// `write_loop(fd, addr, len)`: writes every byte, looping on short writes; a result that is
+/// not positive ends the program with status 2.
+fn write_loop() -> Function {
     let mut s = Asm::default();
     let (again, fail, done) = (s.label(), s.label(), s.label());
     s.i(LoadArg(A, 2));
@@ -40,7 +51,7 @@ fn write_all() -> Function {
     s.push_const(2);
     s.i(System(Prim::Exit));
     s.i(Mark(done));
-    s.finish("write_all", 3, 2)
+    s.finish("write_loop", 3, 2)
 }
 
 /// `file_write(fd, addr, len)`: writes every byte, looping on short writes; 0 when done, or
@@ -286,6 +297,7 @@ fn fail_end() -> Function {
 pub fn routines() -> Vec<Function> {
     vec![
         write_all(),
+        write_loop(),
         file_write(),
         flush(),
         buf_bytes(),
