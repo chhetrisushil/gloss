@@ -150,7 +150,16 @@ fn every_example_with_tests_passes_them() {
         let program = program_of(&out);
         let name = program.file_stem().unwrap().to_str().unwrap();
         let text = std::fs::read_to_string(&program).unwrap();
-        let bytes = gloss::build_test_executable(&text)
+        let checked = gloss::check_program(&text)
+            .1
+            .unwrap_or_else(|| panic!("{name}: does not check clean"));
+        let module = checked.test_module().unwrap();
+        assert!(
+            !module.has_file_primitive(),
+            "{name} reaches a file primitive"
+        );
+        let bytes = checked
+            .test_executable()
             .unwrap_or_else(|d| panic!("{name}: does not build as tests: {d:?}"));
         let exe = folder.0.join(format!("{name}.tests"));
         std::fs::write(&exe, bytes).unwrap();

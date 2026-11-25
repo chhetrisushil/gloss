@@ -90,17 +90,31 @@ fn a_script_stands_in_for_the_executable() {
     assert_eq!(err, b"y\n");
 }
 
-/// Runs the script on the standard input this process was given, and prints what it saw.
+/// Runs the script on the standard input this process was given, and prints what it saw. The
+/// run gives the script a null input whatever this process has, so it must see none; the
+/// test below runs it again with an input that has bytes waiting.
 #[test]
 fn stdin_probe() {
-    if std::env::var_os("GLOSS_STDIN_PROBE").is_none() {
-        return;
-    }
     let dir = PrivateDir::new().unwrap();
     let path = script(&dir, "if read line; then echo got; else echo none; fi");
     let mut out = Vec::new();
     run_program(&path, &mut out, &mut Vec::new());
-    println!("probe:{}", String::from_utf8(out).unwrap().trim());
+    let seen = String::from_utf8(out).unwrap();
+    assert_eq!(seen.trim(), "none");
+    println!("probe:{}", seen.trim());
+}
+
+#[test]
+fn the_program_runs_in_the_private_folder() {
+    let dir = PrivateDir::new().unwrap();
+    let path = script(&dir, "pwd -P");
+    let mut out = Vec::new();
+    assert_eq!(run_program(&path, &mut out, &mut Vec::new()), 0);
+    let want = dir.path().canonicalize().unwrap();
+    assert_eq!(
+        String::from_utf8(out).unwrap().trim(),
+        want.to_str().unwrap()
+    );
 }
 
 #[test]
@@ -108,7 +122,6 @@ fn standard_input_is_closed() {
     use std::process::Stdio;
     let mut me = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "testrun::tests::stdin_probe", "--nocapture"])
-        .env("GLOSS_STDIN_PROBE", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()

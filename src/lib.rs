@@ -76,10 +76,15 @@ impl Checked {
     /// Lowers and encodes the test executable `gloss test` runs: the features and a driver
     /// that runs each test in a child process of its own.
     pub fn test_executable(&self) -> Result<Vec<u8>, Diagnostic> {
-        let module = lower::lower_tests(&self.program, &self.types, &self.src)?;
+        let module = self.test_module()?;
         target::x86_64_linux()
             .executable(&module)
             .map_err(Diagnostic::program)
+    }
+
+    /// The program `test_executable` encodes, before encoding.
+    pub fn test_module(&self) -> Result<ir::Module, Diagnostic> {
+        lower::lower_tests(&self.program, &self.types, &self.src)
     }
 
     /// How many tests the program has.

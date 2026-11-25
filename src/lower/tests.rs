@@ -636,22 +636,8 @@ fn real_mode_still_lowers_load_and_save() {
     assert!(m.functions.iter().any(|f| f.name == "table_save"));
 }
 
-/// Whether a primitive touches files or reads input. The match has no wildcard: a new
-/// primitive must be put on one side here.
-fn reaches_files(p: crate::ir::Prim) -> bool {
-    use crate::ir::Prim::*;
-    match p {
-        Open(_) | Rename | Sync | Mode | SetMode | Read => true,
-        Write | Map | Exit | StackSize | Close | Fork | Wait | DefaultChildSignal => false,
-    }
-}
-
-/// True when an instruction of the module opens, renames, syncs or changes the mode of a
-/// file, or reads a descriptor.
 pub(crate) fn has_file_primitive(m: &Module) -> bool {
-    use crate::ir::Inst;
-    let mut prims = m.functions.iter().flat_map(|f| &f.body);
-    prims.any(|i| matches!(i, Inst::System(p) if reaches_files(*p)))
+    m.has_file_primitive()
 }
 
 #[test]

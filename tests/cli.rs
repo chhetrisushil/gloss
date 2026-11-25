@@ -524,9 +524,12 @@ fn test_refuses_allow() {
     assert!(err.starts_with("usage: gloss"), "{err}");
 }
 
+/// Runs `gloss test` on a program that has a table, `load`, `save` and a test, with an `.allow`
+/// file beside it: the listing and the `.allow` bytes must be the same afterwards.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 fn test_never_touches_allow_or_beside_the_source() {
-    let text = "record Row\n  name as text\n\ntable rows of Row in \"rows.csv\"\n\nfeature start\n  show \"x\"\n";
+    let text = "record Row\n  name as text\n\ntable rows of Row in \"rows.csv\"\n\nfeature start\n  load rows\n  save rows\n\ntest \"saves and loads\"\n  append Row with name \"a\" to rows\n  save rows\n  load rows\n  expect count of rows is 1\n";
     let p = temp_file("testkeep", text);
     let allow = p.with_extension("allow");
     std::fs::write(&allow, "note keep me\n").unwrap();
@@ -539,8 +542,11 @@ fn test_never_touches_allow_or_beside_the_source() {
         names
     };
     let before = listing(p.parent().unwrap());
-    let (code, out, _) = gloss(&["test", p.to_str().unwrap()]);
-    assert_eq!((code, out.as_str()), (0, "No tests in testkeep.gloss\n"));
+    let (code, out, err) = gloss(&["test", p.to_str().unwrap()]);
+    assert_eq!(
+        (code, out.as_str(), err.as_str()),
+        (0, "pass  saves and loads\n\n1 passed, 0 failed\n", "")
+    );
     assert_eq!(listing(p.parent().unwrap()), before);
     assert_eq!(std::fs::read(&allow).unwrap(), b"note keep me\n");
 }

@@ -108,9 +108,14 @@ fn run_program(path: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     run_program_with(path, out, err, &mut spawn)
 }
 
-/// Starts the program with standard input null and standard output and error piped.
+/// Starts the program with standard input null and standard output and error piped, and the
+/// private folder it sits in as its working directory.
 fn spawn(path: &Path) -> std::io::Result<Child> {
-    Command::new(path)
+    let mut command = Command::new(path);
+    if let Some(folder) = path.parent().filter(|f| !f.as_os_str().is_empty()) {
+        command.current_dir(folder);
+    }
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

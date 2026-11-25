@@ -19,6 +19,10 @@ fn compare(case: &Path, out: &[u8]) -> Result<(), String> {
     let program = crate::parse_source(&src).expect("parses");
     let types = check(&program, &src).types.expect("checks clean");
     let module = lower_tests(&program, &types, &src).expect("lowers");
+    assert!(
+        !module.has_file_primitive(),
+        "{case:?} reaches a file primitive"
+    );
     let o = run_with(
         &module,
         "_start",
