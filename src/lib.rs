@@ -87,6 +87,19 @@ impl Checked {
         lower::lower_tests(&self.program, &self.types, &self.src)
     }
 
+    /// Lowers and encodes the executable `gloss trace` runs.
+    pub fn trace_executable(&self) -> Result<Vec<u8>, Diagnostic> {
+        let module = self.trace_module()?;
+        target::x86_64_linux()
+            .executable(&module)
+            .map_err(Diagnostic::program)
+    }
+
+    /// The program `trace_executable` encodes, before encoding.
+    pub fn trace_module(&self) -> Result<ir::Module, Diagnostic> {
+        lower::lower_trace(&self.program, &self.types, &self.src)
+    }
+
     /// How many tests the program has.
     pub fn test_count(&self) -> usize {
         self.program.tests().count()
@@ -118,6 +131,15 @@ pub fn build_executable(text: &str) -> Result<Vec<u8>, Vec<Diagnostic>> {
     }
 }
 
+/// `build_executable` for the trace executable: checks, lowers and encodes the program for
+/// `gloss trace`. A program with an error gives its diagnostics instead.
+pub fn build_trace_executable(text: &str) -> Result<Vec<u8>, Vec<Diagnostic>> {
+    match check_program(text) {
+        (_, Some(checked)) => checked.trace_executable().map_err(|d| vec![d]),
+        (diagnostics, None) => Err(diagnostics),
+    }
+}
+
 /// `build_executable` for the test executable: checks, lowers and encodes the features and a
 /// driver that runs each test. A program with an error, or one that cannot be built yet, gives
 /// its diagnostics instead.
@@ -137,6 +159,14 @@ mod tests {
 
     const TWO: &str =
         "feature start\n  show 1\n\ntest \"a\"\n  set y to 1\n\ntest \"b\"\n  set y to 2\n";
+
+    #[test]
+    fn build_trace_executable_gives_bytes_that_are_not_the_real_ones() {
+        let bytes = super::build_trace_executable(TWO).unwrap();
+        assert_eq!(&bytes[..4], b"\x7fELF");
+        assert_ne!(bytes, super::build_executable(TWO).unwrap());
+        assert!(super::build_trace_executable("feature start\n  show nope\n").is_err());
+    }
 
     #[test]
     fn build_test_executable_gives_bytes_for_a_program_with_tests() {
