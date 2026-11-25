@@ -2,8 +2,9 @@
 //! condition that starts on it.
 
 use std::collections::HashMap;
+use std::io::{self, Write};
 
-use super::event::Value;
+use super::event::{Event, Value, decode};
 use super::value::say;
 use crate::ast::print::{expr, expr_with};
 use crate::ast::program::Program;
@@ -19,6 +20,8 @@ enum Branch {
 
 pub struct Narrator<'p> {
     conditions: HashMap<Line, (&'p Expr, Branch)>,
+    /// Open calls below `start`: each sentence is indented 2 spaces per call.
+    depth: usize,
 }
 
 impl<'p> Narrator<'p> {
@@ -28,7 +31,58 @@ impl<'p> Narrator<'p> {
         for feature in program.features() {
             collect(&feature.body, &mut conditions);
         }
-        Narrator { conditions }
+        Narrator {
+            conditions,
+            depth: 0,
+        }
+    }
+
+    /// Narrates one trace line: a `show` text on `out`, a `fail` on `err`, anything else as a
+    /// sentence on `out`. The inner error is a line that is not an event.
+    pub fn line(
+        &mut self,
+        event_line: &str,
+        out: &mut dyn Write,
+        err: &mut dyn Write,
+    ) -> io::Result<Result<(), String>> {
+        let event = match decode(event_line) {
+            Ok(event) => event,
+            Err(e) => return Ok(Err(e)),
+        };
+        let sentence = match event {
+            Event::Show { text, .. } => {
+                writeln!(out, "{text}")?;
+                return Ok(Ok(()));
+            }
+            Event::Fail {
+                line,
+                failure,
+                message,
+                ..
+            } => {
+                writeln!(err, "line {line}: failure {failure}: {message}")?;
+                return Ok(Ok(()));
+            }
+            Event::Set {
+                line,
+                name,
+                item,
+                field,
+                from,
+                to,
+            } => set_sentence(line, &name, item, field.as_deref(), from.is_some(), &to),
+            Event::Check {
+                line,
+                values,
+                result,
+                ..
+            } => self.check(line, &values, result),
+            _ => None,
+        };
+        if let Some(sentence) = sentence {
+            writeln!(out, "{}{sentence}", "  ".repeat(self.depth))?;
+        }
+        Ok(Ok(()))
     }
 
     /// The sentence for a `check` event on `line`, or none when no condition starts there.
@@ -53,6 +107,35 @@ impl<'p> Narrator<'p> {
         let is_no = if result { "" } else { " is no" };
         Some(format!("line {line}: {shown}{is_no}, so {tail}"))
     }
+}
+
+/// The sentence for a `set` event. An item with no old value and no field is an append.
+fn set_sentence(
+    line: u32,
+    name: &str,
+    item: Option<i64>,
+    field: Option<&str>,
+    had_old: bool,
+    to: &Value,
+) -> Option<String> {
+    let value = say(to);
+    let target = match (item, field) {
+        (None, None) if !had_old => return Some(format!("line {line}: {name} is {value}")),
+        (None, _) => name.to_string(),
+        (Some(n), None) if !had_old => {
+            let s = if n == 1 { "" } else { "s" };
+            return Some(format!(
+                "line {line}: {value} is appended to {name} (now {n} item{s})"
+            ));
+        }
+        (Some(n), None) => format!("item {n} of {name}"),
+        (Some(n), Some(f)) => format!("{f} of item {n} of {name}"),
+    };
+    let target = match (item, field) {
+        (None, Some(f)) => format!("{f} of {target}"),
+        _ => target,
+    };
+    Some(format!("line {line}: {target} becomes {value}"))
 }
 
 fn collect<'p>(stmts: &'p [Stmt], map: &mut HashMap<Line, (&'p Expr, Branch)>) {
@@ -101,6 +184,85 @@ mod tests {
         Narrator::new(&program)
             .check(line, &values, result)
             .expect("a condition starts there")
+    }
+
+    /// The narration of `lines`: (stdout, stderr).
+    fn narrate(body: &str, lines: &[&str]) -> (String, String) {
+        let text = format!("feature start\n{body}");
+        let src = Source::new(&text);
+        let program = crate::parse_source(&src).expect("parses");
+        let mut n = Narrator::new(&program);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        for l in lines {
+            n.line(l, &mut out, &mut err).unwrap().unwrap();
+        }
+        (
+            String::from_utf8(out).unwrap(),
+            String::from_utf8(err).unwrap(),
+        )
+    }
+
+    const N: &str = "{\"number\":\"";
+
+    #[test]
+    fn show_and_fail_are_printed_unindented_on_their_streams() {
+        let (out, err) = narrate(
+            "  show 1\n",
+            &[
+                r#"{"line":2,"event":"show","text":"hi \"there\""}"#,
+                r#"{"line":2,"event":"fail","failure":1,"message":"dividing by zero (n is 0)"}"#,
+            ],
+        );
+        assert_eq!(out, "hi \"there\"\n");
+        assert_eq!(err, "line 2: failure 1: dividing by zero (n is 0)\n");
+    }
+
+    #[test]
+    fn set_sentences() {
+        let set = |extra: &str, to: &str| {
+            let l = format!(r#"{{"line":4,"event":"set","name":"x"{extra},"to":{to}}}"#);
+            narrate("  show 1\n", &[l.as_str()]).0
+        };
+        let from = format!(r#","from":{N}1"}}"#);
+        let (to, five) = (format!(r#"{N}12"}}"#), format!(r#"{N}5"}}"#));
+        assert_eq!(set("", &to), "line 4: x is 12\n");
+        assert_eq!(set(&from, &to), "line 4: x becomes 12\n");
+        assert_eq!(
+            set(&format!(r#","field":"amount"{from}"#), &to),
+            "line 4: amount of x becomes 12\n"
+        );
+        assert_eq!(
+            set(&format!(r#","item":2{from}"#), &to),
+            "line 4: item 2 of x becomes 12\n"
+        );
+        assert_eq!(
+            set(&format!(r#","item":2,"field":"amount"{from}"#), &to),
+            "line 4: amount of item 2 of x becomes 12\n"
+        );
+        assert_eq!(
+            set(r#","item":1"#, &five),
+            "line 4: 5 is appended to x (now 1 item)\n"
+        );
+        assert_eq!(
+            set(r#","item":4"#, &five),
+            "line 4: 5 is appended to x (now 4 items)\n"
+        );
+    }
+
+    #[test]
+    fn a_check_event_is_narrated_and_a_bad_line_is_an_error() {
+        let body = "  if paid\n    show 1\n";
+        let (out, _) = narrate(
+            body,
+            &[
+                r#"{"line":2,"event":"check","condition":"paid","values":{"paid":{"truth":"no"}},"result":"no"}"#,
+            ],
+        );
+        assert_eq!(out, "line 2: paid is no, so the block is skipped\n");
+        let src = Source::new("feature start\n  show 1\n");
+        let program = crate::parse_source(&src).unwrap();
+        let r = Narrator::new(&program).line("nope", &mut Vec::new(), &mut Vec::new());
+        assert!(r.unwrap().is_err());
     }
 
     #[test]
