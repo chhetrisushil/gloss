@@ -1,0 +1,3 @@
+feature start
+  set n to 0
+  show "a", 1 / n

@@ -1,0 +1,6 @@
+feature start
+  show "before"
+  set n to 0
+  set x to 10
+  divide x by n
+  show "after"

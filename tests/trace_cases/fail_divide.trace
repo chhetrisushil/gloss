@@ -1,0 +1,2 @@
+{"line":2,"event":"show","text":"before"}
+{"line":5,"event":"fail","failure":1,"message":"dividing by zero (n is 0)"}
