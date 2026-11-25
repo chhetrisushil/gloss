@@ -50,7 +50,7 @@ impl Lowerer<'_> {
     pub fn expr_ty(&self, e: &Expr) -> Ty {
         match self.types.expr_types.get(e.id.0 as usize) {
             Some(Some(ty)) => ty.clone(),
-            _ => Ty::Number,
+            _ => unreachable!("the checker types every value it lets through"),
         }
     }
 
@@ -294,40 +294,34 @@ impl Lowerer<'_> {
         });
     }
 
-    /// `set item p of xs to v`: the value is worked out first, then the position is checked.
+    /// `set item p of xs to v` (or a field of the item, at byte offset `field`): the value is
+    /// worked out first, then the position is checked. A trace build writes the `set` event
+    /// after the checks, before the store.
     pub fn set_item(
         &mut self,
+        target: &Target,
         position: &Expr,
-        list: &str,
-        field: Option<(i32, &str)>,
+        field: Option<i32>,
         value: &Expr,
     ) -> Result<(), Diagnostic> {
-        let held = self.new_temp();
+        let (held, list) = (self.new_temp(), target.root());
         self.store_value(value)?;
         self.emit(Inst::StoreSlot(held, Reg::A));
         let slot = self.list_slot(list);
         let index = self.item_address(slot, list, position)?;
-        let field_offset = field.map(|(offset, _)| offset);
         if self.mode == Mode::Trace {
-            // The event comes after the position checks, before the store.
-            if let Some(offset) = field_offset {
+            let (raw, at) = (self.new_temp(), self.new_temp());
+            self.emit(Inst::StoreSlot(raw, Reg::A));
+            if let Some(offset) = field {
                 self.load_a();
                 self.emit(Inst::AddImm(Reg::A, offset));
             }
-            let at = self.new_temp();
             self.emit(Inst::StoreSlot(at, Reg::A));
             self.emit(Inst::LoadSlot(Reg::A, held));
-            let cell = Cell {
-                name: list,
-                item: Some(index),
-                field: field.map(|(_, name)| name),
-                at,
-            };
-            self.cell_set_event(&cell, &self.expr_ty(value));
-            self.store_item(at);
-            return Ok(());
+            let ty = self.expr_ty(value);
+            self.cell_set_event(&Cell::of(target, Some(index), at), &ty);
+            self.emit(Inst::LoadSlot(Reg::A, raw));
         }
-        let field = field_offset;
         self.emit(Inst::Move {
             to: Reg::B,
             from: Reg::A,

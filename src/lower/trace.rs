@@ -2,6 +2,7 @@
 //! program (it takes no flags) has no use for.
 use super::{Lowerer, Mode};
 use crate::ast::program::Program;
+use crate::ast::stmt::Target;
 use crate::check::Ty;
 use crate::ir::{Data, Function, Global, Inst, Module, Prim, Reg};
 use crate::runtime::json_escape_host;
@@ -40,6 +41,33 @@ pub(super) struct Cell<'a> {
     pub item: Option<u32>,
     pub field: Option<&'a str>,
     pub at: u32,
+}
+
+impl<'a> Cell<'a> {
+    /// The cell `target` names (a field of a record variable, an item, or a field of an
+    /// item), whose whole item number is in slot `item` when it is an item.
+    pub fn of(target: &'a Target, item: Option<u32>, at: u32) -> Self {
+        let field = match target {
+            Target::Field { field, .. } => Some(field.as_str()),
+            _ => None,
+        };
+        Cell {
+            name: target.root(),
+            item,
+            field,
+            at,
+        }
+    }
+}
+
+/// What the writers of a `set` event differ in: the keys after `name`, the slot `from` is read
+/// from, and the made flag that guards it (a variable's first set has no `from`).
+struct SetPieces<'a> {
+    name: &'a str,
+    item: Option<u32>,
+    field: Option<&'a str>,
+    old: u32,
+    made: Option<u32>,
 }
 
 /// The helpers that frame a trace event: `{"line":L,"event":"K"`, then `,"key":value` pieces,
@@ -114,22 +142,14 @@ impl Lowerer<'_> {
         let ty = self.vars[name].clone();
         let new = self.new_temp();
         self.emit(Inst::StoreSlot(new, Reg::A));
-        self.ev_open(line, "set");
-        self.ev_key("name");
-        self.ev_fixed_text(name);
-        let first = (!from_always).then(|| self.new_label());
-        if let Some(first) = first {
-            self.emit(Inst::LoadSlot(Reg::A, self.made[name]));
-            self.jump_if_a_is(0, first);
-        }
-        self.ev_key("from");
-        self.ev_value_from_slot(self.slots[name], &ty);
-        if let Some(first) = first {
-            self.emit(Inst::Mark(first));
-        }
-        self.ev_key("to");
-        self.ev_value_from_slot(new, &ty);
-        self.ev_close();
+        let pieces = SetPieces {
+            name,
+            item: None,
+            field: None,
+            old: self.slots[name],
+            made: (!from_always).then(|| self.made[name]),
+        };
+        self.write_set(line, &pieces, new, &ty);
         self.set_made(name);
         self.emit(Inst::LoadSlot(Reg::A, new));
     }
@@ -147,23 +167,46 @@ impl Lowerer<'_> {
             offset: 0,
         });
         self.emit(Inst::StoreSlot(old, Reg::A));
-        self.ev_open(self.line, "set");
+        let pieces = SetPieces {
+            name: cell.name,
+            item: cell.item,
+            field: cell.field,
+            old,
+            made: None,
+        };
+        self.write_set(self.line, &pieces, new, ty);
+        self.emit(Inst::LoadSlot(Reg::A, new));
+    }
+
+    /// Writes one `set` event: `name`, the `item` and `field` keys when there are any, `from`
+    /// (the value in slot `pieces.old`, left out while the made flag in `pieces.made` is 0),
+    /// then `to` from slot `new`.
+    fn write_set(&mut self, line: u32, pieces: &SetPieces, new: u32, ty: &Ty) {
+        self.ev_open(line, "set");
         self.ev_key("name");
-        self.ev_fixed_text(cell.name);
-        if let Some(index) = cell.item {
+        self.ev_fixed_text(pieces.name);
+        if let Some(index) = pieces.item {
             self.ev_key("item");
             self.ev_int_from_slot(index);
         }
-        if let Some(field) = cell.field {
+        if let Some(field) = pieces.field {
             self.ev_key("field");
             self.ev_fixed_text(field);
         }
+        let first = pieces.made.map(|flag| {
+            let first = self.new_label();
+            self.emit(Inst::LoadSlot(Reg::A, flag));
+            self.jump_if_a_is(0, first);
+            first
+        });
         self.ev_key("from");
-        self.ev_value_from_slot(old, ty);
+        self.ev_value_from_slot(pieces.old, ty);
+        if let Some(first) = first {
+            self.emit(Inst::Mark(first));
+        }
         self.ev_key("to");
         self.ev_value_from_slot(new, ty);
         self.ev_close();
-        self.emit(Inst::LoadSlot(Reg::A, new));
     }
 
     /// Writes the `set` event of an `append` to `name`, whose list is in slot `list` and whose

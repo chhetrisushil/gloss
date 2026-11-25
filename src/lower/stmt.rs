@@ -75,23 +75,15 @@ impl Lowerer<'_> {
                 self.mark_line(s.line);
                 self.append(value, list)
             }
-            StmtKind::Set {
-                target: Target::Item { position, of },
-                value,
-            } if matches!(**of, Target::Var(_)) => {
-                let Target::Var(list) = &**of else {
-                    unreachable!()
-                };
+            StmtKind::Set { target, value } if item_target(target).is_some() => {
+                let (position, _) = item_target(target).expect("just checked");
                 self.mark_line(s.line);
-                self.set_item(position, list, None, value)
+                self.set_item(target, position, None, value)
             }
             StmtKind::Set { target, value } if self.item_field(target).is_some() => {
-                let (position, list, offset) = self.item_field(target).expect("just checked");
-                let Target::Field { field, .. } = target else {
-                    unreachable!()
-                };
+                let (position, _, offset) = self.item_field(target).expect("just checked");
                 self.mark_line(s.line);
-                self.set_item(position, list, Some((offset, field)), value)
+                self.set_item(target, position, Some(offset), value)
             }
             StmtKind::Ask { question, into } => {
                 self.mark_line(s.line);
@@ -237,16 +229,7 @@ impl Lowerer<'_> {
             match (target, at, &place) {
                 (Target::Var(name), ..) => self.set_event(s.line, name, true),
                 (_, Some((at, index)), _) => {
-                    let field = match target {
-                        Target::Field { field, .. } => Some(field.as_str()),
-                        _ => None,
-                    };
-                    let cell = Cell {
-                        name: target.root(),
-                        item: Some(index),
-                        field,
-                        at,
-                    };
+                    let cell = Cell::of(target, Some(index), at);
                     self.cell_set_event(&cell, &Ty::Number);
                 }
                 (_, None, Some(place)) => self.field_set_event(target, place, &Ty::Number),
@@ -264,20 +247,11 @@ impl Lowerer<'_> {
     /// The `set` event of the field a record variable's `place` names, whose new value of type
     /// `ty` is in `a` (`a` survives).
     fn field_set_event(&mut self, target: &Target, place: &Place, ty: &Ty) {
-        let Target::Field { field, .. } = target else {
-            unreachable!("a place with a field")
-        };
         let at = self.new_temp();
         self.emit(Inst::LoadSlot(Reg::B, place.slot));
         self.emit(Inst::AddImm(Reg::B, place.field.expect("a field place")));
         self.emit(Inst::StoreSlot(at, Reg::B));
-        let cell = Cell {
-            name: target.root(),
-            item: None,
-            field: Some(field),
-            at,
-        };
-        self.cell_set_event(&cell, ty);
+        self.cell_set_event(&Cell::of(target, None, at), ty);
     }
 
     fn cannot_build(&self, s: &Stmt) -> Diagnostic {
