@@ -1,0 +1,4 @@
+{"line":2,"event":"set","name":"n","to":{"number":"2"}}
+{"line":3,"event":"check","condition":"n is 1","values":{"n":{"number":"2"}},"result":"no"}
+{"line":5,"event":"check","condition":"n is 2","values":{"n":{"number":"2"}},"result":"yes"}
+{"line":6,"event":"show","text":"two"}

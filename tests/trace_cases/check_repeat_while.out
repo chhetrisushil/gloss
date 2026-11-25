@@ -1,0 +1,6 @@
+line 2: n is 0
+line 3: 0 is less than 2, so the loop runs
+line 4: n becomes 1
+line 3: 1 is less than 2, so the loop runs
+line 4: n becomes 2
+line 3: 2 is less than 2 is no, so the loop ends

@@ -1,0 +1,4 @@
+{"line":6,"event":"set","name":"e","to":{"record":"Expense","fields":{"name":{"text":"Rent"},"amount":{"number":"10"}}}}
+{"line":7,"event":"set","name":"label","to":{"text":"a \"b\""}}
+{"line":8,"event":"check","condition":"amount of e is at least 5 and label is not \"x\" and amount of e is at most 20","values":{"amount of e":{"number":"10"},"label":{"text":"a \"b\""}},"result":"yes"}
+{"line":9,"event":"show","text":"ok"}

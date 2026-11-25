@@ -1,0 +1,6 @@
+{"line":2,"event":"set","name":"n","to":{"number":"0"}}
+{"line":3,"event":"check","condition":"n is less than 2","values":{"n":{"number":"0"}},"result":"yes"}
+{"line":4,"event":"set","name":"n","from":{"number":"0"},"to":{"number":"1"}}
+{"line":3,"event":"check","condition":"n is less than 2","values":{"n":{"number":"1"}},"result":"yes"}
+{"line":4,"event":"set","name":"n","from":{"number":"1"},"to":{"number":"2"}}
+{"line":3,"event":"check","condition":"n is less than 2","values":{"n":{"number":"2"}},"result":"no"}
