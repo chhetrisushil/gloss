@@ -622,7 +622,17 @@ fn trace_of_a_failure_exits_2() {
     assert_eq!(code, 2);
     assert_eq!(out, "line 2: n is 0\nline 3: x is 10\n");
     assert_eq!(err, "line 4: failure 1: dividing by zero (n is 0)\n");
-    assert!(p.with_extension("trace").exists());
+    // The buffered file is complete: it ends with the failure event and its newline.
+    let events = std::fs::read_to_string(p.with_extension("trace")).unwrap();
+    assert_eq!(events.lines().count(), 3, "{events}");
+    assert!(
+        events
+            .lines()
+            .last()
+            .unwrap()
+            .contains("\"event\":\"fail\"")
+    );
+    assert!(events.ends_with("}\n"));
 }
 
 /// Approval comes before the host check, so this runs on every host.
@@ -671,4 +681,57 @@ fn trace_records_the_approval_before_refusing_off_linux() {
         (3, "gloss trace runs programs on Linux only\n")
     );
     assert!(p.with_extension("allow").exists());
+}
+
+/// A folder where the private folder for a run cannot be made, so setup fails.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn gloss_with_no_temp_folder(args: &[&str]) -> (i32, String) {
+    let o = Command::new(env!("CARGO_BIN_EXE_gloss"))
+        .args(args)
+        .env("TMPDIR", "/gloss-no-such-folder/tmp")
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap(),
+        String::from_utf8(o.stderr).unwrap(),
+    )
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn trace_setup_failures_do_not_say_test() {
+    let p = temp_file("tracesetup", TRACED);
+    let (code, err) = gloss_with_no_temp_folder(&["trace", p.to_str().unwrap()]);
+    assert_eq!(code, 3);
+    assert!(
+        err.starts_with("cannot make a private folder for the traced run: "),
+        "{err}"
+    );
+    assert!(!err.contains("test"), "{err}");
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn test_setup_failures_keep_the_test_wording() {
+    let text = "feature start\n  show 1\n\ntest \"t\"\n  expect 1 is 1\n";
+    let p = temp_file("testsetup", text);
+    let (code, err) = gloss_with_no_temp_folder(&["test", p.to_str().unwrap()]);
+    assert_eq!(code, 3);
+    assert!(
+        err.starts_with("cannot make a private folder for the test run: "),
+        "{err}"
+    );
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn trace_file_that_cannot_be_created_says_why() {
+    let p = temp_file("tracecreate", TRACED);
+    std::fs::create_dir(p.with_extension("trace")).unwrap();
+    let (code, out, err) = gloss(&["trace", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert_eq!(
+        err,
+        "tracecreate.trace cannot be written: Is a directory (os error 21)\n"
+    );
 }

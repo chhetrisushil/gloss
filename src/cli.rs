@@ -315,9 +315,12 @@ fn trace(
         || trace_path.display().to_string(),
         |n| n.to_string_lossy().into(),
     );
-    let Ok(mut file) = std::fs::File::create(&trace_path) else {
-        let _ = writeln!(err, "{label} cannot be written");
-        return 3;
+    let mut file = match std::fs::File::create(&trace_path) {
+        Ok(file) => std::io::BufWriter::new(file),
+        Err(e) => {
+            let _ = writeln!(err, "{label} cannot be written: {e}");
+            return 3;
+        }
     };
     let mut state = TraceState {
         label,
@@ -335,11 +338,27 @@ fn trace(
         };
         crate::testrun::run_traced(&bytes, &mut on_line, &mut Shared(&shared))
     };
-    let (status, message) = trace_outcome(ended, state.failed, state.unreadable);
+    // The file is complete before any message is printed, on every way the run ended.
+    let outcome = trace_outcome(ended, state.failed, state.unreadable);
+    let (status, message) = flushed(&mut file, &state.label, outcome);
     if let Some(message) = message {
         let _ = writeln!(err, "{message}");
     }
     status
+}
+
+/// Flushes the trace file; a failure to do so is a status 3 with its reason, unless the run
+/// already ended with a status 3 and its own message.
+fn flushed(
+    file: &mut dyn Write,
+    label: &str,
+    outcome: (i32, Option<String>),
+) -> (i32, Option<String>) {
+    match file.flush() {
+        Ok(()) => outcome,
+        Err(_) if outcome.0 == 3 => outcome,
+        Err(e) => (3, Some(format!("{label} cannot be written: {e}"))),
+    }
 }
 
 /// A table file named like the program's executable (the source name without `.gloss`)
@@ -638,6 +657,56 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(e.to_string(), "cannot write the trace output: disk full");
+    }
+
+    /// Counts what reaches it before and after a flush.
+    #[derive(Default)]
+    struct Staged {
+        pending: Vec<u8>,
+        on_disk: Vec<u8>,
+        fail_flush: bool,
+    }
+    impl Write for Staged {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.pending.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            if self.fail_flush {
+                return Err(std::io::Error::other("disk full"));
+            }
+            let pending = std::mem::take(&mut self.pending);
+            self.on_disk.extend(pending);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn the_trace_file_is_flushed_whatever_the_status_and_a_failed_flush_is_3() {
+        for outcome in [
+            (0, None),
+            (2, None),
+            (
+                2,
+                Some("the traced run ended without finishing (status 1)".to_string()),
+            ),
+        ] {
+            let mut file = Staged::default();
+            file.write_all(b"x\n").unwrap();
+            assert_eq!(flushed(&mut file, "t.trace", outcome.clone()), outcome);
+            assert_eq!(file.on_disk, b"x\n");
+        }
+        let mut full = Staged {
+            fail_flush: true,
+            ..Staged::default()
+        };
+        let (status, message) = flushed(&mut full, "t.trace", (0, None));
+        assert_eq!(
+            (status, message.as_deref()),
+            (3, Some("t.trace cannot be written: disk full"))
+        );
+        let own = (3, Some("gone".to_string()));
+        assert_eq!(flushed(&mut full, "t.trace", own.clone()), own);
     }
 
     #[test]
