@@ -1195,3 +1195,26 @@ fn shown_lowers_to_a_shown_list_call_with_its_line() {
         "{body}"
     );
 }
+
+#[test]
+fn shown_sees_the_line_a_show_left_in_the_output_buffer() {
+    let body = "  show \"Total\"\n  expect last of shown is \"Total\"\n  show \"Largest\"\n  \
+                expect count of shown is 2\n  expect first of shown is \"Total\"\n";
+    let (out, status) = run_test_body(body, b"");
+    assert_eq!(
+        (out.as_str(), status),
+        ("pass  t\n\n1 passed, 0 failed\n", 0)
+    );
+}
+
+#[test]
+fn shown_is_a_fresh_copy_each_time_it_is_read() {
+    let body = "  show \"a\"\n  set before to shown\n  show \"b\"\n  \
+                expect count of before is 1\n  expect count of shown is 2\n  \
+                set before to shown\n  append \"x\" to before\n  expect count of shown is 2\n";
+    let (out, status) = run_test_body(body, b"");
+    assert_eq!(
+        (out.as_str(), status),
+        ("pass  t\n\n1 passed, 0 failed\n", 0)
+    );
+}
