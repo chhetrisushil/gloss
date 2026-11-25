@@ -28,7 +28,7 @@ impl Lowerer<'_> {
         // F12: no test build may reach a real file primitive or read standard input.
         let unbuilt = matches!(
             s.kind,
-            StmtKind::Ask { .. } | StmtKind::Load(_) | StmtKind::Save(_) | StmtKind::Input(_)
+            StmtKind::Ask { .. } | StmtKind::Load(_) | StmtKind::Save(_)
         );
         if unbuilt && self.mode == Mode::Test {
             return Err(self.cannot_build(s));
@@ -140,6 +140,17 @@ impl Lowerer<'_> {
                 self.line = s.line;
                 let fail = self.expect_failed(&print::expr(cond));
                 self.condition(cond, fail)
+            }
+            StmtKind::Input(items) if self.mode == Mode::Test => {
+                self.mark_line(s.line);
+                for item in items {
+                    self.expr(item)?;
+                    self.emit(Inst::Push(Reg::A));
+                    self.emit(Inst::Const(Reg::A, i64::from(s.line)));
+                    self.emit(Inst::Push(Reg::A));
+                    self.call("test_input");
+                }
+                Ok(())
             }
             StmtKind::Clear(name) => {
                 self.mark_line(s.line);
