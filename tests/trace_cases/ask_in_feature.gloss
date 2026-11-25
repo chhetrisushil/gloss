@@ -1,0 +1,6 @@
+feature greet
+  ask "Name?" into name
+  give name
+
+feature start
+  show "Hello, ", greet
