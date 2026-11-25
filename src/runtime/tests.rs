@@ -1130,11 +1130,15 @@ fn test_summary_counts() {
 }
 
 #[test]
-fn the_trace_backend_starts_empty() {
+fn the_trace_backend_swaps_only_out_bytes() {
     use super::{Backend, routines, routines_for, trace_backend};
-    assert!(trace_backend::REPLACED.is_empty());
-    assert!(trace_backend::routines().is_empty());
-    assert_eq!(routines_for(Backend::Trace), routines());
+    assert_eq!(trace_backend::REPLACED, ["out_bytes"]);
+    let mut expected: Vec<Function> = routines()
+        .into_iter()
+        .filter(|f| f.name != "out_bytes")
+        .collect();
+    expected.extend(trace_backend::routines());
+    assert_eq!(routines_for(Backend::Trace), expected);
 }
 
 #[test]

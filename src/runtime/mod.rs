@@ -40,6 +40,9 @@ mod test_state_tests;
 mod tests;
 mod text;
 pub(crate) mod trace_backend;
+#[cfg(test)]
+mod trace_backend_tests;
+mod trace_state;
 mod utf8;
 mod values;
 

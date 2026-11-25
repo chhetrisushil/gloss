@@ -1352,7 +1352,9 @@ fn real_and_test_builds_have_no_trace_code() {
     let trace_routines = crate::runtime::trace_backend::routines();
     for m in [&real, &test] {
         assert!(!uses_global(m, crate::ir::Global::TraceState));
-        let named = |f: &crate::ir::Function| trace_routines.iter().any(|r| r.name == f.name);
-        assert!(!m.functions.iter().any(named));
+        // The real `out_bytes` shares a name with the trace one, so compare whole routines.
+        let trace_one = |f: &crate::ir::Function| trace_routines.iter().any(|r| r == f);
+        assert!(!m.functions.iter().any(trace_one));
+        assert!(!m.functions.iter().any(|f| f.name == "json_bytes"));
     }
 }
