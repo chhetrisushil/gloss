@@ -205,3 +205,49 @@ fn a_character_cut_between_two_pieces_arrives_whole() {
         assert_eq!(message(&singles), text, "{text} a byte at a time");
     }
 }
+
+#[test]
+fn a_failure_5_with_a_character_across_the_24_byte_chunks_keeps_it() {
+    // `err_shown` queues 24 bytes at a time, so the `é` below is cut in two.
+    let shown = [b"a".repeat(23), "é".as_bytes().to_vec()].concat();
+    let shown_text = [text(0), vec![Call("err_shown".into())]].concat();
+    let body = failing(2, 5, shown_text);
+    let (status, out, err) = outcome(body, &[&shown]);
+    let want = format!(
+        "{{\"line\":2,\"event\":\"fail\",\"failure\":5,\"message\":\"{}é\"}}\n",
+        "a".repeat(23)
+    );
+    assert_eq!((status, out, err), (2, want, String::new()));
+}
+
+#[test]
+fn a_cut_character_that_never_finishes_is_replacement_characters() {
+    assert_eq!(message(&[b"a\xC3"]), "a\u{FFFD}");
+    assert_eq!(message(&[b"a\xC3", b"b"]), "a\u{FFFD}b");
+    assert_eq!(message(&[b"\xE2\x82", b"x"]), "\u{FFFD}\u{FFFD}x");
+    // At the very end of the message: one `U+FFFD` per leftover byte, as `json_bytes` gives.
+    assert_eq!(message(&[b"a", b"\xC3"]), "a\u{FFFD}");
+    assert_eq!(message(&[b"\xE2\x82"]), "\u{FFFD}\u{FFFD}");
+}
+
+#[test]
+fn stray_continuation_bytes_after_a_whole_character_never_outgrow_the_carry() {
+    let bad = "\u{FFFD}";
+    assert_eq!(
+        message(&[b"\xC3\xA9\x80\x80\x80\x80"]),
+        format!("é{bad}{bad}{bad}{bad}")
+    );
+    assert_eq!(
+        message(
+            &["€".as_bytes(), b"\x80"]
+                .concat()
+                .chunks(4)
+                .collect::<Vec<_>>()
+        ),
+        format!("€{bad}")
+    );
+    // Eight and more continuation bytes after a lead would pass the end of the trace state.
+    let mut piece = vec![0xC3];
+    piece.extend([0x80; 12]);
+    assert_eq!(message(&[&piece]), format!("À{}", bad.repeat(11)));
+}
