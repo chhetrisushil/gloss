@@ -7,8 +7,6 @@ use super::asm::Asm;
 use crate::ir::{Data, Global, Inst::*, Reg};
 
 pub const ESCAPING: i32 = 0;
-// `FAILING` is first used by the failure event (a later task).
-#[allow(dead_code)]
 pub const FAILING: i32 = 8;
 pub const OPEN: i32 = 16;
 
@@ -23,7 +21,6 @@ pub(super) fn get(s: &mut Asm, to: Reg, offset: i32) {
 }
 
 /// Stores `from` into the word at byte `offset` of the state, using `tmp` for the address.
-#[allow(dead_code)]
 pub(super) fn set(s: &mut Asm, offset: i32, from: Reg, tmp: Reg) {
     s.i(AddressOf(tmp, Data::Global(Global::TraceState)));
     s.i(Store {
