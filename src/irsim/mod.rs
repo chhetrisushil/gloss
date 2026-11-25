@@ -56,6 +56,10 @@ pub struct Faults {
     pub failing_file_write: bool,
     /// The Nth `Read` (counting from 1) of a descriptor from `Open` fails with an I/O error.
     pub failing_file_read: Option<u32>,
+    /// `Fork` fails with a negative result and starts no child.
+    pub failing_fork: bool,
+    /// `Wait` gives `-10` (no such child), as when `SIGCHLD` is ignored: the child still ran.
+    pub failing_wait: bool,
 }
 
 /// Runs the function `entry` as a program, feeding it `stdin`.

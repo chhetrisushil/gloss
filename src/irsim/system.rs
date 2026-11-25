@@ -11,6 +11,8 @@ const EBADF: i64 = -9;
 pub(super) const ECHILD: i64 = -10;
 /// What a `Write` that a test makes fail, and what such a `Read` gives.
 const EIO: i64 = -5;
+/// What a `Fork` that a test makes fail gives: Linux's `-EAGAIN`.
+const EAGAIN: i64 = -11;
 /// What a test's `failing_open` gives: Linux's permission error.
 const EACCES: i64 = -13;
 
@@ -74,7 +76,12 @@ impl Machine<'_> {
                     pid > 0,
                     "irsim: wait for a pid of 0 or less is not modelled"
                 );
-                self.a = self.children.remove(&pid).map_or(ECHILD, i64::from);
+                let status = self.children.remove(&pid).map_or(ECHILD, i64::from);
+                self.a = if self.faults.failing_wait {
+                    ECHILD
+                } else {
+                    status
+                };
             }
         }
         None
@@ -91,6 +98,10 @@ impl Machine<'_> {
     /// gives `256 + signal`. A parent holding descriptors from `Open` panics, because real
     /// children share their offsets and follow renames, which `fds` does not model.
     fn fork(&mut self) {
+        if self.faults.failing_fork {
+            self.a = EAGAIN;
+            return;
+        }
         assert!(
             self.fds.is_empty(),
             "irsim: fork with open files is not modelled"

@@ -916,3 +916,42 @@ fn a_child_that_dies_is_reported_lost() {
         (want, 1)
     );
 }
+
+#[test]
+fn a_failed_fork_is_a_lost_test_and_the_parent_never_waits() {
+    // irsim refuses a `Wait` for a pid of 0 or less, so a Wait after the failed fork would
+    // panic rather than report.
+    let text = "feature start\n  show 1\n\ntest \"t\"\n  set y to 1\n\ntest \"u\"\n  set y to 1\n";
+    let faults = crate::irsim::Faults {
+        failing_fork: true,
+        ..Default::default()
+    };
+    let mut files = crate::irsim::Files::default();
+    let m = lowered_tests(text).unwrap();
+    let o = crate::irsim::run_with(&m, "_start", b"", &[], faults, &mut files);
+    let want = "fail  t\n      ended without a result (status -11)\n\
+                fail  u\n      ended without a result (status -11)\n\n0 passed, 2 failed\n";
+    assert_eq!(
+        (String::from_utf8(o.stdout).unwrap().as_str(), o.status),
+        (want, 1)
+    );
+}
+
+#[test]
+fn a_wait_that_gives_no_such_child_is_a_lost_test_not_a_pass() {
+    // As when SIGCHLD is ignored: the child ran and passed, but the parent has no status.
+    let text = "feature start\n  show 1\n\ntest \"t\"\n  set y to 1\n";
+    let faults = crate::irsim::Faults {
+        failing_wait: true,
+        ..Default::default()
+    };
+    let mut files = crate::irsim::Files::default();
+    let m = lowered_tests(text).unwrap();
+    let o = crate::irsim::run_with(&m, "_start", b"", &[], faults, &mut files);
+    let want =
+        "pass  t\nfail  t\n      ended without a result (status -10)\n\n0 passed, 1 failed\n";
+    assert_eq!(
+        (String::from_utf8(o.stdout).unwrap().as_str(), o.status),
+        (want, 1)
+    );
+}
