@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use crate::ast::program::{FeatureDecl, Program};
 use crate::check::{LoopVar, Ty, TypeInfo};
 use crate::diag::Diagnostic;
-use crate::ir::{Data, Function, Inst, Label, Module, Reg};
+use crate::ir::{Data, Function, Global, Inst, Label, Module, Reg};
 use crate::runtime;
 use crate::source::Source;
 
@@ -60,6 +60,22 @@ impl Lowerer<'_> {
     pub fn new_temp(&mut self) -> u32 {
         self.temps += 1;
         self.slots.len() as u32 + self.temps
+    }
+
+    /// Starts the code of the statement on `line`. A test build also stores the line in the
+    /// test state, where the shown buffer's allocations read it; `a` and `b` are free here.
+    pub fn mark_line(&mut self, line: u32) {
+        self.line = line;
+        self.emit(Inst::Line(line));
+        if self.mode == Mode::Test {
+            self.emit(Inst::Const(Reg::A, i64::from(line)));
+            self.emit(Inst::AddressOf(Reg::B, Data::Global(Global::TestState)));
+            self.emit(Inst::Store {
+                base: Reg::B,
+                offset: runtime::CURRENT_LINE as i32 * 8,
+                from: Reg::A,
+            });
+        }
     }
 
     pub fn emit(&mut self, inst: Inst) {

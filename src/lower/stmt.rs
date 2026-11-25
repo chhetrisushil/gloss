@@ -40,8 +40,7 @@ impl Lowerer<'_> {
         match &s.kind {
             StmtKind::Note(_) => Ok(()),
             StmtKind::Show(items) => {
-                self.line = s.line;
-                self.emit(Inst::Line(s.line));
+                self.mark_line(s.line);
                 for item in items {
                     self.show_item(item)?;
                 }
@@ -58,8 +57,7 @@ impl Lowerer<'_> {
                 || self.record_type(value).is_some()
                 || self.list_item_type(value).is_some() =>
             {
-                self.line = s.line;
-                self.emit(Inst::Line(s.line));
+                self.mark_line(s.line);
                 self.store_value(value)?;
                 self.emit(Inst::StoreSlot(self.slots[name], Reg::A));
                 Ok(())
@@ -68,16 +66,14 @@ impl Lowerer<'_> {
                 target: target @ Target::Field { .. },
                 value,
             } if self.place(target).is_some() => {
-                self.line = s.line;
-                self.emit(Inst::Line(s.line));
+                self.mark_line(s.line);
                 self.expr(value)?;
                 let place = self.place(target).expect("just checked");
                 self.store_place(&place);
                 Ok(())
             }
             StmtKind::Append { value, list } => {
-                self.line = s.line;
-                self.emit(Inst::Line(s.line));
+                self.mark_line(s.line);
                 self.append(value, list)
             }
             StmtKind::Set {
@@ -87,19 +83,16 @@ impl Lowerer<'_> {
                 let Target::Var(list) = &**of else {
                     unreachable!()
                 };
-                self.line = s.line;
-                self.emit(Inst::Line(s.line));
+                self.mark_line(s.line);
                 self.set_item(position, list, None, value)
             }
             StmtKind::Set { target, value } if self.item_field(target).is_some() => {
                 let (position, list, offset) = self.item_field(target).expect("just checked");
-                self.line = s.line;
-                self.emit(Inst::Line(s.line));
+                self.mark_line(s.line);
                 self.set_item(position, list, Some(offset), value)
             }
             StmtKind::Ask { question, into } => {
-                self.line = s.line;
-                self.emit(Inst::Line(s.line));
+                self.mark_line(s.line);
                 self.expr(question)?;
                 self.emit(Inst::Push(Reg::A));
                 self.emit(Inst::Const(Reg::A, i64::from(s.line)));
@@ -124,20 +117,17 @@ impl Lowerer<'_> {
                 body,
             } => self.count(s.line, var, from, to, body),
             StmtKind::ForEachIn { var, list, body } => {
-                self.line = s.line;
-                self.emit(Inst::Line(s.line));
+                self.mark_line(s.line);
                 self.for_each(var, list, body)
             }
             StmtKind::Give(value) => {
-                self.line = s.line;
-                self.emit(Inst::Line(s.line));
+                self.mark_line(s.line);
                 self.expr(value)?;
                 self.emit(Inst::Return);
                 Ok(())
             }
             StmtKind::Run { feature, inputs } => {
-                self.line = s.line;
-                self.emit(Inst::Line(s.line));
+                self.mark_line(s.line);
                 self.feature_call(feature, inputs)
             }
             StmtKind::Skip | StmtKind::Stop => {
@@ -151,21 +141,18 @@ impl Lowerer<'_> {
                 Ok(())
             }
             StmtKind::Clear(name) => {
-                self.line = s.line;
-                self.emit(Inst::Line(s.line));
+                self.mark_line(s.line);
                 let index = self.table_index(name).expect("the checker found the table");
                 self.clear_table(index);
                 Ok(())
             }
             StmtKind::Load(name) => {
-                self.line = s.line;
-                self.emit(Inst::Line(s.line));
+                self.mark_line(s.line);
                 let index = self.table_index(name).expect("the checker found the table");
                 self.read_table(index)
             }
             StmtKind::Save(name) => {
-                self.line = s.line;
-                self.emit(Inst::Line(s.line));
+                self.mark_line(s.line);
                 let index = self.table_index(name).expect("the checker found the table");
                 self.save_table(index)
             }
@@ -190,8 +177,7 @@ impl Lowerer<'_> {
         if place.is_none() && item.is_none() {
             return Err(self.cannot_build(s));
         }
-        self.line = s.line;
-        self.emit(Inst::Line(s.line));
+        self.mark_line(s.line);
         self.expr(operand)?;
         let at = match (&place, item) {
             (_, Some((position, list, field))) => Some(self.load_item(position, list, field)?),

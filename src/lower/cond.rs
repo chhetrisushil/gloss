@@ -174,8 +174,7 @@ impl Lowerer<'_> {
 impl Lowerer<'_> {
     /// Evaluates `cond` and jumps to `else_to` when it is no.
     pub fn condition(&mut self, cond: &Expr, else_to: Label) -> Result<(), Diagnostic> {
-        self.line = cond.line;
-        self.emit(Inst::Line(cond.line));
+        self.mark_line(cond.line);
         self.expr(cond)?;
         self.jump_if_a_is(0, else_to);
         Ok(())

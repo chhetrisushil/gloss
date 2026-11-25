@@ -695,3 +695,86 @@ fn no_real_file_primitive_in_a_test_module() {
     .unwrap();
     assert!(has_file_primitive(&real));
 }
+
+#[test]
+fn test_mode_stores_each_statements_line_in_the_line_word_and_real_mode_does_not() {
+    let text = format!("{ROWS}test \"t\"\n  show 1\n\n  show 2\n");
+    let word = crate::runtime::CURRENT_LINE * 8;
+    let store = |line: u32| {
+        format!("line {line}\n  a = {line}\n  b = address of test_state\n  [b + {word}] = a\n")
+    };
+    let t = function_text(function(&lowered_tests(&text).unwrap(), "t_0"));
+    assert!(t.contains(&store(10)) && t.contains(&store(12)), "{t}");
+    assert_eq!(t.matches("test_state").count(), 2, "{t}");
+    // A real build of the same statements stores nothing.
+    let real = "feature start\n  show 1\n\n  show 2\n";
+    let f = function_text(function(&lowered(real).unwrap(), "f_start"));
+    assert!(!f.contains("test_state"), "{f}");
+}
+
+#[test]
+fn the_line_is_stored_before_every_kind_of_statement() {
+    // A loop's condition runs each turn, so its line is stored at the top of the loop.
+    let text = format!(
+        "{ROWS}test \"t\"\n  set y to 1\n  for each i from 1 to 2\n    show i\n  \
+         repeat while y is 1\n    set y to 2\n  if y is 2\n    show y\n"
+    );
+    let t = function_text(function(&lowered_tests(&text).unwrap(), "t_0"));
+    for line in [10, 11, 12, 13, 14, 15, 16] {
+        assert!(
+            t.contains(&format!("line {line}\n  a = {line}\n  b = address of")),
+            "{line}\n{t}"
+        );
+    }
+}
+
+/// A program whose test has one statement per kind from line 11 on (the feature `f` gives 1).
+const KINDS: [&str; 12] = [
+    "append Row with n 1 to rows",
+    "set n of item 1 of rows to 5",
+    "set item 1 of rows to Row with n 2",
+    "add 1 to n of item 1 of rows",
+    "subtract 1 from n of item 1 of rows",
+    "set y to 1",
+    "add 1 to y",
+    "multiply y by 2",
+    "divide y by 2",
+    "run g",
+    "clear rows",
+    "show f",
+];
+
+#[test]
+fn the_line_is_stored_before_each_statement_kind() {
+    let head = format!("{ROWS}feature f\n  give 1\n\nfeature g\n  show 2\n\ntest \"t\"\n");
+    let text = format!("{head}  {}\n", KINDS.join("\n  "));
+    let t = function_text(function(&lowered_tests(&text).unwrap(), "t_0"));
+    let first = head.lines().count() as u32 + 1;
+    for (i, kind) in KINDS.iter().enumerate() {
+        let line = first + i as u32;
+        let stored = format!("line {line}\n  a = {line}\n  b = address of test_state\n");
+        assert!(t.contains(&stored), "{kind} on line {line}\n{t}");
+    }
+}
+
+#[test]
+fn out_of_memory_while_shown_grows_reports_the_line_of_the_show() {
+    // The shows fill the output buffer, and the one that overflows it flushes into shown,
+    // whose first growth the stub for `grow_text` ends with the line it is given (its fourth
+    // argument). Pending bytes flushed later, at the end of a test, name the last statement run.
+    let text = format!("{ROWS}test \"t\"\n  for each i from 1 to 2000\n    show i\n");
+    let mut m = lowered_tests(&text).unwrap();
+    let at = m
+        .functions
+        .iter()
+        .position(|f| f.name == "grow_text")
+        .unwrap();
+    m.functions[at].body = vec![
+        crate::ir::Inst::Enter(0),
+        crate::ir::Inst::LoadArg(crate::ir::Reg::A, 4),
+        crate::ir::Inst::Push(crate::ir::Reg::A),
+        crate::ir::Inst::System(crate::ir::Prim::Exit),
+    ];
+    m.functions[at].slots = 0;
+    assert_eq!(crate::irsim::run(&m, "t_0", b"").status, 11);
+}

@@ -22,8 +22,7 @@ impl Lowerer<'_> {
         to: &Expr,
         body: &[Stmt],
     ) -> Result<(), Diagnostic> {
-        self.line = line;
-        self.emit(Inst::Line(line));
+        self.mark_line(line);
         let start = self.whole_end("start", from)?;
         let end = self.whole_end("end", to)?;
         let counter = self.slots[var];
