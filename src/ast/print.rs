@@ -1,6 +1,16 @@
 use crate::ast::{Conversion, Expr, ExprKind as K, Fact, item_type_text};
 
 pub fn expr(e: &Expr) -> String {
+    expr_with(e, &|_| None)
+}
+
+/// An expression as `expr` writes it, except that wherever `sub` gives a text for a
+/// sub-expression (the whole expression included), that text is written in its place.
+pub fn expr_with(e: &Expr, sub: &dyn Fn(&Expr) -> Option<String>) -> String {
+    if let Some(text) = sub(e) {
+        return text;
+    }
+    let expr = |x: &Expr| expr_with(x, sub);
     match &e.kind {
         K::Number(n) => n.show(),
         K::Text(t) => format!("\"{}\"", t.replace('"', "\"\"")),
@@ -19,12 +29,12 @@ pub fn expr(e: &Expr) -> String {
             format!("{} {} {}", expr(left), op.symbol(), expr(right))
         }
         K::Call { feature, inputs } if inputs.is_empty() => feature.clone(),
-        K::Call { feature, inputs } => format!("{feature} with {}", join(inputs, ", ")),
+        K::Call { feature, inputs } => format!("{feature} with {}", join(inputs, ", ", sub)),
         K::BuildRecord { record, fields } if fields.is_empty() => record.clone(),
         K::BuildRecord { record, fields } => {
-            format!("{record} with {}", pairs(fields))
+            format!("{record} with {}", pairs(fields, sub))
         }
-        K::BuildList(xs) => format!("list of {}", join(xs, ", ")),
+        K::BuildList(xs) => format!("list of {}", join(xs, ", ", sub)),
         K::Compare { op, left, right } => {
             format!("{} {} {}", expr(left), op.words(), expr(right))
         }
@@ -33,19 +43,24 @@ pub fn expr(e: &Expr) -> String {
             format!("{} is {not}number", expr(value))
         }
         K::Not(x) => format!("not {}", expr(x)),
-        K::And(xs) => join(xs, " and "),
-        K::Or(xs) => join(xs, " or "),
+        K::And(xs) => join(xs, " and ", sub),
+        K::Or(xs) => join(xs, " or ", sub),
     }
 }
 
-fn join(xs: &[Expr], sep: &str) -> String {
-    xs.iter().map(expr).collect::<Vec<_>>().join(sep)
+type Sub<'a> = &'a dyn Fn(&Expr) -> Option<String>;
+
+fn join(xs: &[Expr], sep: &str, sub: Sub) -> String {
+    xs.iter()
+        .map(|x| expr_with(x, sub))
+        .collect::<Vec<_>>()
+        .join(sep)
 }
 
-fn pairs(fields: &[(String, Expr)]) -> String {
+fn pairs(fields: &[(String, Expr)], sub: Sub) -> String {
     fields
         .iter()
-        .map(|(name, value)| format!("{name} {}", expr(value)))
+        .map(|(name, value)| format!("{name} {}", expr_with(value, sub)))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -248,5 +263,25 @@ mod tests {
             bin(ArithOp::Add, grouped, field_of("amount", name("x"))),
             "(a * b) + amount of x",
         );
+    }
+
+    #[test]
+    fn expr_with_replaces_what_the_function_names() {
+        let swap = |x: &Expr| match &x.kind {
+            K::Name(n) if n == "a" => Some("1".to_string()),
+            _ => None,
+        };
+        let x = cmp(
+            CompareOp::Greater,
+            bin(ArithOp::Add, name("a"), name("b")),
+            e(K::Call {
+                feature: "f".into(),
+                inputs: vec![name("a"), name("c")],
+            }),
+        );
+        assert_eq!(expr_with(&x, &swap), "1 + b is greater than f with 1, c");
+        assert_eq!(expr(&x), "a + b is greater than f with a, c");
+        // The whole expression can be replaced, too.
+        assert_eq!(expr_with(&name("a"), &swap), "1");
     }
 }
