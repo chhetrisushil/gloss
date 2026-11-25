@@ -41,7 +41,7 @@ Agents now write most code, and fewer people read it. Gloss aims to make program
 
 ## Status
 
-Milestones 1 to 4 are built. The compiler reads a Gloss program, reports every compile error and warning the spec defines, formats source into its one accepted form, and `gloss build` writes a static x86-64 Linux executable. Programs can declare tables, and `load` and `save` read and write CSV files, and `clear` empties a table. A program that touches files needs approval at build time (see [Tables and files](#tables-and-files)). Test blocks (`expect`, `input`) are left out of the built program; `gloss test` runs them (see [Tests](#tests)).
+Milestones 1 to 5 are built. The compiler reads a Gloss program, reports every compile error and warning the spec defines, formats source into its one accepted form, and `gloss build` writes a static x86-64 Linux executable. Programs can declare tables, and `load` and `save` read and write CSV files, and `clear` empties a table. A program that touches files needs approval at build time (see [Tables and files](#tables-and-files)). Test blocks (`expect`, `input`) are left out of the built program; `gloss test` runs them (see [Tests](#tests)), and `gloss trace` runs a program and narrates each step (see [Trace](#trace)).
 
 | Milestone | What it adds | State |
 |---|---|---|
@@ -49,7 +49,7 @@ Milestones 1 to 4 are built. The compiler reads a Gloss program, reports every c
 | 2 | Code generation and runtime: `gloss build` writes an x86-64 Linux executable | Done |
 | 3 | Tables and files: CSV `load`/`save`/`clear`, file permissions, `--allow`, `.allow` | Done |
 | 4 | `gloss test`: test blocks, `expect`, `input`, `shown`, pretend files | Done |
-| 5 | `gloss trace` | Next |
+| 5 | `gloss trace`: events from a trace build, narrated in plain words | Done |
 | 6–7 | `gloss explain`, `gloss flowchart` | Planned |
 
 ## Getting started
@@ -171,6 +171,35 @@ pass  a cost that is not a number is asked for again
 
 The examples `gcd`, `primes`, `fibonacci` and `expenses` carry tests; `tests/examples.rs` checks their reports.
 
+## Trace
+
+`gloss trace` runs a program and says what each step did. This program:
+
+```gloss
+feature start
+  set total to 0
+
+  for each price from 150 to 150
+    if price is greater than 100
+      set total to price
+```
+
+prints:
+
+```console
+$ gloss trace spec_trace.gloss
+line 2: total is 0
+line 4: price is 150
+line 5: 150 is greater than 100, so the block runs
+line 6: total becomes 150
+```
+
+- The program's own output is in the story where it happens: shown lines are printed as they are, and a call is `line 6: calling double with n = 21`, then `line 6: double gives 42`, indented as the caller is.
+- The run is also written, one event per line, to `spec_trace.trace` beside the source. Each line is a JSON object (section 10 of the spec has the keys) and is what a viewer will replay.
+- A run-time failure prints its usual message on standard error and exits **2**. A run that ends any other way prints `the traced run ended without finishing (status N)` and exits 2.
+- `gloss trace` asks for approval of the program's files like `build`, and takes `--allow`. It needs x86-64 Linux, and elsewhere prints `gloss trace runs programs on Linux only` and exits 3.
+- There is no limit on the number of events: a long loop gives a long story, and Ctrl-C stops it.
+
 ## Commands
 
 | Command | What it does | Available |
@@ -178,11 +207,11 @@ The examples `gcd`, `primes`, `fibonacci` and `expenses` carry tests; `tests/exa
 | `gloss build FILE [--allow F]...` | Checks the program, then writes the executable beside the source and prints `Built NAME`. Prints errors and warnings to standard error. | Now |
 | `gloss format FILE` | Rewrites the file into the one accepted form. A file that does not parse is left untouched. | Now |
 | `gloss test FILE` | Runs every test block and prints each title with `pass` or `fail`. x86-64 Linux only. | Now |
-| `gloss trace FILE` | Runs the program and narrates each step in plain words | Milestone 5 |
+| `gloss trace FILE [--allow F]...` | Runs the program, narrates each step in plain words and writes the events to `NAME.trace`. x86-64 Linux only. | Now |
 | `gloss explain FILE` | Prints each source line beside its machine instructions | Milestone 6 |
 | `gloss flowchart FILE` | Writes one SVG flowchart per feature | Milestone 7 |
 
-Exit status is **0** on success, **1** when a test failed, **3** on a compile error, wrong usage, or a test run that `gloss test` could not start, and **4** when file access was not approved. Warnings alone do not fail a build. The full set of statuses (including failed tests and run-time failures) is in section 11 of the spec.
+Exit status is **0** on success, **1** when a test failed, **2** on a run-time failure (also from `gloss trace`), **3** on a compile error, wrong usage, or a test or trace run that could not be started or written, and **4** when file access was not approved. Warnings alone do not fail a build. The full set of statuses (including failed tests and run-time failures) is in section 11 of the spec.
 
 ## Working on the compiler
 
@@ -198,6 +227,7 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 - **Unit tests** sit beside each module (`#[cfg(test)]`) and assert exact diagnostic text, because messages are part of the language design.
 - **`tests/cli.rs`** runs the real `gloss` binary.
 - **Test cases** (`tests/test_cases/*.gloss`, with `.out`, `.err` and `.status`) are programs with test blocks. Each is built with `build_test_executable`, run as a real executable through the runner, and also run under `irsim`; the two must agree. The tests of `gloss test` itself (`src/testrun.rs`, the Linux-only cases of `tests/cli.rs`) need a real x86-64 Linux host; on a Mac, see below.
+- **Trace cases** (`tests/trace_cases/*.gloss`, with `.trace` (the exact events), `.out` (the narration) and optional `.in`, `.err`, `.status` and `.files/`) are built with `build_trace_executable` and run as real executables and under `irsim`; `tests/trace_narration.rs` turns each `.trace` into its `.out` on any host. Section 10 of the spec is pinned to the `spec_trace` case.
 - **`tests/spec_examples.rs`** compiles every ` ```gloss ` example in `spec/v0.md`, so the spec and the compiler cannot drift apart.
 - **`tests/format_generated.rs`** checks that formatting never changes a program and is idempotent.
 
