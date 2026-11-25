@@ -267,6 +267,15 @@ fn traced(body: &str) -> (Vec<String>, String, TraceEnd) {
 }
 
 #[test]
+fn a_failing_stderr_in_a_traced_run_does_not_mention_tests() {
+    let dir = PrivateDir::new().unwrap();
+    let path = script(&dir, "echo oops >&2; exec sleep 30");
+    let e =
+        run_traced_with(&path, &mut |_| Ok(()), &mut Broken, &mut spawn_inheriting).unwrap_err();
+    assert_eq!(e.to_string(), "cannot write the trace output: gone");
+}
+
+#[test]
 fn two_events_and_exit_0() {
     let (lines, err, end) = traced("echo '{\"a\":1}'; echo '{\"b\":2}'; echo oops >&2");
     assert_eq!(lines, ["{\"a\":1}", "{\"b\":2}"]);

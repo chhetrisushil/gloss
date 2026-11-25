@@ -100,12 +100,12 @@ fn a_table_program_builds() {
 fn usage_and_unbuilt_commands_exit_3() {
     assert_eq!(gloss(&[]).0, 3);
     assert_eq!(gloss(&["frobnicate", "x.gloss"]).0, 3);
-    let (code, _, err) = gloss(&["trace", "x.gloss"]);
+    let (code, _, err) = gloss(&["explain", "x.gloss"]);
     assert_eq!(
         (code, err.as_str()),
         (
             3,
-            "gloss trace is not built yet; it arrives in milestone 5\n"
+            "gloss explain is not built yet; it arrives in milestone 6\n"
         )
     );
     let (code, _, err) = gloss(&["build", "/nonexistent/x.gloss"]);

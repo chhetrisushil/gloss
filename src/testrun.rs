@@ -15,7 +15,7 @@ pub fn host_runs_tests() -> bool {
 }
 
 /// The decision behind `host_runs_tests`, for any operating system and processor.
-fn host_can_run(os: &str, arch: &str) -> bool {
+pub(crate) fn host_can_run(os: &str, arch: &str) -> bool {
     os == "linux" && arch == "x86_64"
 }
 
@@ -155,7 +155,7 @@ fn run_program_with(
             status
         }
         Err(failure) => {
-            let _ = writeln!(err, "{}", failure.message());
+            let _ = writeln!(err, "{}", failure.message(false));
             3
         }
     }
@@ -184,16 +184,20 @@ impl Failure {
         if let Failure::Sink(e) = self {
             return e;
         }
-        std::io::Error::new(self.source().kind(), self.message())
+        std::io::Error::new(self.source().kind(), self.message(true))
     }
 
-    fn message(&self) -> String {
+    /// The message, worded for a test run or (`traced`) a traced run.
+    fn message(&self, traced: bool) -> String {
+        let (run, write, wait) = if traced {
+            ("traced executable", "trace output", "traced run")
+        } else {
+            ("test executable", "test output", "test run")
+        };
         match self {
-            Failure::Start(e) => format!("cannot run the test executable: {e}"),
-            Failure::Output(e) | Failure::Sink(e) => {
-                format!("cannot write the test output: {e}")
-            }
-            Failure::Wait(e) => format!("cannot wait for the test run: {e}"),
+            Failure::Start(e) => format!("cannot run the {run}: {e}"),
+            Failure::Output(e) | Failure::Sink(e) => format!("cannot write the {write}: {e}"),
+            Failure::Wait(e) => format!("cannot wait for the {wait}: {e}"),
         }
     }
 }
