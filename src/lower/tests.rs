@@ -1564,6 +1564,10 @@ fn a_condition_with_a_call_reads_no_call_twice() {
     let out = String::from_utf8(o.stdout).unwrap();
     assert_eq!(out.matches("\"text\":\"called\"").count(), 1, "{out}");
     assert!(
+        out.find("called").unwrap() < out.find("\"check\"").unwrap(),
+        "{out}"
+    );
+    assert!(
         out.contains("\"condition\":\"one is n\",\"values\":{\"n\":"),
         "{out}"
     );
@@ -1574,8 +1578,53 @@ fn item_reads_are_not_in_values() {
     let out =
         traced("  set xs to list of 4, 9\n  set i to 2\n  if item i of xs is 9\n    show \"y\"\n");
     let check = out.lines().find(|l| l.contains("\"check\"")).unwrap();
-    assert!(check.contains("\"values\":{}"), "{check}");
+    assert!(
+        check.contains("\"values\":{\"i\":{\"number\":\"2\"}}"),
+        "{check}"
+    );
     assert!(check.ends_with("\"result\":\"yes\"}"), "{check}");
+    let out = traced("  set xs to list of 4, 9\n  if item 2 of xs is 9\n    show \"y\"\n");
+    assert!(out.contains("\"values\":{}"), "{out}");
+}
+
+#[test]
+fn a_list_is_never_in_values() {
+    let out = traced(
+        "  set xs to list of 1\n  repeat while count of xs is less than 3\n    append 5 to xs\n",
+    );
+    let checks: Vec<&str> = out.lines().filter(|l| l.contains("\"check\"")).collect();
+    assert_eq!(checks.len(), 3, "{out}");
+    assert!(checks.iter().all(|c| c.contains("\"values\":{}")), "{out}");
+}
+
+#[test]
+fn an_input_and_a_loop_variable_are_in_values_and_a_quote_is_escaped() {
+    let out = traced(
+        "  set xs to list of 2\n  for each x in xs\n    if x is 2\n      show \"y\"\n  \
+         set t to \"a\"\n  if t is \"a\"\"b\"\n    show \"n\"\n",
+    );
+    assert!(
+        out.contains("\"condition\":\"x is 2\",\"values\":{\"x\":{\"number\":\"2\"}}"),
+        "{out}"
+    );
+    assert!(
+        out.contains("\"condition\":\"t is \\\"a\\\"\\\"b\\\"\""),
+        "{out}"
+    );
+}
+
+#[test]
+fn an_input_is_in_values() {
+    let m = lowered_trace(
+        "feature f\n  needs n as number\n  if n is 1\n    give 1\n  give 0\n\n\
+         feature start\n  show (f with 1)\n",
+    );
+    let o = crate::irsim::run(&m, "_start", b"");
+    let out = String::from_utf8(o.stdout).unwrap();
+    assert!(
+        out.contains("\"condition\":\"n is 1\",\"values\":{\"n\":{\"number\":\"1\"}}"),
+        "{out}"
+    );
 }
 
 #[test]

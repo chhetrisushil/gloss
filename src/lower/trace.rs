@@ -6,6 +6,7 @@ use crate::ast::program::Program;
 use crate::ast::stmt::Target;
 use crate::ast::{Expr, ExprKind};
 use crate::check::{NameKind, Ty};
+use crate::diag::Diagnostic;
 use crate::ir::{Data, Function, Global, Inst, Module, Prim, Reg};
 use crate::runtime::json_escape_host;
 use crate::runtime::trace_state::{ESCAPING, OPEN};
@@ -236,17 +237,17 @@ impl Lowerer<'_> {
     /// Writes the `check` event of `cond`, whose truth is in `a`: the condition's text, the
     /// variables and field reads it names read again now (a plain load, never a call or an
     /// item, so nothing runs twice or fails), and the result. Leaves the truth in `a`.
-    pub(super) fn check_event(&mut self, cond: &Expr) {
+    pub(super) fn check_event(&mut self, cond: &Expr) -> Result<(), Diagnostic> {
         let truth = self.new_temp();
         self.emit(Inst::StoreSlot(truth, Reg::A));
         let mut named = Vec::new();
         self.condition_values(cond, &mut named);
         let mut values = Vec::new();
         for (text, e) in named {
-            let ty = self.types.expr_types[e.id.0 as usize].clone();
-            let (Some(ty), Ok(())) = (ty, self.expr(e)) else {
-                continue;
-            };
+            let ty = self.types.expr_types[e.id.0 as usize]
+                .clone()
+                .expect("the checker typed a name it accepted");
+            self.expr(e)?;
             let slot = self.new_temp();
             self.emit(Inst::StoreSlot(slot, Reg::A));
             values.push((text, slot, ty));
@@ -272,21 +273,31 @@ impl Lowerer<'_> {
         self.emit(Inst::Mark(end));
         self.ev_close();
         self.emit(Inst::LoadSlot(Reg::A, truth));
+        Ok(())
     }
 
     /// The variables, loop variables, inputs and field reads of them that `e` names, each
-    /// once by printed form, in order of first appearance. An item is left out with
-    /// everything inside it; the root of a field read is not a value of its own.
+    /// once by printed form, in order of first appearance. Only the position of an item is
+    /// looked into (the item and its list are not values); a list or a table is never one
+    /// (it would be written whole at every check); the root of a field read is not either.
     fn condition_values<'e>(&self, e: &'e Expr, out: &mut Vec<(String, &'e Expr)>) {
         let plain = |x: &Expr| {
+            let whole = matches!(
+                self.types.expr_types[x.id.0 as usize],
+                Some(Ty::List(_) | Ty::Table { .. })
+            );
             matches!(x.kind, ExprKind::Name(_))
+                && !whole
                 && matches!(
                     self.types.names.get(&x.id),
                     Some(NameKind::Variable | NameKind::LoopVariable | NameKind::Input)
                 )
         };
         let read = match &e.kind {
-            ExprKind::ItemOf { .. } => return,
+            ExprKind::ItemOf { position, .. } => {
+                self.condition_values(position, out);
+                return;
+            }
             ExprKind::Name(_) => plain(e),
             ExprKind::FieldOf { of, .. } if plain(of) => true,
             _ => false,

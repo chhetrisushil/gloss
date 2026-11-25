@@ -177,7 +177,7 @@ impl Lowerer<'_> {
         self.mark_line(cond.line);
         self.expr(cond)?;
         if self.mode == Mode::Trace {
-            self.check_event(cond);
+            self.check_event(cond)?;
         }
         self.jump_if_a_is(0, else_to);
         Ok(())
