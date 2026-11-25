@@ -86,7 +86,19 @@ impl Heap {
     }
 
     /// Calls `routine` on the blocks in `slots` and the descriptor `desc`; the output.
-    pub fn call(mut self, routine: &str, slots: &[u32], desc: u32, descs: Module) -> Vec<u8> {
+    pub fn call(self, routine: &str, slots: &[u32], desc: u32, descs: Module) -> Vec<u8> {
+        self.call_with(&[b"a\"b", b"", b"x", b"y"], routine, slots, desc, descs)
+    }
+
+    /// `call`, with `texts` as the module's texts.
+    pub fn call_with(
+        mut self,
+        texts: &[&[u8]],
+        routine: &str,
+        slots: &[u32],
+        desc: u32,
+        descs: Module,
+    ) -> Vec<u8> {
         for s in slots {
             self.body.extend([LoadSlot(A, *s), Push(A)]);
         }
@@ -96,7 +108,7 @@ impl Heap {
             self.body.extend([Push(A), Call("out_number".into())]);
         }
         self.body.push(Call("flush".into()));
-        let mut m = program(self.body, &[b"a\"b", b"", b"x", b"y"]);
+        let mut m = program(self.body, texts);
         m.functions[0].slots = self.slots;
         m.functions[0].body[0] = Enter(self.slots);
         m.descs = descs.descs;

@@ -3,9 +3,12 @@
 use super::asm::Asm;
 use super::shown::{AT, CP, END, LEN, TMP, decode};
 use super::values::out_const;
-use super::{JSON_BRACE, JSON_NO, JSON_NUMBER, JSON_NUMBER_END, JSON_TEXT, JSON_YES, QUOTE};
+use super::{
+    JSON_BRACE, JSON_COLON, JSON_COMMA, JSON_FIELDS, JSON_NO, JSON_NUMBER, JSON_NUMBER_END,
+    JSON_RECORD, JSON_RECORD_END, JSON_TEXT, JSON_YES, QUOTE,
+};
 use crate::ir::Cond::{Eq, Ge, Gt, Lt, Ne};
-use crate::ir::Reg::{A, B};
+use crate::ir::Reg::{self, A, B};
 use crate::ir::{Function, Inst::*, IntOp, Shift};
 
 // Slots of `json_bytes` besides those `decode` uses.
@@ -144,17 +147,87 @@ fn json_text() -> Function {
     s.finish("json_text", 1, 0)
 }
 
-/// `json_value(value, desc)`: the typed JSON value of a number, text or truth by the kind of
-/// the descriptor (see `ir::Desc`), as `show_value` walks it.
-fn json_value() -> Function {
-    let mut s = Asm::default();
-    let (text, truth, no) = (s.label(), s.label(), s.label());
-    s.i(LoadArg(A, 2));
+// Slots of `json_record`.
+const INDEX: u32 = 1;
+const COUNT: u32 = 2;
+
+/// Writes `,` before every item but the first, when the index in `INDEX` is not 0.
+fn comma_between(s: &mut Asm) {
+    let first = s.label();
+    s.i(LoadSlot(A, INDEX));
+    s.i(Const(B, 0));
+    s.jump_if(Eq, first);
+    out_const(s, JSON_COMMA);
+    s.i(Mark(first));
+}
+
+/// `to` = the word at `offset` past the address in `base`.
+fn load(s: &mut Asm, to: Reg, base: Reg, offset: i32) {
+    s.i(Load { to, base, offset });
+}
+
+/// `a` = the word at `offset` past the argument `base` plus `INDEX` times `1 << shift`.
+fn indexed(s: &mut Asm, base: u32, shift: u8, offset: i32) {
+    s.i(LoadSlot(A, INDEX));
+    s.i(Shift(Shift::Left, shift));
+    s.i(LoadArg(B, base));
+    s.i(Int(IntOp::Add));
     s.i(Load {
         to: A,
         base: A,
-        offset: 0,
+        offset,
     });
+}
+
+/// `json_record(value, desc)`: `{"record":"E","fields":{"f":v,…}}`, fields in declaration
+/// order. A field's name sits at `desc + 24 + 16 * i`, its descriptor 8 bytes on, its value at
+/// `value + 8 * i`.
+fn json_record() -> Function {
+    let mut s = Asm::default();
+    let (again, done) = (s.label(), s.label());
+    out_const(&mut s, JSON_RECORD);
+    s.i(LoadArg(A, 2));
+    load(&mut s, A, A, 8);
+    s.i(Push(A));
+    s.call("json_text");
+    out_const(&mut s, JSON_FIELDS);
+    s.i(LoadArg(A, 2));
+    load(&mut s, A, A, 16);
+    s.i(StoreSlot(COUNT, A));
+    s.i(Const(A, 0));
+    s.i(StoreSlot(INDEX, A));
+    s.i(Mark(again));
+    s.i(LoadSlot(A, INDEX));
+    s.i(LoadSlot(B, COUNT));
+    s.jump_if(Ge, done);
+    comma_between(&mut s);
+    indexed(&mut s, 2, 4, 24);
+    s.i(Push(A));
+    s.call("json_text");
+    out_const(&mut s, JSON_COLON);
+    indexed(&mut s, 1, 3, 0);
+    s.i(Push(A));
+    indexed(&mut s, 2, 4, 32);
+    s.i(Push(A));
+    s.call("json_value");
+    s.i(LoadSlot(A, INDEX));
+    s.i(AddImm(A, 1));
+    s.i(StoreSlot(INDEX, A));
+    s.i(Jump(again));
+    s.i(Mark(done));
+    out_const(&mut s, JSON_RECORD_END);
+    s.finish("json_record", 2, 2)
+}
+
+/// `json_value(value, desc)`: the typed JSON value by the kind of the descriptor (see
+/// `ir::Desc`), as `show_value` walks it.
+fn json_value() -> Function {
+    let mut s = Asm::default();
+    let (text, truth, no, record) = (s.label(), s.label(), s.label(), s.label());
+    s.i(LoadArg(A, 2));
+    load(&mut s, A, A, 0);
+    s.i(Const(B, 3));
+    s.jump_if(Eq, record);
     s.i(Const(B, 1));
     s.jump_if(Eq, text);
     s.i(Const(B, 2));
@@ -178,9 +251,21 @@ fn json_value() -> Function {
     s.i(Return);
     s.i(Mark(no));
     out_const(&mut s, JSON_NO);
+    s.i(Return);
+    s.i(Mark(record));
+    s.push_arg(1);
+    s.push_arg(2);
+    s.call("json_record");
+    s.i(Return);
     s.finish("json_value", 2, 0)
 }
 
 pub fn routines() -> Vec<Function> {
-    vec![json_bytes(), json_int(), json_text(), json_value()]
+    vec![
+        json_bytes(),
+        json_int(),
+        json_text(),
+        json_value(),
+        json_record(),
+    ]
 }
