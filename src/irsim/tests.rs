@@ -595,11 +595,11 @@ fn reading_address_zero_panics() {
 #[should_panic(expected = "outside mapped memory")]
 fn a_word_running_off_the_end_of_a_global_panics() {
     let m = single(vec![
-        AddressOf(B, Data::Global(Global::TestState)),
+        AddressOf(B, Data::Global(Global::TraceState)),
         Load {
             to: A,
             base: B,
-            offset: 2048 - 4,
+            offset: 32 - 4,
         },
         Return,
     ]);

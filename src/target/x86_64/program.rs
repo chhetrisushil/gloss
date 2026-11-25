@@ -6,12 +6,14 @@ use super::arith;
 use super::encode::encode;
 use super::inst::{Sym, X};
 use super::lower::lower_function;
-use crate::ir::{self, Global, IO_BUF_BYTES, Module, NUMBER_BUF_BYTES, TEST_STATE_BYTES};
+use crate::ir::{
+    self, Global, IO_BUF_BYTES, Module, NUMBER_BUF_BYTES, TEST_STATE_BYTES, TRACE_STATE_BYTES,
+};
 use crate::target::elf::{Image, RODATA_BASE, write};
 
 /// The globals in the order the executable lays them out; `irsim` lays them out the same
 /// way (a test in `irsim/memory.rs` checks the order and the sizes).
-pub(crate) const GLOBALS: [Global; 12] = [
+pub(crate) const GLOBALS: [Global; 13] = [
     Global::HeapNext,
     Global::HeapEnd,
     Global::StackLimit,
@@ -24,12 +26,14 @@ pub(crate) const GLOBALS: [Global; 12] = [
     Global::Tables,
     Global::NumBuf,
     Global::TestState,
+    Global::TraceState,
 ];
 
 pub(crate) fn global_size(g: Global) -> usize {
     match g {
         Global::NumBuf => NUMBER_BUF_BYTES,
         Global::TestState => TEST_STATE_BYTES,
+        Global::TraceState => TRACE_STATE_BYTES,
         Global::OutBuf | Global::InBuf => IO_BUF_BYTES,
         Global::HeapNext
         | Global::HeapEnd
@@ -81,18 +85,25 @@ pub fn executable(m: &Module) -> Result<Vec<u8>, String> {
         .get("_start")
         .ok_or("the module has no _start function")?;
     let (rodata, symbols) = rodata(m);
-    // `TestState` is the last global, so leaving it out moves no other one. Only a test
-    // executable refers to it; a real one stays as M3 laid it out.
-    let uses_test_state = m.functions.iter().flat_map(|f| &f.body).any(|i| {
-        matches!(
-            i,
-            ir::Inst::AddressOf(_, ir::Data::Global(Global::TestState))
-        )
-    });
+    // `TestState` and `TraceState` are the last globals, so leaving one out moves no other
+    // one. Only a test (or trace) executable refers to its own; a real one stays as M3 laid
+    // it out.
+    let uses = |global| {
+        m.functions
+            .iter()
+            .flat_map(|f| &f.body)
+            .any(|i| matches!(i, ir::Inst::AddressOf(_, ir::Data::Global(g)) if *g == global))
+    };
+    let (uses_test_state, uses_trace_state) = (uses(Global::TestState), uses(Global::TraceState));
     let mut globals = HashMap::new();
     let mut data_size = 0;
     for g in GLOBALS {
-        if g == Global::TestState && !uses_test_state {
+        let unused = match g {
+            Global::TestState => !uses_test_state,
+            Global::TraceState => !uses_trace_state,
+            _ => false,
+        };
+        if unused {
             continue;
         }
         globals.insert(g, data_size);

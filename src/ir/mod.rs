@@ -144,6 +144,8 @@ pub enum Global {
     EntrySp,
     /// The state of a `gloss test` run; see `TEST_STATE_BYTES`.
     TestState,
+    /// The state of a `gloss trace` run; see `TRACE_STATE_BYTES`.
+    TraceState,
 }
 
 /// The size in bytes of `Global::OutBuf` and of `Global::InBuf`.
@@ -154,6 +156,9 @@ pub const NUMBER_BUF_BYTES: usize = 32;
 
 /// The size in bytes of `Global::TestState`.
 pub const TEST_STATE_BYTES: usize = 2048;
+
+/// The size in bytes of `Global::TraceState`.
+pub const TRACE_STATE_BYTES: usize = 32;
 
 impl Global {
     /// The snake-case name both the IR text and the machine code text print.
@@ -171,6 +176,7 @@ impl Global {
             Global::EntrySp => "entry_sp",
             Global::Tables => "tables",
             Global::TestState => "test_state",
+            Global::TraceState => "trace_state",
         }
     }
 }

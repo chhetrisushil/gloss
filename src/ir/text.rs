@@ -251,6 +251,7 @@ L3:
             Inst::AddressOf(A, Data::Global(Global::InBuf)),
             Inst::AddressOf(A, Data::Global(Global::NumBuf)),
             Inst::AddressOf(A, Data::Global(Global::TestState)),
+            Inst::AddressOf(A, Data::Global(Global::TraceState)),
             Inst::StackPointer(A),
             Inst::Load {
                 to: A,
@@ -369,6 +370,7 @@ line 4
   a = address of in_buf
   a = address of num_buf
   a = address of test_state
+  a = address of trace_state
   a = stack pointer
   a = [b + 8]
   a = [b]

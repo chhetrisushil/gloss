@@ -1,7 +1,10 @@
 //! The simulated address space: sparse little-endian bytes, with the read-only texts,
 //! descriptors and globals laid out at fixed addresses. Unwritten bytes read as zero.
 
-use crate::ir::{Data, Global, IO_BUF_BYTES, Module, NUMBER_BUF_BYTES, TEST_STATE_BYTES, rodata};
+use crate::ir::{
+    Data, Global, IO_BUF_BYTES, Module, NUMBER_BUF_BYTES, TEST_STATE_BYTES, TRACE_STATE_BYTES,
+    rodata,
+};
 use std::collections::HashMap;
 
 /// Where read-only texts start: each is an 8-byte little-endian length, then the bytes,
@@ -15,7 +18,7 @@ const MAP_LIMIT: i64 = 1 << 40;
 const GLOBAL_BASE: u64 = 0x2000_0000;
 
 /// The globals in the order they are laid out, the same as the executable's.
-pub(crate) const GLOBALS: [Global; 12] = [
+pub(crate) const GLOBALS: [Global; 13] = [
     Global::HeapNext,
     Global::HeapEnd,
     Global::StackLimit,
@@ -28,12 +31,14 @@ pub(crate) const GLOBALS: [Global; 12] = [
     Global::Tables,
     Global::NumBuf,
     Global::TestState,
+    Global::TraceState,
 ];
 
 fn global_size(g: Global) -> u64 {
     match g {
         Global::NumBuf => NUMBER_BUF_BYTES as u64,
         Global::TestState => TEST_STATE_BYTES as u64,
+        Global::TraceState => TRACE_STATE_BYTES as u64,
         Global::OutBuf | Global::InBuf => IO_BUF_BYTES as u64,
         Global::HeapNext
         | Global::HeapEnd
@@ -158,6 +163,24 @@ mod tests {
         assert_eq!(global_size(Global::TestState), 2048);
         assert_eq!(exe::global_size(Global::TestState), 2048);
         assert_eq!(crate::ir::TEST_STATE_BYTES, 2048);
+    }
+
+    #[test]
+    fn trace_state_is_32_bytes_in_both_layouts() {
+        use crate::target::x86_64::program as exe;
+        assert_eq!(global_size(Global::TraceState), 32);
+        assert_eq!(exe::global_size(Global::TraceState), 32);
+        assert_eq!(crate::ir::TRACE_STATE_BYTES, 32);
+    }
+
+    #[test]
+    fn the_older_globals_keep_their_m4_addresses() {
+        // 8 words, two 4096-byte buffers and the 32-byte number buffer come before the test
+        // state; the trace state goes after it, so nothing earlier moves.
+        let before_test_state = GLOBAL_BASE + 8 * 8 + 2 * 4096 + 32;
+        assert_eq!(global_address(Global::TestState), before_test_state);
+        assert_eq!(global_address(Global::TraceState), before_test_state + 2048);
+        assert_eq!(global_address(Global::HeapNext), GLOBAL_BASE);
     }
 
     #[test]
