@@ -1,0 +1,7 @@
+feature double
+  needs n as number
+  give n * 2
+
+feature start
+  set r to double with 21
+  show r

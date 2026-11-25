@@ -2,7 +2,7 @@
 // the trace cases the same way. Needs `std::path::{Path, PathBuf}` in scope.
 
 /// Raised by every task that adds cases.
-const MIN_TRACE_CASES: usize = 36;
+const MIN_TRACE_CASES: usize = 37;
 
 /// The `.gloss` programs in `dir`, sorted; an error naming every file that is not part of a
 /// case: an extension other than gloss, trace, out, in, err, status (files) or files (a
@@ -33,5 +33,39 @@ fn trace_sweep(dir: &Path) -> Result<Vec<PathBuf>, String> {
         Ok(programs)
     } else {
         Err(format!("not part of a trace case: {}", orphans.join(", ")))
+    }
+}
+
+/// A program of two features that call each other until failure 10. Its whole trace is about
+/// 100k lines, so it is not a case: tests/trace_cases.rs (Linux) and src/irsim/trace_cases.rs
+/// (irsim) run it and compare `deep_ending` of its trace and the status with `DEEP_ENDING`.
+const DEEP_PROGRAM: &str = "feature ping\n  needs n as number\n  set r to pong with n + 1\n  if n is -1\n    give 0\n  give r + 1\n\nfeature pong\n  needs n as number\n  set r to ping with n + 1\n  if n is -1\n    give 0\n  give r + 1\n\nfeature start\n  show (ping with 1)\n";
+
+const DEEP_ENDING: &str = "enter of the other feature, then fail 10 of the call that ran out";
+
+/// Describes the last two lines of the trace in `stdout`. The real stack and irsim's are
+/// different sizes, so the two runs fail at different depths and at different ones of the two
+/// features; what must hold is that the failing call (named in the failure) wrote no `enter`,
+/// so the last `enter` is the other feature's. Anything else is returned as the lines.
+fn deep_ending(stdout: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stdout);
+    let lines: Vec<&str> = text.lines().collect();
+    let [enter, fail] = lines[lines.len() - 2..] else {
+        unreachable!()
+    };
+    let between = |s: &str, from: &str, to: char| -> String {
+        let at = s.find(from).map_or(s.len(), |i| i + from.len());
+        s[at..].split(to).next().unwrap_or("").to_string()
+    };
+    let entered = between(enter, "\"event\":\"enter\",\"feature\":\"", '"');
+    let failing = between(fail, "calls nested too deep (", ')');
+    let ok = fail.contains("\"event\":\"fail\",\"failure\":10,")
+        && ["ping", "pong"].contains(&entered.as_str())
+        && ["ping", "pong"].contains(&failing.as_str())
+        && entered != failing;
+    if ok {
+        DEEP_ENDING.to_string()
+    } else {
+        format!("{enter}\n{fail}")
     }
 }

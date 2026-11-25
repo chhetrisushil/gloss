@@ -1,3 +1,5 @@
+line 6: calling greet
 Name?
   line 2: the answer "Bo" goes into name
+line 6: greet gives "Bo"
 Hello, Bo
