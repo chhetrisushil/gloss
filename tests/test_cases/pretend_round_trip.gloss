@@ -1,0 +1,18 @@
+record Expense
+  name as text
+  amount as number
+
+table expenses of Expense in "expenses.csv"
+
+feature start
+  load expenses
+  show 1
+
+test "rows saved to a pretend file come back"
+  append Expense with name "Lunch", amount 120 to expenses
+  append Expense with name "Bus", amount 40 to expenses
+  save expenses
+  clear expenses
+  load expenses
+  expect count of expenses is 2
+  expect name of first of expenses is "Lunch"

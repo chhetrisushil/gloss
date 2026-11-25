@@ -1,0 +1,13 @@
+record Expense
+  name as text
+  amount as number
+
+table expenses of Expense in "expenses.csv"
+
+feature start
+  load expenses
+  show 1
+
+test "a missing pretend file loads as an empty table"
+  load expenses
+  expect count of expenses is 0
