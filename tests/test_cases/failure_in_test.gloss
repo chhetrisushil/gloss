@@ -1,0 +1,22 @@
+feature share
+  needs total as number
+  set people to 0
+  set part to total
+  divide part by people
+  give part
+
+feature start
+  show 1
+
+test "fine before"
+  expect 1 + 1 is 2
+
+test "divides by zero"
+  expect share with 10 is 5
+
+test "asks for a missing item"
+  set xs to list of 4, 9, 2
+  expect item 7 of xs is 1
+
+test "fine after"
+  expect 2 + 2 is 4

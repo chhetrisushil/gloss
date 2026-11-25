@@ -1,0 +1,8 @@
+pass  fine before
+fail  divides by zero
+      line 5: failure 1: dividing by zero (people is 0)
+fail  asks for a missing item
+      line 19: failure 2: there is no item 7 in xs; it has 3 items
+pass  fine after
+
+2 passed, 2 failed
