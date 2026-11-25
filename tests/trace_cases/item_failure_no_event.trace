@@ -1,0 +1,2 @@
+{"line":2,"event":"set","name":"prices","to":{"list":[{"number":"4"},{"number":"9"},{"number":"2"}]}}
+{"line":3,"event":"fail","failure":3,"message":"an item position must be whole (1.5 is 1.5)"}
