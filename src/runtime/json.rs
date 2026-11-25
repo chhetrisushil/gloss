@@ -50,8 +50,6 @@ fn hex_digit(s: &mut Asm, slot: u32) {
 /// The Rust twin of `json_bytes` for text known at compile time: the same escapes, applied
 /// to a `str` (always valid UTF-8, so nothing becomes `U+FFFD`). The compiler writes fixed
 /// event pieces (names, conditions) through this, so the runtime escaper never sees them.
-// First used by the `show` event (next task).
-#[allow(dead_code)]
 pub fn json_escape_host(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {

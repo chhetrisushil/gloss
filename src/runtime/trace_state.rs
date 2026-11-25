@@ -7,10 +7,9 @@ use super::asm::Asm;
 use crate::ir::{Data, Global, Inst::*, Reg};
 
 pub const ESCAPING: i32 = 0;
-// `FAILING` and `OPEN` are first used by the failure and `show` events (later tasks).
+// `FAILING` is first used by the failure event (a later task).
 #[allow(dead_code)]
 pub const FAILING: i32 = 8;
-#[allow(dead_code)]
 pub const OPEN: i32 = 16;
 
 /// Loads the word at byte `offset` of the state into `to`.

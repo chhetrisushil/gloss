@@ -29,11 +29,25 @@ impl Lowerer<'_> {
             StmtKind::Note(_) => Ok(()),
             StmtKind::Show(items) => {
                 self.mark_line(s.line);
+                // A trace build writes one event: the items are its escaped `text`, and the
+                // newline a real `show` ends with is not written.
+                self.ev_open(s.line, "show");
+                self.ev_key("text");
+                self.ev_raw("\"");
+                self.set_open(true);
+                self.set_escaping(true);
                 for item in items {
                     self.show_item(item)?;
                 }
-                self.push_text(b"\n");
-                self.call("out_text");
+                self.set_escaping(false);
+                self.set_open(false);
+                self.ev_raw("\"");
+                if self.mode == Mode::Trace {
+                    self.ev_close();
+                } else {
+                    self.push_text(b"\n");
+                    self.call("out_text");
+                }
                 Ok(())
             }
             StmtKind::Set {
