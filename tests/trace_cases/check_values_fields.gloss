@@ -1,0 +1,9 @@
+record Expense
+  name as text
+  amount as number
+
+feature start
+  set e to Expense with name "Rent", amount 10
+  set label to "a ""b"""
+  if amount of e is at least 5 and label is not "x" and amount of e is at most 20
+    show "ok"

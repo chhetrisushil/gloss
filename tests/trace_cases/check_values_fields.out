@@ -1,0 +1,4 @@
+line 6: e is Expense with name "Rent", amount 10
+line 7: label is "a ""b"""
+line 8: 10 is at least 5 and "a ""b""" is not "x" and 10 is at most 20, so the block runs
+ok

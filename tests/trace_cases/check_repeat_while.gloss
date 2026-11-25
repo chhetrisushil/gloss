@@ -1,0 +1,4 @@
+feature start
+  set n to 0
+  repeat while n is less than 2
+    add 1 to n
