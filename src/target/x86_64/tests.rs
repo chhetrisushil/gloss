@@ -1,5 +1,7 @@
 use super::inst::{AluOp, Cc, Mem, R, Sym, X, text};
-use crate::ir::{Data, Function, Global, Inst, Reg, TEST_STATE_BYTES, function_text};
+use crate::ir::{
+    Data, Function, Global, Inst, Reg, TEST_STATE_BYTES, TRACE_STATE_BYTES, function_text,
+};
 
 fn local(d: i32) -> Mem {
     Mem::Base(R::Rbp, d)
@@ -83,6 +85,7 @@ fn every_global_prints_its_name() {
         (Global::TestState, "test_state"),
         (Global::EntrySp, "entry_sp"),
         (Global::Tables, "tables"),
+        (Global::TraceState, "trace_state"),
     ];
     for (g, name) in names {
         let x = X::Lea(R::Rax, Mem::Rip(Sym::Global(g)));
@@ -200,4 +203,31 @@ fn only_a_module_that_refers_to_the_test_state_reserves_it() {
     let size = |m| data_memsz(&crate::target::x86_64_linux().executable(&m).unwrap());
     let (without, with) = (size(plain), size(with_state));
     assert_eq!(with - without, TEST_STATE_BYTES as u64);
+}
+
+#[test]
+fn a_program_without_trace_state_has_the_same_layout() {
+    let module = |global| {
+        let mut m = crate::ir::Module::default();
+        m.functions.push(Function {
+            name: "_start".into(),
+            params: 0,
+            slots: 0,
+            body: vec![
+                Inst::Enter(0),
+                Inst::AddressOf(Reg::A, Data::Global(Global::TestState)),
+                Inst::AddressOf(Reg::A, Data::Global(global)),
+                Inst::Return,
+            ],
+        });
+        m
+    };
+    let size = |m| data_memsz(&crate::target::x86_64_linux().executable(&m).unwrap());
+    // The M4 layout: 8 words, two 4096-byte buffers, the number buffer, the test state.
+    let m4 = (8 * 8 + 2 * 4096 + 32 + TEST_STATE_BYTES) as u64;
+    assert_eq!(size(module(Global::TestState)), m4);
+    assert_eq!(
+        size(module(Global::TraceState)),
+        m4 + TRACE_STATE_BYTES as u64
+    );
 }
