@@ -16,3 +16,12 @@ feature start
   show "Saved and loaded ", count of expenses, " expenses"
   for each expense in expenses
     show name of expense, " (", category of expense, "): ", amount of expense
+
+test "expenses saved to a file load back"
+  append Expense with name "Lunch", amount 12.5, category "food" to expenses
+  append Expense with name "Bus", amount 3, category "travel" to expenses
+  save expenses
+  clear expenses
+  load expenses
+  expect count of expenses is 2
+  expect name of first of expenses is "Lunch"
