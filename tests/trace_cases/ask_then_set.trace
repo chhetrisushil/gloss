@@ -1,0 +1,3 @@
+{"line":2,"event":"show","text":"Name?"}
+{"line":2,"event":"ask","name":"who","question":"Name?","answer":"Bo"}
+{"line":3,"event":"set","name":"who","from":{"text":"Bo"},"to":{"text":"Ann"}}

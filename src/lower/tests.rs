@@ -1472,11 +1472,38 @@ fn a_set_inside_a_call_comes_after_the_calls_events() {
     );
     let o = crate::irsim::run(&m, "_start", b"");
     let out = String::from_utf8(o.stdout).unwrap();
-    let events: Vec<&str> = out.lines().collect();
-    assert_eq!(events.len(), 2, "{out}");
-    assert!(events[0].contains("\"show\""), "{out}");
-    assert!(events[1].contains("\"event\":\"set\""), "{out}");
-    assert!(events[1].ends_with("\"to\":{\"number\":\"4\"}}"), "{out}");
+    let last = out.lines().last().unwrap();
+    assert!(last.contains("\"event\":\"set\""), "{out}");
+    assert!(last.ends_with("\"to\":{\"number\":\"4\"}}"), "{out}");
+}
+
+#[test]
+fn a_verb_operand_that_shows_writes_its_event_before_the_set_event() {
+    let m = lowered_trace(
+        "feature f\n  needs n as number\n  show \"in\"\n  give n\n\n\
+         feature start\n  set x to 1\n  add (f with 1) to x\n",
+    );
+    let o = crate::irsim::run(&m, "_start", b"");
+    let out = String::from_utf8(o.stdout).unwrap();
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.len(), 3, "{out}");
+    assert!(lines[1].contains("\"show\""), "{out}");
+    assert!(
+        lines[2].contains("\"from\":{\"number\":\"1\"},\"to\":{\"number\":\"2\"}"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_first_set_that_runs_after_a_skipped_one_has_no_from() {
+    let out = traced("  set n to 0\n  if n is 1\n    set x to 5\n  set x to 7\n  set x to 8\n");
+    let sets: Vec<&str> = out
+        .lines()
+        .filter(|l| l.contains("\"name\":\"x\""))
+        .collect();
+    assert_eq!(sets.len(), 2, "{out}");
+    assert!(!sets[0].contains("from"), "{out}");
+    assert!(sets[1].contains("\"from\":{\"number\":\"7\"}"), "{out}");
 }
 
 #[test]

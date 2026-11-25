@@ -110,14 +110,16 @@ impl Lowerer<'_> {
         self.ev_open(line, "set");
         self.ev_key("name");
         self.ev_fixed_text(name);
-        let first = self.new_label();
-        if !from_always {
+        let first = (!from_always).then(|| self.new_label());
+        if let Some(first) = first {
             self.emit(Inst::LoadSlot(Reg::A, self.made[name]));
             self.jump_if_a_is(0, first);
         }
         self.ev_key("from");
         self.ev_value_from_slot(self.slots[name], &ty);
-        self.emit(Inst::Mark(first));
+        if let Some(first) = first {
+            self.emit(Inst::Mark(first));
+        }
         self.ev_key("to");
         self.ev_value_from_slot(new, &ty);
         self.ev_close();
