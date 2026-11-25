@@ -51,7 +51,7 @@ impl Lowerer<'_> {
                 self.mark_line(s.line);
                 self.store_value(value)?;
                 if self.mode == Mode::Trace {
-                    self.set_event(s.line, name);
+                    self.set_event(s.line, name, false);
                 }
                 self.emit(Inst::StoreSlot(self.slots[name], Reg::A));
                 Ok(())
@@ -225,6 +225,9 @@ impl Lowerer<'_> {
             },
         };
         self.emit(inst);
+        if let (Mode::Trace, Target::Var(name)) = (self.mode, target) {
+            self.set_event(s.line, name, true);
+        }
         match (at, &place) {
             (Some(at), _) => self.store_item(at),
             (None, Some(place)) => self.store_place(place),
