@@ -631,3 +631,67 @@ fn real_mode_still_lowers_load_and_save() {
     assert!(m.functions.iter().any(|f| f.name == "table_read"));
     assert!(m.functions.iter().any(|f| f.name == "table_save"));
 }
+
+/// Whether a primitive touches files or reads input. The match has no wildcard: a new
+/// primitive must be put on one side here.
+fn reaches_files(p: crate::ir::Prim) -> bool {
+    use crate::ir::Prim::*;
+    match p {
+        Open(_) | Rename | Sync | Mode | SetMode | Read => true,
+        Write | Map | Exit | StackSize | Close | Fork | Wait => false,
+    }
+}
+
+/// True when an instruction of the module opens, renames, syncs or changes the mode of a
+/// file, or reads a descriptor.
+pub(crate) fn has_file_primitive(m: &Module) -> bool {
+    use crate::ir::Inst;
+    let mut prims = m.functions.iter().flat_map(|f| &f.body);
+    prims.any(|i| matches!(i, Inst::System(p) if reaches_files(*p)))
+}
+
+#[test]
+fn has_file_primitive_finds_each_file_primitive_and_only_those() {
+    use crate::ir::{Function, Inst, OpenMode, Prim};
+    let with = |p: Prim| {
+        let mut m = Module::default();
+        m.functions.push(Function {
+            name: "f".into(),
+            params: 0,
+            slots: 0,
+            body: vec![Inst::Enter(0), Inst::System(p), Inst::Return],
+        });
+        m
+    };
+    for p in [
+        Prim::Open(OpenMode::Folder),
+        Prim::Open(OpenMode::Create),
+        Prim::Rename,
+        Prim::Sync,
+        Prim::Mode,
+        Prim::SetMode,
+        Prim::Read,
+    ] {
+        assert!(has_file_primitive(&with(p)), "{p:?}");
+    }
+    for p in [Prim::Write, Prim::Exit, Prim::Close, Prim::Fork, Prim::Wait] {
+        assert!(!has_file_primitive(&with(p)), "{p:?}");
+    }
+}
+
+#[test]
+fn no_real_file_primitive_in_a_test_module() {
+    let m = lowered_tests(&format!(
+        "{ROWS}test \"a\"\n  append Row with n 1 to rows\n  show count of rows\n  \
+         set y to item 7 of rows\n"
+    ))
+    .unwrap();
+    assert!(!has_file_primitive(&m));
+    // The same program built for real, with `load` and `save`, does reach them.
+    let real = lowered(
+        "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\n\
+         feature start\n  load rows\n  save rows\n",
+    )
+    .unwrap();
+    assert!(has_file_primitive(&real));
+}
