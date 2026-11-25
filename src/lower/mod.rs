@@ -9,6 +9,7 @@ mod list;
 mod record;
 mod stmt;
 mod table;
+mod test;
 #[cfg(test)]
 mod tests;
 
@@ -20,6 +21,14 @@ use crate::diag::Diagnostic;
 use crate::ir::{Data, Function, Inst, Label, Module, Reg};
 use crate::runtime;
 use crate::source::Source;
+
+/// What a lowering is for: the program as it runs, or the test executable `gloss test`
+/// builds, where the statements this milestone has not built are refused.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Mode {
+    Real,
+    Test,
+}
 
 /// What lowering one feature needs: the module for its texts, the routines it calls, and
 /// the code so far.
@@ -211,16 +220,36 @@ fn permissions_text(text: u32) -> Function {
 
 /// Lowers a checked program to an IR module, with the runtime it reaches.
 pub fn lower(program: &Program, types: &TypeInfo, src: &Source) -> Result<Module, Diagnostic> {
-    lower_program(program, types, src)
+    lower_program(program, types, src, Mode::Real)
 }
 
-fn lower_program(program: &Program, types: &TypeInfo, src: &Source) -> Result<Module, Diagnostic> {
+/// Lowers a checked program for `gloss test`: every feature, and each test body as `t_<i>`.
+pub fn lower_tests(
+    program: &Program,
+    types: &TypeInfo,
+    src: &Source,
+) -> Result<Module, Diagnostic> {
+    lower_program(program, types, src, Mode::Test)
+}
+
+fn lower_program(
+    program: &Program,
+    types: &TypeInfo,
+    src: &Source,
+    mode: Mode,
+) -> Result<Module, Diagnostic> {
     let mut module = Module::default();
     let mut called = vec!["_start".to_string()];
     let context = (src, program, types);
     for feature in program.features() {
         let f = lower_feature(&mut module, context, feature, &mut called)?;
         module.functions.push(f);
+    }
+    if mode == Mode::Test {
+        for (i, test) in program.tests().enumerate() {
+            let f = test::lower_test(&mut module, context, i, test, &mut called)?;
+            module.functions.push(f);
+        }
     }
     let list = crate::permissions::render(&crate::permissions::list(program));
     let text = module.text(list.as_bytes());
@@ -229,6 +258,10 @@ fn lower_program(program: &Program, types: &TypeInfo, src: &Source) -> Result<Mo
         .functions
         .push(table::tables_init(program, &mut called));
     size_stack_checks(&mut module);
-    runtime::add_reachable(&mut module, &called);
+    let backend = match mode {
+        Mode::Real => runtime::Backend::Real,
+        Mode::Test => runtime::Backend::Test,
+    };
+    runtime::add_reachable_for(&mut module, &called, backend);
     Ok(module)
 }

@@ -477,3 +477,77 @@ fn load_lowers_to_a_table_read_call_and_stores_the_list_only_after_it() {
     }
     assert!(m.functions.iter().any(|f| f.name == "table_read"));
 }
+
+fn lowered_tests(text: &str) -> Result<Module, Diagnostic> {
+    let src = Source::new(text);
+    let program = crate::parse_source(&src).expect("parses");
+    let checked = check(&program, &src);
+    let types = checked.types.unwrap_or_else(|| {
+        let shown: Vec<String> = checked.diagnostics.iter().map(|d| d.render()).collect();
+        panic!("does not check clean: {shown:?}")
+    });
+    super::lower_tests(&program, &types, &src)
+}
+
+fn function<'a>(m: &'a Module, name: &str) -> &'a crate::ir::Function {
+    m.functions
+        .iter()
+        .find(|f| f.name == name)
+        .unwrap_or_else(|| panic!("no function {name}"))
+}
+
+const ROWS: &str = "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\n\
+                    feature start\n  show \"x\"\n\n";
+
+#[test]
+fn a_test_body_lowers_to_t_0() {
+    let m = lowered_tests(&format!(
+        "{ROWS}test \"adds\"\n  append Row with n 1 to rows\n"
+    ))
+    .unwrap();
+    let t = function(&m, "t_0");
+    assert_eq!(t.params, 0);
+    assert!(function_text(t).contains("call list_push"), "{t:?}");
+    assert!(function_text(t).ends_with("  return\n"));
+    assert!(m.functions.iter().any(|f| f.name == "f_start"));
+}
+
+#[test]
+fn tests_are_numbered_in_source_order() {
+    let m = lowered_tests(&format!(
+        "{ROWS}test \"a\"\n  append Row with n 1 to rows\n\ntest \"b\"\n  show \"b\"\n\n\
+         test \"c\"\n  show \"c\"\n  show \"c\"\n"
+    ))
+    .unwrap();
+    let names: Vec<&str> = m.functions.iter().map(|f| &*f.name).collect();
+    let at = |n: &str| names.iter().position(|x| *x == n).expect(n);
+    assert!(at("t_0") < at("t_1") && at("t_1") < at("t_2"));
+    let (a, b, c) = (
+        function(&m, "t_0"),
+        function(&m, "t_1"),
+        function(&m, "t_2"),
+    );
+    assert!(function_text(a).contains("call list_push"));
+    assert!(function_text(b).contains("text 1"), "{}", function_text(b));
+    assert_eq!(function_text(c).matches("call out_text").count(), 4);
+    assert!(function_text(b).matches("call out_text").count() == 2);
+    assert!(!m.functions.iter().any(|f| f.name == "t_3"));
+}
+
+#[test]
+fn a_test_body_that_can_fail_gets_its_failure_block_frame_and_routines() {
+    let text = format!("{ROWS}test \"t\"\n  set y to item 7 of rows\n");
+    let m = lowered_tests(&text).unwrap();
+    let t = function(&m, "t_0");
+    let body = function_text(t);
+    assert!(body.contains("call fail_begin"), "{body}");
+    assert!(body.contains("call fail_end"), "{body}");
+    assert_eq!(t.body[0], crate::ir::Inst::Enter(t.slots));
+    assert!(t.slots >= 1, "the named slot y");
+    // The routines the failure block calls come from the test backend.
+    assert!(function_text(function(&m, "fail_end")).contains("call test_fail"));
+    // A real build of the same text has no `t_0`, and its fail_end exits at once.
+    let real = lowered(&text).unwrap();
+    assert!(!real.functions.iter().any(|f| f.name == "t_0"));
+    assert!(!function_text(function(&real, "fail_end")).contains("test_fail"));
+}
