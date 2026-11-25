@@ -1,0 +1,9 @@
+record Expense
+  name as text
+  amount as number
+
+feature start
+  set expense to Expense with name "Rent", amount 10
+  set amount of expense to 12
+  set name of expense to "Flat"
+  show amount of expense

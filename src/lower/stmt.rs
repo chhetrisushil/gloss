@@ -1,5 +1,7 @@
 //! Lowering statements.
 use super::list::item_target;
+use super::record::Place;
+use super::trace::Cell;
 use super::{Lowerer, Mode};
 use crate::ast::print;
 use crate::ast::stmt::{Stmt, StmtKind, Target};
@@ -63,6 +65,9 @@ impl Lowerer<'_> {
                 self.mark_line(s.line);
                 self.expr(value)?;
                 let place = self.place(target).expect("just checked");
+                if self.mode == Mode::Trace {
+                    self.field_set_event(target, &place, &self.expr_ty(value));
+                }
                 self.store_place(&place);
                 Ok(())
             }
@@ -82,8 +87,11 @@ impl Lowerer<'_> {
             }
             StmtKind::Set { target, value } if self.item_field(target).is_some() => {
                 let (position, list, offset) = self.item_field(target).expect("just checked");
+                let Target::Field { field, .. } = target else {
+                    unreachable!()
+                };
                 self.mark_line(s.line);
-                self.set_item(position, list, Some(offset), value)
+                self.set_item(position, list, Some((offset, field)), value)
             }
             StmtKind::Ask { question, into } => {
                 self.mark_line(s.line);
@@ -193,7 +201,7 @@ impl Lowerer<'_> {
         self.mark_line(s.line);
         self.expr(operand)?;
         let at = match (&place, item) {
-            (_, Some((position, list, field))) => Some(self.load_item(position, list, field)?),
+            (_, Some((position, list, field))) => Some(self.load_item(position, list, field)?.0),
             (Some(place), None) => {
                 self.emit(Inst::Move {
                     to: Reg::B,
@@ -234,6 +242,25 @@ impl Lowerer<'_> {
             (None, None) => unreachable!("checked above"),
         }
         Ok(())
+    }
+
+    /// The `set` event of the field a record variable's `place` names, whose new value of type
+    /// `ty` is in `a` (`a` survives).
+    fn field_set_event(&mut self, target: &Target, place: &Place, ty: &Ty) {
+        let Target::Field { field, .. } = target else {
+            unreachable!("a place with a field")
+        };
+        let at = self.new_temp();
+        self.emit(Inst::LoadSlot(Reg::B, place.slot));
+        self.emit(Inst::AddImm(Reg::B, place.field.expect("a field place")));
+        self.emit(Inst::StoreSlot(at, Reg::B));
+        let cell = Cell {
+            name: target.root(),
+            item: None,
+            field: Some(field),
+            at,
+        };
+        self.cell_set_event(&cell, ty);
     }
 
     fn cannot_build(&self, s: &Stmt) -> Diagnostic {

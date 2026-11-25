@@ -1,0 +1,4 @@
+{"line":2,"event":"set","name":"prices","to":{"list":[{"number":"4"},{"number":"9"},{"number":"2"}]}}
+{"line":3,"event":"set","name":"prices","item":2,"from":{"number":"9"},"to":{"number":"5"}}
+{"line":4,"event":"set","name":"prices","item":3,"from":{"number":"2"},"to":{"number":"7"}}
+{"line":5,"event":"show","text":"list of 4, 5, 7"}
