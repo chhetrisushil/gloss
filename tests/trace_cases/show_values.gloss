@@ -1,0 +1,11 @@
+record P
+  name as text
+  age as number
+
+feature start
+  show 42
+  show "say ""hi"""
+  show yes
+  show (P with name "Asha", age 9)
+  set xs to list of 4, 9, 2
+  show xs
