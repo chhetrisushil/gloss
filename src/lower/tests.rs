@@ -562,10 +562,6 @@ fn test_mode_refuses_what_is_not_built_yet() {
     let stmt = "this compiler cannot build this statement yet.";
     // The statement under `test` is line 10.
     assert_eq!(refusal("load rows"), format!("line 10: load rows. {stmt}"));
-    assert_eq!(
-        refusal("show shown"),
-        "line 10: show shown. this compiler cannot build this expression yet."
-    );
     // `save` needs a feature that loads or clears the table.
     let text = "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\n\
                 feature start\n  clear rows\n\ntest \"t\"\n  save rows\n";
@@ -1188,4 +1184,14 @@ fn after_tables_init_in_a_test_module_the_flags_are_1_and_the_lists_empty() {
     let mut real = lowered(TWO_TABLES).unwrap();
     probed(&mut real, &[24]);
     assert_eq!(crate::irsim::run(&real, "probe", b"").status, 0);
+}
+
+#[test]
+fn shown_lowers_to_a_shown_list_call_with_its_line() {
+    let m = lowered_tests(&format!("{ROWS}test \"t\"\n  expect count of shown is 0\n")).unwrap();
+    let body = function_text(function(&m, "t_0"));
+    assert!(
+        body.contains("a = 10\n  push a\n  call shown_list\n"),
+        "{body}"
+    );
 }

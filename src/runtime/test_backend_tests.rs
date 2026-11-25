@@ -437,3 +437,99 @@ fn the_ask_prompt_is_not_part_of_shown() {
     let (out, _, _) = run_test(&body, &[b"a\n", b"Prompt?\n"]);
     assert_eq!(out, "fail  t\n");
 }
+
+fn load(offset: i32) -> Inst {
+    Load {
+        to: A,
+        base: A,
+        offset,
+    }
+}
+
+/// Loads state word `word` (a list) into `a`, then item `i` of it or, for `None`, its count.
+fn list_part(word: u32, item: Option<i32>) -> Vec<Inst> {
+    let state = AddressOf(A, Data::Global(Global::TestState));
+    let at = [state, load(word as i32 * 8)];
+    let part = match item {
+        Some(i) => vec![load(16), load(i * 8)],
+        None => vec![load(0)],
+    };
+    [&at[..], &part, &[Push(A)]].concat()
+}
+
+/// `shown_list(5)`, kept in state word `word`.
+fn take_shown(word: u32) -> Vec<Inst> {
+    let state = [Pop(B), AddressOf(A, Data::Global(Global::TestState))];
+    let store = Store {
+        base: A,
+        offset: word as i32 * 8,
+        from: B,
+    };
+    let take = call("shown_list", &[number(5)]);
+    [take, vec![Push(A)], state.to_vec(), vec![store]].concat()
+}
+
+/// Puts the count and items (`|` after each, text 1) of the list in `word` into the failure
+/// text, then fails the test: `fail  t`, `<count><item>|...`, and the shown bytes.
+fn dump(word: u32, items: i32) -> Vec<Inst> {
+    let mut body = call("err_int", &[list_part(word, None)]);
+    for i in 0..items {
+        body.extend(call("err_text", &[list_part(word, Some(i))]));
+        body.extend(call("err_text", &[text(1)]));
+    }
+    body.extend(call("test_fail", &[]));
+    body
+}
+
+/// What a test that shows each of `lines` (texts 2 up), then takes `shown`, finds: the
+/// failure text with the count and the first `items` items, then the shown bytes.
+fn shown_items(lines: &[&[u8]], items: i32) -> String {
+    let mut texts: Vec<&[u8]> = vec![b"|"];
+    texts.extend(lines);
+    let mut body: Vec<Vec<Inst>> = (0..lines.len() as u32)
+        .map(|i| call("out_text", &[text(2 + i)]))
+        .collect();
+    body.extend([take_shown(ANSWERS), dump(ANSWERS, items)]);
+    let out = run_test(&body, &texts).0;
+    out.strip_prefix("fail  t\n      ").expect(&out).to_string()
+}
+
+#[test]
+fn shown_splits_at_newlines() {
+    let out = shown_items(&[b"a\nbb\n"], 2);
+    assert_eq!(out, "2a|bb|\n      shown:\n        a\n        bb\n");
+}
+
+#[test]
+fn shown_reads_what_is_still_in_the_output_buffer() {
+    // Three separate shows, all pending in the buffer when `shown_list` runs.
+    let out = shown_items(&[b"a\n", b"bb\n", b"c\n"], 3);
+    assert!(out.starts_with("3a|bb|c|\n"), "{out}");
+}
+
+#[test]
+fn a_fragment_is_not_a_line() {
+    assert!(shown_items(&[b"a\nb"], 1).starts_with("1a|\n"));
+    assert!(shown_items(&[b"abc"], 0).starts_with("0\n"));
+    // An empty line is a line.
+    assert!(shown_items(&[b"\n\nx\n"], 3).starts_with("3||x|\n"));
+}
+
+#[test]
+fn shown_is_a_copy() {
+    let take_a = [
+        call("out_text", &[text(2)]),
+        take_shown(ANSWERS),
+        call("out_text", &[text(3)]),
+        dump(ANSWERS, 1),
+    ];
+    // The list taken first still has one item after another line is shown.
+    let out = run_test(&take_a, &[b"|", b"a\n", b"b\n"]).0;
+    assert!(out.starts_with("fail  t\n      1a|\n"), "{out}");
+}
+
+#[test]
+fn a_carriage_return_stays_in_the_line() {
+    // A line ends at `\n` only: `a\r\n` is the item `a\r`.
+    assert!(shown_items(&[b"a\r\n"], 1).starts_with("1a\r|\n"));
+}
