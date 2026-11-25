@@ -541,6 +541,97 @@ mod tests {
         assert!(!host_traces("linux", "aarch64"));
     }
 
+    /// A program with a show, to give the narrator something real.
+    fn narrated(lines: &[&str], file: &mut dyn Write) -> (std::io::Result<()>, TraceState, String) {
+        let (_, checked) = crate::check_program("feature start\n  show \"hi\"\n");
+        let checked = checked.unwrap();
+        let mut narrator = crate::trace::narrate::Narrator::new(checked.program());
+        let mut state = TraceState {
+            label: "t.trace".into(),
+            failed: false,
+            unreadable: None,
+        };
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let mut result = Ok(());
+        for line in lines {
+            result = handle_line(line, file, &mut narrator, &mut out, &mut err, &mut state);
+            if result.is_err() {
+                break;
+            }
+        }
+        let text = String::from_utf8(out).unwrap() + &String::from_utf8(err).unwrap();
+        (result, state, text)
+    }
+
+    const SHOW: &str = r#"{"line":2,"event":"show","text":"hi"}"#;
+    const FAIL: &str = r#"{"line":2,"event":"fail","failure":1,"message":"boom"}"#;
+
+    #[test]
+    fn every_line_reaches_the_file_with_its_newline() {
+        let mut file = Vec::new();
+        let (result, state, text) = narrated(&[SHOW, FAIL], &mut file);
+        assert!(result.is_ok() && state.failed && state.unreadable.is_none());
+        assert_eq!(
+            String::from_utf8(file).unwrap(),
+            format!("{SHOW}\n{FAIL}\n")
+        );
+        assert_eq!(text, "hi\nline 2: failure 1: boom\n");
+    }
+
+    #[test]
+    fn an_unreadable_line_is_written_then_stops_the_run() {
+        let mut file = Vec::new();
+        let (result, state, _) = narrated(&[SHOW, "nonsense", SHOW], &mut file);
+        assert!(result.is_err() && !state.failed);
+        assert!(state.unreadable.unwrap().starts_with("event 2: "));
+        assert_eq!(
+            String::from_utf8(file).unwrap(),
+            format!("{SHOW}\nnonsense\n")
+        );
+    }
+
+    struct Full;
+    impl Write for Full {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_failing_trace_file_stops_before_narrating() {
+        let (result, _, text) = narrated(&[SHOW], &mut Full);
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "t.trace cannot be written: disk full"
+        );
+        assert_eq!(text, "");
+    }
+
+    #[test]
+    fn a_failing_narration_says_it_is_the_output() {
+        let (_, checked) = crate::check_program("feature start\n  show \"hi\"\n");
+        let checked = checked.unwrap();
+        let mut narrator = crate::trace::narrate::Narrator::new(checked.program());
+        let mut state = TraceState {
+            label: "t.trace".into(),
+            failed: false,
+            unreadable: None,
+        };
+        let e = handle_line(
+            SHOW,
+            &mut Vec::new(),
+            &mut narrator,
+            &mut Full,
+            &mut Vec::new(),
+            &mut state,
+        )
+        .unwrap_err();
+        assert_eq!(e.to_string(), "cannot write the trace output: disk full");
+    }
+
     #[test]
     fn the_end_of_a_traced_run_gives_a_status_and_a_message() {
         use crate::testrun::TraceEnd::{Exited, Unfinished};
