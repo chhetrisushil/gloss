@@ -105,6 +105,17 @@ fn stdin_probe() {
 }
 
 #[test]
+fn a_relative_base_still_gives_an_absolute_folder_the_program_runs_from() {
+    let mut names = std::iter::once(candidate_name());
+    let dir = PrivateDir::create_in(Path::new("."), &mut names).unwrap();
+    assert!(dir.path().is_absolute(), "{:?}", dir.path());
+    let path = script(&dir, "echo ran");
+    let mut out = Vec::new();
+    assert_eq!(run_program(&path, &mut out, &mut Vec::new()), 0);
+    assert_eq!(out, b"ran\n");
+}
+
+#[test]
 fn the_program_runs_in_the_private_folder() {
     let dir = PrivateDir::new().unwrap();
     let path = script(&dir, "pwd -P");

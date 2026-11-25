@@ -40,6 +40,9 @@ impl PrivateDir {
         base: &Path,
         names: &mut dyn Iterator<Item = String>,
     ) -> std::io::Result<PrivateDir> {
+        // Always absolute: the program runs with this folder as its working directory, so a
+        // relative path to it (a relative TMPDIR) would be resolved again from inside it.
+        let base = std::path::absolute(base)?;
         for name in names {
             let path = base.join(name);
             match std::fs::DirBuilder::new().mode(0o700).create(&path) {
