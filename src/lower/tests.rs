@@ -1442,3 +1442,22 @@ fn real_and_test_builds_have_no_trace_code() {
         assert!(!m.functions.iter().any(|f| f.name == "json_bytes"));
     }
 }
+
+#[test]
+fn a_trace_build_gives_each_made_variable_a_flag_slot_and_an_ask_sets_it() {
+    let text = "feature start\n  set x to 1\n  ask \"q\" into y\n";
+    let slots = |m: &Module| {
+        m.functions
+            .iter()
+            .find(|f| f.name == "f_start")
+            .unwrap()
+            .slots
+    };
+    assert_eq!(slots(&lowered(text).unwrap()), 2);
+    let m = lowered_trace(text);
+    let f = m.functions.iter().find(|f| f.name == "f_start").unwrap();
+    // x and y, their two flags, and the ask's question temp.
+    assert_eq!(f.slots, 5);
+    let code = function_text(f);
+    assert!(code.contains("a = 1\n  slot 4 = a"), "{code}");
+}

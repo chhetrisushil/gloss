@@ -101,6 +101,14 @@ impl Lowerer<'_> {
         self.ev_raw("}\n");
     }
 
+    /// Sets `name`'s made flag (see `Lowerer::made`); clobbers `a`.
+    pub(super) fn set_made(&mut self, name: &str) {
+        if let Some(&flag) = self.made.get(name) {
+            self.emit(Inst::Const(Reg::A, 1));
+            self.emit(Inst::StoreSlot(flag, Reg::A));
+        }
+    }
+
     /// Sets the `ESCAPING` word: text entering the output buffer is escaped while it is 1.
     pub(super) fn set_escaping(&mut self, on: bool) {
         self.set_trace_word(ESCAPING, on);

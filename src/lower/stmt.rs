@@ -341,6 +341,7 @@ impl Lowerer<'_> {
         self.call("ask");
         let answer = self.slots[into];
         self.emit(Inst::StoreSlot(answer, Reg::A));
+        self.set_made(into);
         self.ev_open(line, "ask");
         self.ev_key("name");
         self.ev_fixed_text(into);
