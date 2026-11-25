@@ -1,0 +1,15 @@
+feature start
+  show 1
+
+test "shown holds each line in order"
+  show "Total"
+  show "Largest"
+  expect count of shown is 2
+  expect first of shown is "Total"
+  expect last of shown is "Largest"
+
+test "a question is not shown"
+  input "Lunch"
+  ask "What?" into a
+  expect a is "Lunch"
+  expect count of shown is 0
