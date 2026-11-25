@@ -274,12 +274,56 @@ fn two_events_and_exit_0() {
     assert_eq!(end, TraceEnd::Exited(0));
 }
 
+/// Feeds the chunks to a splitter; gives the lines and whether a fragment is left.
+fn split(chunks: &[&[u8]]) -> (Vec<String>, bool) {
+    let (mut splitter, mut lines) = (LineSplitter::default(), Vec::new());
+    for chunk in chunks {
+        splitter
+            .feed(chunk, &mut |l| {
+                lines.push(l.to_string());
+                Ok(())
+            })
+            .unwrap();
+    }
+    (lines, splitter.unfinished())
+}
+
 #[test]
-fn a_line_split_across_two_writes_arrives_whole() {
-    let (lines, _, end) =
-        traced("printf '{\"a\":'; sleep 0.2; printf '1}\\n{\"b\"'; sleep 0.2; echo ':2}'");
-    assert_eq!(lines, ["{\"a\":1}", "{\"b\":2}"]);
-    assert_eq!(end, TraceEnd::Exited(0));
+fn the_splitter_joins_a_line_split_across_chunks() {
+    assert_eq!(
+        split(&[b"{\"a\":", b"1}\n"]),
+        (vec!["{\"a\":1}".into()], false)
+    );
+    assert_eq!(split(&[b"ab", b"c", b"d\n"]), (vec!["abcd".into()], false));
+}
+
+#[test]
+fn the_splitter_handles_several_lines_a_chunk_edge_and_empty_lines() {
+    assert_eq!(split(&[b"a\nb\n"]), (vec!["a".into(), "b".into()], false));
+    assert_eq!(
+        split(&[b"a", b"\n", b"b\n"]),
+        (vec!["a".into(), "b".into()], false)
+    );
+    assert_eq!(
+        split(&[b"a\n\nb\n"]),
+        (vec!["a".into(), "".into(), "b".into()], false)
+    );
+}
+
+#[test]
+fn the_splitter_keeps_a_trailing_fragment_and_a_split_character() {
+    assert_eq!(split(&[b"a\nb"]), (vec!["a".into()], true));
+    // "é" is two bytes; the chunks cut it in half.
+    assert_eq!(split(&[b"\xc3", b"\xa9\n"]), (vec!["\u{e9}".into()], false));
+}
+
+#[test]
+fn a_line_that_is_not_text_is_invalid_data_naming_its_number() {
+    let e = LineSplitter::default()
+        .feed(b"a\n\xff\n", &mut |_| Ok(()))
+        .unwrap_err();
+    assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
+    assert!(e.to_string().contains("line 2"), "{e}");
 }
 
 #[test]
@@ -308,7 +352,8 @@ fn a_failing_line_handler_ends_the_run() {
     let started = std::time::Instant::now();
     let e =
         run_traced_with(&path, &mut on_line, &mut Vec::new(), &mut spawn_inheriting).unwrap_err();
-    assert!(e.to_string().contains("no room"), "{e}");
+    assert_eq!(e.to_string(), "no room");
+    assert_eq!(e.kind(), std::io::ErrorKind::Other);
     assert!(started.elapsed().as_secs() < 4);
 }
 
@@ -356,4 +401,83 @@ fn run_traced_runs_a_written_executable() {
     );
     assert_eq!(end.unwrap(), TraceEnd::Exited(0));
     assert_eq!(lines, ["{\"k\":1}"]);
+}
+
+#[test]
+fn bytes_that_are_not_text_end_a_real_run_with_invalid_data() {
+    let dir = PrivateDir::new().unwrap();
+    let path = script(&dir, "echo a; printf '\\377\\n'");
+    let mut lines = Vec::new();
+    let mut on_line = |l: &str| {
+        lines.push(l.to_string());
+        Ok(())
+    };
+    let e =
+        run_traced_with(&path, &mut on_line, &mut Vec::new(), &mut spawn_inheriting).unwrap_err();
+    assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
+    assert_eq!(lines, ["a"]);
+}
+
+/// A shell program that prints its process id and its own path, then waits.
+const WAITER: &[u8] = b"#!/bin/sh\necho $$\necho $0\nexec sleep 30\n";
+
+/// Runs `executable` through `run_traced` and gives the path it printed as its own, which the
+/// callback saw before it ran `then`.
+fn run_for_path(
+    executable: &[u8],
+    mut then: impl FnMut(usize, &str) -> std::io::Result<()>,
+) -> (std::io::Result<TraceEnd>, PathBuf) {
+    let (mut seen, mut path) = (0, PathBuf::new());
+    let mut on_line = |l: &str| {
+        seen += 1;
+        if l.starts_with('/') {
+            path = PathBuf::from(l);
+        }
+        then(seen, l)
+    };
+    let end = run_traced(executable, &mut on_line, &mut Vec::new());
+    (end, path)
+}
+
+#[test]
+fn the_private_folder_is_gone_after_exit_unfinished_and_error() {
+    let own_path = b"#!/bin/sh\necho $0\n";
+    let (end, path) = run_for_path(own_path, |_, _| Ok(()));
+    assert_eq!(end.unwrap(), TraceEnd::Exited(0));
+    assert!(!path.exists() && path.is_absolute(), "{path:?}");
+    let (end, path) = run_for_path(b"#!/bin/sh\necho $0\nexit 1\n", |_, _| Ok(()));
+    assert_eq!(end.unwrap(), TraceEnd::Unfinished(1));
+    assert!(!path.exists() && path.is_absolute(), "{path:?}");
+    let (end, path) = run_for_path(WAITER, |n, _| {
+        if n == 2 {
+            Err(std::io::Error::other("stop"))
+        } else {
+            Ok(())
+        }
+    });
+    assert_eq!(end.unwrap_err().to_string(), "stop");
+    assert!(!path.exists() && path.is_absolute(), "{path:?}");
+}
+
+#[test]
+fn a_panic_in_the_line_callback_kills_the_child_and_removes_the_folder() {
+    let (mut pid, mut path) = (String::new(), PathBuf::new());
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut n = 0;
+        let mut on_line = |l: &str| {
+            n += 1;
+            if n == 1 {
+                pid = l.to_string();
+            } else {
+                path = PathBuf::from(l);
+                panic!("boom");
+            }
+            Ok(())
+        };
+        let _ = run_traced(WAITER, &mut on_line, &mut Vec::new());
+    }));
+    assert!(result.is_err());
+    assert!(!path.exists(), "{path:?}");
+    let alive = Command::new("kill").args(["-0", &pid]).output().unwrap();
+    assert!(!alive.status.success(), "child {pid} is still running");
 }
