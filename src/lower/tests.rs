@@ -1463,3 +1463,18 @@ fn a_trace_build_gives_each_made_variable_a_flag_slot_and_an_ask_sets_it() {
     let code = function_text(f);
     assert!(code.contains("a = 1\n  slot 4 = a"), "{code}");
 }
+
+#[test]
+fn a_set_inside_a_call_comes_after_the_calls_events() {
+    let m = lowered_trace(
+        "feature double\n  needs n as number\n  show \"in\"\n  give n * 2\n\n\
+         feature start\n  set x to double with 2\n",
+    );
+    let o = crate::irsim::run(&m, "_start", b"");
+    let out = String::from_utf8(o.stdout).unwrap();
+    let events: Vec<&str> = out.lines().collect();
+    assert_eq!(events.len(), 2, "{out}");
+    assert!(events[0].contains("\"show\""), "{out}");
+    assert!(events[1].contains("\"event\":\"set\""), "{out}");
+    assert!(events[1].ends_with("\"to\":{\"number\":\"4\"}}"), "{out}");
+}
