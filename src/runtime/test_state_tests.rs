@@ -221,3 +221,39 @@ fn shown_add_of_no_bytes_allocates_nothing() {
     assert_eq!(allocated(add("shown_add", 0), b"x"), 0);
     assert_eq!(allocated(add("shown_add", 1), b"x"), 1);
 }
+
+/// Replaces `name` in `m` with a stub that exits with its argument number `arg`: the line a
+/// routine is told, as a status.
+fn exit_with_arg(m: &mut crate::ir::Module, name: &str, arg: u32) {
+    let f = m.functions.iter_mut().find(|f| f.name == name).unwrap();
+    f.body = vec![Enter(0), LoadArg(A, arg), Push(A), System(Prim::Exit)];
+    f.slots = 0;
+}
+
+/// The status of `body` under the test backend with `name` stubbed to exit with its argument
+/// number `arg`.
+fn line_told_to(name: &str, arg: u32, body: Vec<Inst>) -> i32 {
+    let mut m = super::tests::program_for(super::Backend::Test, body, &[b"t", b"hello"]);
+    exit_with_arg(&mut m, name, arg);
+    run(&m).status
+}
+
+#[test]
+fn the_shown_buffer_is_allocated_and_grown_at_the_line_word() {
+    let begin = [
+        AddressOf(A, Data::Text(0)),
+        Push(A),
+        Call("test_begin".into()),
+    ];
+    let at = |n| set_word(CURRENT_LINE, n);
+    // The first shown bytes with no buffer: `shown_init`'s `alloc` is given the line.
+    let body = [at(9), add("shown_add", 5)].concat();
+    assert_eq!(line_told_to("alloc", 2, body), 9);
+    // With a buffer, growing it: `grow_text`'s line is its fourth argument.
+    let body = [&begin[..], &at(11), &add("shown_add", 5)].concat();
+    assert_eq!(line_told_to("grow_text", 4, body), 11);
+    // `test_begin` runs before any statement, so the buffer it allocates says line 0.
+    let body = [at(13), begin.to_vec()].concat();
+    assert_eq!(line_told_to("alloc", 2, body), 13);
+    assert_eq!(line_told_to("alloc", 2, begin.to_vec()), 0);
+}

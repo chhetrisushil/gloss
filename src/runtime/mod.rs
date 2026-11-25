@@ -41,6 +41,8 @@ mod text;
 mod utf8;
 mod values;
 
+pub use test_state::CURRENT_LINE;
+
 use crate::ir::{Data, Function, Inst, Module};
 
 const LINE: u32 = 0;
