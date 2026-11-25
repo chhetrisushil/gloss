@@ -1,0 +1,5 @@
+fail  asks twice
+      the test gave 1 answer but line 7 asked a second question
+pass  other
+
+1 passed, 1 failed

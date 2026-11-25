@@ -1,0 +1,5 @@
+fail  asks without input
+      the test gave 0 answers but line 5 asked a first question
+pass  other
+
+1 passed, 1 failed

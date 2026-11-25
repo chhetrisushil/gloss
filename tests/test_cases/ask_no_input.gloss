@@ -1,0 +1,8 @@
+feature start
+  show 1
+
+test "asks without input"
+  ask "One?" into a
+
+test "other"
+  expect 1 is 1

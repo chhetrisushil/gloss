@@ -1,0 +1,10 @@
+feature start
+  show 1
+
+test "asks twice"
+  input "only"
+  ask "One?" into a
+  ask "Two?" into b
+
+test "other"
+  expect 1 is 1
