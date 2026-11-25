@@ -1,4 +1,6 @@
 {"line":6,"event":"set","name":"expenses","to":{"list":[{"record":"Expense","fields":{"name":{"text":"Rent"},"amount":{"number":"10"}}},{"record":"Expense","fields":{"name":{"text":"Food"},"amount":{"number":"3"}}}]}}
+{"line":7,"event":"loop","name":"e","turn":1,"value":{"record":"Expense","fields":{"name":{"text":"Rent"},"amount":{"number":"10"}}}}
 {"line":8,"event":"set","name":"e","field":"amount","from":{"number":"10"},"to":{"number":"12"}}
+{"line":7,"event":"loop","name":"e","turn":2,"value":{"record":"Expense","fields":{"name":{"text":"Food"},"amount":{"number":"3"}}}}
 {"line":8,"event":"set","name":"e","field":"amount","from":{"number":"3"},"to":{"number":"12"}}
 {"line":9,"event":"show","text":"list of (Expense with name \"Rent\", amount 12), (Expense with name \"Food\", amount 12)"}

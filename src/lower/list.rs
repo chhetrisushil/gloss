@@ -353,7 +353,13 @@ impl Lowerer<'_> {
     /// list's record). The checker refuses to append to, set, clear or load the list, or replace
     /// one of its items, while the loop walks it (M2-R34), so the count is read afresh without
     /// risk and the variable keeps the item it was given.
-    pub fn for_each(&mut self, var: &str, list: &Expr, body: &[Stmt]) -> Result<(), Diagnostic> {
+    pub fn for_each(
+        &mut self,
+        line: u32,
+        var: &str,
+        list: &Expr,
+        body: &[Stmt],
+    ) -> Result<(), Diagnostic> {
         let (held, at) = (self.new_temp(), self.new_temp());
         self.walked_list(list)?;
         self.emit(Inst::StoreSlot(held, Reg::A));
@@ -376,6 +382,12 @@ impl Lowerer<'_> {
         let item = self
             .list_item_type(list)
             .expect("the checker knows the list");
+        if let Some(turn) = self.begin_turns() {
+            self.emit(Inst::LoadSlot(Reg::A, at));
+            self.emit(Inst::AddImm(Reg::A, 1));
+            self.emit(Inst::StoreSlot(turn, Reg::A));
+            self.loop_event(line, var, &item, turn);
+        }
         self.loop_body(var, item, (next, exit), body)?;
         self.emit(Inst::Mark(next));
         self.emit(Inst::LoadSlot(Reg::A, at));

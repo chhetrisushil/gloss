@@ -314,6 +314,25 @@ impl Lowerer<'_> {
         }
     }
 
+    /// A hidden slot for a loop's turn number in a trace build (none otherwise, so a real
+    /// build gains no slot).
+    pub(super) fn begin_turns(&mut self) -> Option<u32> {
+        (self.mode == Mode::Trace).then(|| self.new_temp())
+    }
+
+    /// Writes the `loop` event of the `for each` on `line`: the loop variable `var` of type
+    /// `ty`, already stored, and the turn number held in slot `turn`.
+    pub(super) fn loop_event(&mut self, line: u32, var: &str, ty: &Ty, turn: u32) {
+        self.ev_open(line, "loop");
+        self.ev_key("name");
+        self.ev_fixed_text(var);
+        self.ev_key("turn");
+        self.ev_int_from_slot(turn);
+        self.ev_key("value");
+        self.ev_value_from_slot(self.slots[var], ty);
+        self.ev_close();
+    }
+
     /// Sets `name`'s made flag (see `Lowerer::made`); clobbers `a`.
     pub(super) fn set_made(&mut self, name: &str) {
         if let Some(&flag) = self.made.get(name) {
