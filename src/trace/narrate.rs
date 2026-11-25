@@ -188,6 +188,23 @@ impl<'p> Narrator<'p> {
             ExprKind::Name(_) | ExprKind::FieldOf { .. } => said.get(expr(e).as_str()).cloned(),
             _ => None,
         });
+        // Any other truth that is not a comparison (an item, a call, `first of`) is told its
+        // value the same way.
+        let mut inner: &Expr = cond;
+        while let ExprKind::Paren(x) = &inner.kind {
+            inner = &**x;
+        }
+        let comparison = matches!(
+            inner.kind,
+            ExprKind::Compare { .. }
+                | ExprKind::IsNumber { .. }
+                | ExprKind::Not(_)
+                | ExprKind::And(_)
+                | ExprKind::Or(_)
+        );
+        if !comparison {
+            return Some(format!("line {line}: {shown} is {truth}, so {tail}"));
+        }
         let is_no = if result { "" } else { " is no" };
         Some(format!("line {line}: {shown}{is_no}, so {tail}"))
     }
@@ -461,6 +478,36 @@ mod tests {
         assert_eq!(
             sentence(body, 2, &values, false),
             "line 2: paid is no, so the block is skipped"
+        );
+    }
+
+    #[test]
+    fn any_condition_that_is_a_truth_not_a_comparison_is_written_is_yes_or_no() {
+        let flags = "  set flags to list of yes, no\n  set i to 2\n";
+        let item = format!("{flags}  if item i of flags\n    show 1\n");
+        let at = [("i", num("2"))];
+        assert_eq!(
+            sentence(&item, 4, &at, true),
+            "line 4: item 2 of flags is yes, so the block runs"
+        );
+        assert_eq!(
+            sentence(&item, 4, &at, false),
+            "line 4: item 2 of flags is no, so the block is skipped"
+        );
+        let first = format!("{flags}  if first of flags\n    show 1\n");
+        assert_eq!(
+            sentence(&first, 4, &[], true),
+            "line 4: first of flags is yes, so the block runs"
+        );
+        let call = "  set x to 1\n  if ready with x\n    show 1\n";
+        assert_eq!(
+            sentence(call, 3, &[], false),
+            "line 3: ready with x is no, so the block is skipped"
+        );
+        let looped = "  repeat while item 1 of flags\n    show 1\n";
+        assert_eq!(
+            sentence(looped, 2, &[], true),
+            "line 2: item 1 of flags is yes, so the loop runs"
         );
     }
 
