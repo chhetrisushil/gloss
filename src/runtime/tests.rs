@@ -1125,3 +1125,11 @@ fn test_summary_counts() {
         assert_eq!(String::from_utf8(o.stdout).unwrap(), want);
     }
 }
+
+#[test]
+fn the_trace_backend_starts_empty() {
+    use super::{Backend, routines, routines_for, trace_backend};
+    assert!(trace_backend::REPLACED.is_empty());
+    assert!(trace_backend::routines().is_empty());
+    assert_eq!(routines_for(Backend::Trace), routines());
+}
