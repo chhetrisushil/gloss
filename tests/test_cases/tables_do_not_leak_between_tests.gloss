@@ -1,0 +1,16 @@
+record Expense
+  name as text
+  amount as number
+
+table expenses of Expense in "expenses.csv"
+
+feature start
+  show 1
+
+test "the first test appends two rows"
+  append Expense with name "Lunch", amount 120 to expenses
+  append Expense with name "Bus", amount 40 to expenses
+  expect count of expenses is 2
+
+test "the next test sees none of them"
+  expect count of expenses is 0
