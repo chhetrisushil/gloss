@@ -52,3 +52,13 @@ fn each_byte_that_starts_no_valid_sequence_becomes_the_replacement_character() {
     assert_eq!(escaped(&[0xC0, 0x80]), "\u{FFFD}\u{FFFD}".as_bytes());
     assert_eq!(escaped(&[0xE2, 0x82]), "\u{FFFD}\u{FFFD}".as_bytes());
 }
+
+#[test]
+fn nothing_in_gives_nothing_out() {
+    assert_eq!(escaped(b""), b"");
+}
+
+#[test]
+fn five_thousand_escaped_quotes_arrive_whole() {
+    assert_eq!(escaped(&[b'"'; 5000]), b"\\\"".repeat(5000));
+}
