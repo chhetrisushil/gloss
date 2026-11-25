@@ -1,0 +1,15 @@
+record Expense
+  name as text
+  amount as number
+
+feature keep
+  needs xs as list of number, e as Expense
+  give xs
+
+feature big
+  needs n as number
+  give n is greater than 5
+
+feature start
+  set kept to keep with (list of 1, 2), (Expense with name "Rent", amount 10)
+  set b to big with 9
