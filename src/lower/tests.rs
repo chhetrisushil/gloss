@@ -861,8 +861,19 @@ fn the_driver_forks_once_per_test() {
 fn the_title_is_escaped() {
     let text = "feature start\n  show 1\n\ntest \"a\u{202E}b\"\n  set y to 1\n";
     let m = lowered_tests(text).unwrap();
-    assert!(m.texts.iter().any(|t| t == b"a\\u{202E}b"));
+    // The driver names the title twice per test; `Module::text` keeps one copy.
+    assert_eq!(m.texts.iter().filter(|t| *t == b"a\\u{202E}b").count(), 1);
     assert!(!m.texts.iter().any(|t| t == "a\u{202E}b".as_bytes()));
+}
+
+#[test]
+fn a_test_module_has_no_permissions_text() {
+    // Only the runtime's `args_check` calls it, and a test executable has no flags.
+    let m = lowered_tests(TWO_TESTS).unwrap();
+    assert!(!m.functions.iter().any(|f| f.name == "permissions_text"));
+    assert!(!m.functions.iter().any(|f| f.name == "args_check"));
+    let real = lowered(TWO_TESTS).unwrap();
+    assert!(real.functions.iter().any(|f| f.name == "permissions_text"));
 }
 
 #[test]
