@@ -306,3 +306,65 @@ fn input_shows_nothing_and_reads_nothing() {
     let (out, _, _) = run_test(&body, &[b"a\n"]);
     assert_eq!(out, "fail  t\n");
 }
+
+fn ask_fail(line: i64, given: i64, asked: i64) -> String {
+    let body = call(
+        "test_ask_fail",
+        &[number(line), number(given), number(asked)],
+    );
+    let (out, err, status) = run_test(&[body], &[]);
+    assert_eq!((err.as_str(), status), ("", 1));
+    out
+}
+
+#[test]
+fn the_question_message_names_the_answers_given_the_line_and_the_question() {
+    let pre = "fail  t\n      the test gave ";
+    assert_eq!(
+        ask_fail(7, 0, 1),
+        format!("{pre}0 answers but line 7 asked a first question\n")
+    );
+    assert_eq!(
+        ask_fail(7, 2, 3),
+        format!("{pre}2 answers but line 7 asked a third question\n")
+    );
+    // The spec's own example (section 9).
+    assert_eq!(
+        ask_fail(31, 2, 3),
+        format!("{pre}2 answers but line 31 asked a third question\n")
+    );
+}
+
+#[test]
+fn one_answer_is_singular() {
+    let want = "fail  t\n      the test gave 1 answer but line 7 asked a second question\n";
+    assert_eq!(ask_fail(7, 1, 2), want);
+}
+
+#[test]
+fn past_the_tenth_question_the_number_stands_in_for_the_ordinal() {
+    let want = "fail  t\n      the test gave 10 answers but line 4 asked question number 11\n";
+    assert_eq!(ask_fail(4, 10, 11), want);
+}
+
+#[test]
+fn each_of_the_ten_ordinals_is_spelled() {
+    let words = [
+        "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth",
+        "tenth",
+    ];
+    for (k, word) in words.iter().enumerate() {
+        let want =
+            format!("fail  t\n      the test gave 3 answers but line 5 asked a {word} question\n");
+        assert_eq!(ask_fail(5, 3, k as i64 + 1), want, "{word}");
+    }
+}
+
+#[test]
+fn the_question_message_comes_before_what_was_shown() {
+    let show = call("out_text", &[text(1)]);
+    let fail = call("test_ask_fail", &[number(2), number(0), number(1)]);
+    let (out, _, _) = run_test(&[show, fail], &[b"hi\n"]);
+    let want = "fail  t\n      the test gave 0 answers but line 2 asked a first question\n      shown:\n        hi\n";
+    assert_eq!(out, want);
+}

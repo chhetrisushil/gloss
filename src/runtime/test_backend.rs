@@ -5,7 +5,7 @@
 use super::asm::Asm;
 use super::report::report_title;
 use super::test_state::{ANSWERS, FAIL_BYTES, FAIL_LEN, FAILING, SHOWN, SHOWN_LEN, get, set};
-use crate::ir::Cond::{Le, Ne};
+use crate::ir::Cond::{Eq, Gt, Le, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Data, Function, Global, Inst::*, Prim};
 
@@ -138,6 +138,59 @@ fn test_input() -> Function {
     s.finish("test_input", 2, 0)
 }
 
+/// `test_ask_fail(line, given, asked)`: fails with `the test gave <given> answer[s] but line
+/// <line> asked a <ordinal> question`; `asked` is the number of the question, 1 up. Past the
+/// tenth, ` asked question number <asked>` stands in for the ordinal.
+fn test_ask_fail() -> Function {
+    use super::{ANSWER, ASKED_A, ASKED_NUMBER, BUT_LINE, FIRST_ORDINAL, GAVE, PLURAL_S, QUESTION};
+    let mut s = Asm::default();
+    let (one, number, done, end) = (s.label(), s.label(), s.label(), s.label());
+    s.call("flush");
+    s.push_text(GAVE);
+    s.call("err_text");
+    s.push_arg(2);
+    s.call("err_int");
+    s.push_text(ANSWER);
+    s.call("err_text");
+    s.i(LoadArg(A, 2));
+    s.i(Const(B, 1));
+    s.jump_if(Eq, one);
+    s.push_text(PLURAL_S);
+    s.call("err_text");
+    s.i(Mark(one));
+    s.push_text(BUT_LINE);
+    s.call("err_text");
+    s.push_arg(1);
+    s.call("err_int");
+    s.i(LoadArg(A, 3));
+    s.i(Const(B, 10));
+    s.jump_if(Gt, number);
+    s.push_text(ASKED_A);
+    s.call("err_text");
+    for k in 1..=10 {
+        let next = s.label();
+        s.i(LoadArg(A, 3));
+        s.i(Const(B, k));
+        s.jump_if(Ne, next);
+        s.push_text(FIRST_ORDINAL + k as u32 - 1);
+        s.call("err_text");
+        s.i(Jump(done));
+        s.i(Mark(next));
+    }
+    s.i(Mark(done));
+    s.push_text(QUESTION);
+    s.call("err_text");
+    s.i(Jump(end));
+    s.i(Mark(number));
+    s.push_text(ASKED_NUMBER);
+    s.call("err_text");
+    s.push_arg(3);
+    s.call("err_int");
+    s.i(Mark(end));
+    s.call("test_fail");
+    s.finish("test_ask_fail", 3, 0)
+}
+
 /// The test versions, appended after the real routines that are kept.
 pub fn routines() -> Vec<Function> {
     vec![
@@ -147,5 +200,6 @@ pub fn routines() -> Vec<Function> {
         test_fail(),
         test_expect(),
         test_input(),
+        test_ask_fail(),
     ]
 }
