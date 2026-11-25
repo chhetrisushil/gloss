@@ -34,6 +34,7 @@ pub enum Mode {
 /// the code so far.
 pub(crate) struct Lowerer<'a> {
     pub module: &'a mut Module,
+    pub mode: Mode,
     pub src: &'a Source,
     pub program: &'a Program,
     pub called: Vec<String>,
@@ -95,7 +96,7 @@ impl<'a> Lowerer<'a> {
     /// A lowerer for a function whose variables are `vars` and `loops`, reading `inputs` by
     /// position.
     fn new(
-        module: &'a mut Module,
+        (module, mode): (&'a mut Module, Mode),
         (src, program, types): (&'a Source, &'a Program, &'a TypeInfo),
         (vars, loops): (&[(String, Ty, u32)], &[LoopVar]),
         inputs: Vec<String>,
@@ -103,6 +104,7 @@ impl<'a> Lowerer<'a> {
         let slots = assign_slots(vars, loops);
         Lowerer {
             module,
+            mode,
             src,
             program,
             called: Vec::new(),
@@ -135,7 +137,7 @@ impl<'a> Lowerer<'a> {
 }
 
 fn lower_feature(
-    module: &mut Module,
+    (module, mode): (&mut Module, Mode),
     context: (&Source, &Program, &TypeInfo),
     feature: &FeatureDecl,
     called: &mut Vec<String>,
@@ -144,7 +146,7 @@ fn lower_feature(
     let info = types.features.get(&feature.name);
     let (vars, loops) = info.map_or((&[][..], &[][..]), |i| (&i.vars[..], &i.loops[..]));
     let inputs = feature.needs.iter().map(|i| i.name.clone()).collect();
-    let mut l = Lowerer::new(module, context, (vars, loops), inputs);
+    let mut l = Lowerer::new((module, mode), context, (vars, loops), inputs);
     l.stmts(&feature.body)?;
     if info.is_some_and(|i| !i.gives.is_empty()) {
         l.fall_off_end(&feature.name);
@@ -242,12 +244,12 @@ fn lower_program(
     let mut called = vec!["_start".to_string()];
     let context = (src, program, types);
     for feature in program.features() {
-        let f = lower_feature(&mut module, context, feature, &mut called)?;
+        let f = lower_feature((&mut module, mode), context, feature, &mut called)?;
         module.functions.push(f);
     }
     if mode == Mode::Test {
         for (i, test) in program.tests().enumerate() {
-            let f = test::lower_test(&mut module, context, i, test, &mut called)?;
+            let f = test::lower_test((&mut module, mode), context, i, test, &mut called)?;
             module.functions.push(f);
         }
     }

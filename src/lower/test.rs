@@ -1,5 +1,5 @@
 //! Test bodies: each test is lowered to a function `t_<i>` of no inputs, in source order.
-use super::Lowerer;
+use super::{Lowerer, Mode};
 use crate::ast::program::{Program, TestDecl};
 use crate::diag::Diagnostic;
 use crate::ir::{Function, Inst, Module};
@@ -13,14 +13,19 @@ pub(super) fn test_name(i: usize) -> String {
 /// Lowers test `i`, finished as a feature is: its failure blocks, its frame and the routines
 /// it calls.
 pub(super) fn lower_test(
-    module: &mut Module,
+    (module, mode): (&mut Module, Mode),
     context: (&Source, &Program, &crate::check::TypeInfo),
     i: usize,
     test: &TestDecl,
     called: &mut Vec<String>,
 ) -> Result<Function, Diagnostic> {
     let info = &context.2.tests[i];
-    let mut l = Lowerer::new(module, context, (&info.vars, &info.loops), Vec::new());
+    let mut l = Lowerer::new(
+        (module, mode),
+        context,
+        (&info.vars, &info.loops),
+        Vec::new(),
+    );
     l.stmts(&test.body)?;
     l.emit(Inst::Return);
     let (slots, body) = l.finish(called);
