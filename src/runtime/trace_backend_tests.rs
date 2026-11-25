@@ -251,3 +251,64 @@ fn stray_continuation_bytes_after_a_whole_character_never_outgrow_the_carry() {
     piece.extend([0x80; 12]);
     assert_eq!(message(&[&piece]), format!("À{}", bad.repeat(11)));
 }
+
+/// A `write_loop` that writes the digit of its descriptor to standard output, so the order of
+/// the writes shows in the output.
+fn marking_write_loop() -> Function {
+    let body = vec![
+        Enter(0),
+        LoadArg(A, 1),
+        AddImm(A, i32::from(b'0')),
+        Push(A),
+        Const(A, 1),
+        Push(A),
+        StackPointer(A),
+        AddImm(A, 8),
+        Push(A),
+        Const(A, 1),
+        Push(A),
+        System(Prim::Write),
+        Pop(B),
+        Pop(B),
+        Const(A, 0),
+        Return,
+    ];
+    Function {
+        name: "write_loop".into(),
+        params: 3,
+        slots: 0,
+        body,
+    }
+}
+
+#[test]
+fn a_notice_on_fd_2_flushes_events_first() {
+    // A pending event (text 1 in the buffer), then a notice on descriptor 2 (text 0).
+    let pending = [text(1), vec![Call("out_text".into()), Const(A, 2), Push(A)]].concat();
+    let notice = [
+        text(0),
+        vec![Const(A, 1), Push(A), Call("write_all".into())],
+    ]
+    .concat();
+    let mut m = program_for(Backend::Trace, [pending, notice].concat(), &[b"n", b"e"]);
+    let at = m
+        .functions
+        .iter()
+        .position(|f| f.name == "write_loop")
+        .unwrap();
+    m.functions[at] = marking_write_loop();
+    let o = run(&m);
+    // `1` is the flush of the event, `2` the notice; without the flush only `2` appears.
+    assert_eq!((o.status, o.stdout), (0, b"12".to_vec()));
+}
+
+#[test]
+fn an_internal_error_after_events_leaves_only_whole_events_on_stdout() {
+    let event = [text(1), vec![Call("out_text".into())]].concat();
+    let body = [event, err_text(0), vec![Call("fail_end".into())]].concat();
+    let (status, out, err) = outcome(body, &[b"internal error", b"{\"line\":1}\n"]);
+    assert_eq!(
+        (status, out.as_str(), err.as_str()),
+        (2, "{\"line\":1}\n", "internal error\n")
+    );
+}

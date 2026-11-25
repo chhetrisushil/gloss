@@ -24,8 +24,9 @@ fn put_word(s: &mut Asm, offset: i32, n: i64) {
 }
 
 /// `write_all(fd, addr, len)`: descriptor 2 while `FAILING` is the failure message, which goes
-/// into the event through `fail_piece` (escaped, a cut character kept whole); anything
-/// else takes the real loop.
+/// into the event through `fail_piece` (escaped, a cut character kept whole); descriptor 2
+/// otherwise is a notice, so the events pending reach standard output first; anything else
+/// takes the real loop.
 fn write_all() -> Function {
     let mut s = Asm::default();
     let (real, failing) = (s.label(), s.label());
@@ -35,6 +36,7 @@ fn write_all() -> Function {
     get(&mut s, A, FAILING);
     s.i(Const(B, 0));
     s.jump_if(Ne, failing);
+    s.call("flush");
     s.i(Mark(real));
     s.push_arg(1);
     s.push_arg(2);
