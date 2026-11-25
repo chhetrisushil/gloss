@@ -234,6 +234,41 @@ impl Lowerer<'_> {
         self.ev_close();
     }
 
+    /// Writes the `file` event of `action` on table `index`, once it has succeeded: the table's
+    /// name, its file's display name and the row count read from the table's list.
+    pub(super) fn file_event(&mut self, index: usize, action: &str) {
+        if self.mode != Mode::Trace {
+            return;
+        }
+        let table = self
+            .program
+            .tables()
+            .nth(index)
+            .expect("a table of that index");
+        let (name, path) = (
+            table.name.clone(),
+            crate::permissions::display_name(&table.path),
+        );
+        let rows = self.new_temp();
+        self.load_table(index);
+        self.emit(Inst::Load {
+            to: Reg::A,
+            base: Reg::A,
+            offset: 0,
+        });
+        self.emit(Inst::StoreSlot(rows, Reg::A));
+        self.ev_open(self.line, "file");
+        self.ev_key("table");
+        self.ev_fixed_text(&name);
+        self.ev_key("file");
+        self.ev_fixed_text(&path);
+        self.ev_key("action");
+        self.ev_fixed_text(action);
+        self.ev_key("rows");
+        self.ev_int_from_slot(rows);
+        self.ev_close();
+    }
+
     /// Writes the `check` event of `cond`, whose truth is in `a`: the condition's text, the
     /// variables and field reads it names read again now (a plain load, never a call or an
     /// item, so nothing runs twice or fails), and the result. Leaves the truth in `a`.
