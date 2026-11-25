@@ -127,6 +127,37 @@ fn test(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32
     }
 }
 
+/// The steps `build` and `trace` share: diagnostics, the `.gloss` clash rule, the `--allow`
+/// flags and the file approval. `Err(status)` stops the command.
+fn prepare(
+    path: &Path,
+    name: &str,
+    text: &str,
+    options: &BuildOptions,
+    prompt: &mut dyn Prompt,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<crate::Checked, i32> {
+    let (mut diagnostics, checked) = crate::check_program(text);
+    let clashes = executable_clashes(name, text, &diagnostics);
+    diagnostics.extend(clashes);
+    crate::diag::sort(&mut diagnostics);
+    for d in &diagnostics {
+        let _ = writeln!(err, "{}", d.render());
+    }
+    if diagnostics.iter().any(|d| d.is_error()) {
+        return Err(3);
+    }
+    let checked = checked.ok_or(3)?;
+    let entries = checked.permissions();
+    crate::approve::check_flags(&entries, &options.allow, err).map_err(|_| 3)?;
+    if !entries.is_empty() {
+        let _ = out.write_all(crate::permissions::render(&entries).as_bytes());
+        crate::approve::approve(path, name, &entries, &options.allow, prompt, out, err)?;
+    }
+    Ok(checked)
+}
+
 fn build(
     path: &Path,
     name: &str,
@@ -136,38 +167,16 @@ fn build(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> i32 {
-    let (mut diagnostics, checked) = crate::check_program(text);
-    let clashes = executable_clashes(name, text, &diagnostics);
-    diagnostics.extend(clashes);
-    crate::diag::sort(&mut diagnostics);
-    for d in &diagnostics {
-        let _ = writeln!(err, "{}", d.render());
-    }
-    if diagnostics.iter().any(|d| d.is_error()) {
-        return 3;
-    }
-    let entries = checked
-        .as_ref()
-        .map(|c| c.permissions())
-        .unwrap_or_default();
-    if crate::approve::check_flags(&entries, &options.allow, err).is_err() {
-        return 3;
-    }
-    if !entries.is_empty() {
-        let _ = out.write_all(crate::permissions::render(&entries).as_bytes());
-        let approved =
-            crate::approve::approve(path, name, &entries, &options.allow, prompt, out, err);
-        if let Err(status) = approved {
-            return status;
-        }
-    }
-    let bytes = match checked.map(|c| c.executable()) {
-        Some(Ok(bytes)) => bytes,
-        Some(Err(d)) => {
+    let checked = match prepare(path, name, text, options, prompt, out, err) {
+        Ok(checked) => checked,
+        Err(status) => return status,
+    };
+    let bytes = match checked.executable() {
+        Ok(bytes) => bytes,
+        Err(d) => {
             let _ = writeln!(err, "{}", d.render());
             return 3;
         }
-        None => return 3,
     };
     let executable = path.with_extension("");
     if let Err(e) = write_atomically(&executable, &bytes, Some(0o755)) {
