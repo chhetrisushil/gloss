@@ -1,0 +1,3 @@
+feature start
+  ask "Word?" into w
+  show w
