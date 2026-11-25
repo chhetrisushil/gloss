@@ -589,66 +589,58 @@ fn a_failing_program_exits_1() {
     assert!(out.ends_with("0 passed, 1 failed\n"), "{out}");
 }
 
-const LINUX_X86: bool = cfg!(all(target_os = "linux", target_arch = "x86_64"));
-
 /// The program of the trace tests: a call, a set, an if and a show.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const TRACED: &str = "feature double\n  needs n as number\n  give n * 2\n\nfeature start\n  set r to double with 21\n  if r is greater than 5\n    show \"big\"\n";
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 fn trace_narrates_and_writes_the_trace_file() {
-    if !LINUX_X86 {
-        return;
-    }
     let p = temp_file("tracenarrates", TRACED);
     let (code, out, err) = gloss(&["trace", p.to_str().unwrap()]);
-    assert_eq!((code, err.as_str()), (0, ""));
-    assert!(
-        out.contains("line 6: calling double with n = 21\n"),
-        "{out}"
+    let narration = "line 6: calling double with n = 21\nline 6: double gives 42\nline 6: r is 42\nline 7: 42 is greater than 5, so the block runs\nbig\n";
+    assert_eq!((code, out.as_str(), err.as_str()), (0, narration, ""));
+    let events = concat!(
+        "{\"line\":6,\"event\":\"enter\",\"feature\":\"double\",\"inputs\":{\"n\":{\"number\":\"21\"}}}\n",
+        "{\"line\":6,\"event\":\"leave\",\"feature\":\"double\",\"result\":{\"number\":\"42\"}}\n",
+        "{\"line\":6,\"event\":\"set\",\"name\":\"r\",\"to\":{\"number\":\"42\"}}\n",
+        "{\"line\":7,\"event\":\"check\",\"condition\":\"r is greater than 5\",\"values\":{\"r\":{\"number\":\"42\"}},\"result\":\"yes\"}\n",
+        "{\"line\":8,\"event\":\"show\",\"text\":\"big\"}\n",
     );
-    assert!(out.contains("line 6: r is 42\n"), "{out}");
-    assert!(
-        out.contains("line 7: 42 is greater than 5, so the block runs\n"),
-        "{out}"
+    assert_eq!(
+        std::fs::read_to_string(p.with_extension("trace")).unwrap(),
+        events
     );
-    assert!(out.ends_with("big\n"), "{out}");
-    let events = std::fs::read_to_string(p.with_extension("trace")).unwrap();
-    assert!(events.lines().count() >= 4, "{events}");
-    assert!(events.lines().all(|l| l.starts_with('{')), "{events}");
-    assert!(events.ends_with('\n'));
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 fn trace_of_a_failure_exits_2() {
-    if !LINUX_X86 {
-        return;
-    }
     let text = "feature start\n  set n to 0\n  set x to 10\n  divide x by n\n";
     let p = temp_file("tracefail", text);
     let (code, out, err) = gloss(&["trace", p.to_str().unwrap()]);
     assert_eq!(code, 2);
-    assert!(out.contains("line 3: x is 10\n"), "{out}");
-    assert!(!err.is_empty());
+    assert_eq!(out, "line 2: n is 0\nline 3: x is 10\n");
+    assert_eq!(err, "line 4: failure 1: dividing by zero (n is 0)\n");
     assert!(p.with_extension("trace").exists());
 }
 
+/// Approval comes before the host check, so this runs on every host.
 #[test]
 fn trace_with_a_table_asks_for_approval() {
-    if !LINUX_X86 {
-        return;
-    }
     let p = tabled("tracenoapproval", "feature start\n  load es\n");
     let (code, out, err) = gloss(&["trace", p.to_str().unwrap()]);
     assert_eq!((code, out.as_str()), (4, LISTED));
-    assert!(err.starts_with("Not approved: e.csv."), "{err}");
-    assert!(!p.with_extension("trace").exists());
+    assert_eq!(
+        err,
+        "Not approved: e.csv. Build in a terminal to answer, or add --allow e.csv.\n"
+    );
+    assert!(!p.with_extension("trace").exists() && !p.with_extension("allow").exists());
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 fn trace_with_allow_runs() {
-    if !LINUX_X86 {
-        return;
-    }
     let p = tabled("traceallow", "feature start\n  show 1\n  load es\n");
     let (code, out, _) = gloss(&["trace", p.to_str().unwrap(), "--allow", "e.csv"]);
     assert_eq!(code, 0, "{out}");
@@ -658,14 +650,25 @@ fn trace_with_allow_runs() {
     assert!(p.with_extension("trace").exists());
 }
 
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 #[test]
 fn trace_refuses_off_linux() {
-    if LINUX_X86 {
-        return;
-    }
     let p = temp_file("traceoff", "feature start\n  show 1\n");
     let (code, out, err) = gloss(&["trace", p.to_str().unwrap()]);
     assert_eq!((code, out.as_str()), (3, ""));
     assert_eq!(err, "gloss trace runs programs on Linux only\n");
     assert!(!p.with_extension("trace").exists());
+}
+
+/// Off Linux the approval is still recorded before the refusal.
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+#[test]
+fn trace_records_the_approval_before_refusing_off_linux() {
+    let p = tabled("traceoffallow", "feature start\n  load es\n");
+    let (code, _, err) = gloss(&["trace", p.to_str().unwrap(), "--allow", "e.csv"]);
+    assert_eq!(
+        (code, err.as_str()),
+        (3, "gloss trace runs programs on Linux only\n")
+    );
+    assert!(p.with_extension("allow").exists());
 }
