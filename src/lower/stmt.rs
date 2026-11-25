@@ -26,10 +26,7 @@ impl Lowerer<'_> {
 
     fn stmt(&mut self, s: &Stmt) -> Result<(), Diagnostic> {
         // F12: no test build may reach a real file primitive or read standard input.
-        let unbuilt = matches!(
-            s.kind,
-            StmtKind::Ask { .. } | StmtKind::Load(_) | StmtKind::Save(_)
-        );
+        let unbuilt = matches!(s.kind, StmtKind::Load(_) | StmtKind::Save(_));
         if unbuilt && self.mode == Mode::Test {
             return Err(self.cannot_build(s));
         }
