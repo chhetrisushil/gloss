@@ -1441,18 +1441,30 @@ fn a_trace_module_has_no_test_state() {
 
 #[test]
 fn real_and_test_builds_have_no_trace_code() {
-    let src = Source::new(EXPENSE_TRACKER);
-    let program = crate::parse_source(&src).expect("parses");
-    let types = check(&program, &src).types.expect("checks clean");
-    let real = lower(&program, &types, &src).unwrap();
-    let test = super::lower_tests(&program, &types, &src).unwrap();
+    // The tracker, and a small program that asks, shows text and a list, and can fail.
+    let small = "feature start\n  ask \"q\" into a\n  set xs to list of 1, 2\n  show a, xs\n  \
+                 set n to item 5 of xs\n";
     let trace_routines = crate::runtime::trace_backend::routines();
-    for m in [&real, &test] {
-        assert!(!uses_global(m, crate::ir::Global::TraceState));
-        // The real `out_bytes` shares a name with the trace one, so compare whole routines.
-        let trace_one = |f: &crate::ir::Function| trace_routines.iter().any(|r| r == f);
-        assert!(!m.functions.iter().any(trace_one));
-        assert!(!m.functions.iter().any(|f| f.name == "json_bytes"));
+    let json_names: Vec<String> = crate::runtime::json::routines()
+        .into_iter()
+        .map(|f| f.name)
+        .collect();
+    assert!(json_names.len() >= 4, "{json_names:?}");
+    for text in [EXPENSE_TRACKER, small] {
+        let src = Source::new(text);
+        let program = crate::parse_source(&src).expect("parses");
+        let types = check(&program, &src).types.expect("checks clean");
+        let real = lower(&program, &types, &src).unwrap();
+        let test = super::lower_tests(&program, &types, &src).unwrap();
+        for m in [&real, &test] {
+            assert!(!uses_global(m, crate::ir::Global::TraceState));
+            // The real `out_bytes` shares a name with the trace one, so compare whole routines.
+            let trace_one = |f: &crate::ir::Function| trace_routines.iter().any(|r| r == f);
+            assert!(!m.functions.iter().any(trace_one));
+            // Every JSON routine (`json_bytes`, `json_value`, `json_text`, `json_int`).
+            let json_one = |f: &crate::ir::Function| json_names.contains(&f.name);
+            assert!(!m.functions.iter().any(json_one));
+        }
     }
 }
 

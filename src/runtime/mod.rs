@@ -20,7 +20,7 @@ mod heap_tests;
 mod input;
 #[cfg(test)]
 mod input_tests;
-mod json;
+pub(crate) mod json;
 #[cfg(test)]
 mod json_tests;
 mod lists;
