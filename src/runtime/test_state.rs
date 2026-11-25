@@ -5,9 +5,11 @@
 //! failure text's length, and from word 8 its `FAIL_CAP` bytes. It is zero at the start.
 
 use super::asm::Asm;
-use crate::ir::Cond::{Ge, Le, Ne};
+use crate::ir::Cond::{Ge, Gt, Le, Ne};
 use crate::ir::Reg::{A, B};
-use crate::ir::{Data, Function, Global, Inst::*, IntOp, Reg, Shift};
+use crate::ir::{
+    Data, Function, Global, IO_BUF_BYTES, Inst::*, IntOp, Reg, Shift, TEST_STATE_BYTES,
+};
 
 /// The address of the title text of the test being run.
 pub const TITLE: u32 = 0;
@@ -19,7 +21,11 @@ pub const FAIL_LEN: u32 = 7;
 /// The first of `FAIL_CAP` bytes of failure text.
 pub const FAIL_BYTES: u32 = 8;
 pub const FAIL_CAP: i64 = 1792;
-pub const SHOWN_FIRST: i64 = 256;
+/// The room `shown_init` reserves, and the free room every non-failing `shown_add` leaves: a
+/// failing flush (at most the output buffer) then always fits and never allocates.
+pub const SHOWN_FIRST: i64 = IO_BUF_BYTES as i64;
+
+const _: () = assert!(FAIL_BYTES as usize * 8 + FAIL_CAP as usize <= TEST_STATE_BYTES);
 
 /// Loads word `i` of the state into `to`.
 fn get(s: &mut Asm, to: Reg, i: u32) {
@@ -106,7 +112,8 @@ fn fail_add() -> Function {
     s.finish("fail_add", 2, 1)
 }
 
-/// `shown_init()`: allocates the shown buffer, empty, with `SHOWN_FIRST` bytes of room.
+/// `shown_init()`: allocates the shown buffer, empty, with `SHOWN_FIRST` bytes of room. The
+/// runtime has no current source line to name, so an out of memory here says line 0.
 fn shown_init() -> Function {
     let mut s = Asm::default();
     s.push_const(8 + SHOWN_FIRST);
@@ -118,16 +125,22 @@ fn shown_init() -> Function {
     s.finish("shown_init", 0, 0)
 }
 
-/// `shown_add(addr, len)`: appends to the shown bytes. The first one allocates the buffer
-/// (`shown_init`) unless `FAILING`, a full one is grown to at least twice the room. While
-/// `FAILING` it neither allocates nor grows: bytes that do not fit are dropped.
-/// Slots: 1 the buffer, 2 the length it will have, 3 the room `grow_text` doubles.
+/// `shown_add(addr, len)`: appends to the shown bytes; nothing for no bytes. The first one
+/// allocates the buffer (`shown_init`) unless `FAILING`. A non-failing one grows the buffer
+/// until `SHOWN_FIRST` bytes of room are free after it (line 0 as in `shown_init`). A failing
+/// one never allocates or grows: bytes that do not fit are dropped, which the room kept free
+/// makes unreachable for a flush; it guards the case of no buffer.
+/// Slots: 1 the buffer, 2 the length it will have, 3 the room `grow_text` doubles, 4 the
+/// length it needs room for.
 fn shown_add() -> Function {
     let mut s = Asm::default();
-    let (have, fits, doubled, done) = (s.label(), s.label(), s.label(), s.label());
+    let (have, failing, fits, doubled, done) =
+        (s.label(), s.label(), s.label(), s.label(), s.label());
+    s.i(LoadArg(A, 2));
+    s.i(Const(B, 0));
+    s.jump_if(Le, done);
     get(&mut s, A, SHOWN);
     s.i(StoreSlot(1, A));
-    s.i(Const(B, 0));
     s.jump_if(Ne, have);
     get(&mut s, A, FAILING);
     s.jump_if(Ne, done);
@@ -139,17 +152,20 @@ fn shown_add() -> Function {
     s.i(LoadArg(B, 2));
     s.i(Int(IntOp::Add));
     s.i(StoreSlot(2, A));
-    get(&mut s, B, SHOWN_ROOM);
-    s.jump_if(Le, fits);
     get(&mut s, A, FAILING);
     s.i(Const(B, 0));
-    s.jump_if(Ne, done);
-    get(&mut s, A, SHOWN_ROOM);
+    s.jump_if(Ne, failing);
+    s.i(LoadSlot(A, 2));
+    s.i(AddImm(A, SHOWN_FIRST as i32));
+    s.i(StoreSlot(4, A));
+    get(&mut s, B, SHOWN_ROOM);
+    s.jump_if(Le, fits);
+    s.i(Move { to: A, from: B });
     s.i(StoreSlot(3, A));
     s.i(Shift(Shift::Left, 1));
-    s.i(LoadSlot(B, 2));
+    s.i(LoadSlot(B, 4));
     s.jump_if(Ge, doubled);
-    s.i(LoadSlot(A, 2));
+    s.i(LoadSlot(A, 4));
     s.i(AddImm(A, 1));
     s.i(Shift(Shift::Right, 1));
     s.i(StoreSlot(3, A));
@@ -165,6 +181,11 @@ fn shown_add() -> Function {
     s.i(LoadSlot(A, 3));
     s.i(Shift(Shift::Left, 1));
     set(&mut s, SHOWN_ROOM, A, B);
+    s.i(Jump(fits));
+    s.i(Mark(failing));
+    s.i(LoadSlot(A, 2));
+    get(&mut s, B, SHOWN_ROOM);
+    s.jump_if(Gt, done);
     s.i(Mark(fits));
     s.push_arg(1);
     s.i(LoadSlot(A, 1));
@@ -183,7 +204,7 @@ fn shown_add() -> Function {
         from: A,
     });
     s.i(Mark(done));
-    s.finish("shown_add", 2, 3)
+    s.finish("shown_add", 2, 4)
 }
 
 pub fn routines() -> Vec<Function> {
