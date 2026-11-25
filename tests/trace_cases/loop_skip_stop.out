@@ -1,0 +1,13 @@
+line 2: i is 1
+line 3: 1 is 2 is no, so the block is skipped
+line 5: 1 is 4 is no, so the block is skipped
+1
+line 2: i is 2
+line 3: 2 is 2, so the block runs
+line 2: i is 3
+line 3: 3 is 2 is no, so the block is skipped
+line 5: 3 is 4 is no, so the block is skipped
+3
+line 2: i is 4
+line 3: 4 is 2 is no, so the block is skipped
+line 5: 4 is 4, so the block runs
