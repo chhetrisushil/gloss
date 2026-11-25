@@ -18,7 +18,7 @@
 ## Global constraints
 
 - [D1] Rust 2024 edition, `rust-version = "1.87"`. [D3] No dependencies of any kind. [D4] One crate.
-- [D18] Nothing outside `src/target/` names an x86-64 register, instruction, system-call number or Linux flag value, or decodes a wait status. `lower`, `runtime` and `irsim` speak only IR.
+- [D18] Generated code, the IR, `lower`, `runtime` and `irsim` speak only IR: none names an x86-64 register, instruction, system-call number or Linux flag value, or decodes a wait status. Only `src/target/` does that for generated code. Host code (`testrun`) may decode an `ExitStatus`.
 - [D19] Every runtime routine is written in IR. The only new target-specific code is `Fork` and `Wait` (Task 3).
 - [D21] `irsim` is `cfg(test)` only; the real executable is the authority; both agree on every `tests/test_cases` case, byte for byte on standard output, standard error and status.
 - [D31] The test executable's entry is the driver; `start` runs only when a test says `run start`. Each child starts from the parent's untouched state.
