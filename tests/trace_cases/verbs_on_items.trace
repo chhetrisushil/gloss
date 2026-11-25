@@ -1,0 +1,4 @@
+{"line":6,"event":"set","name":"prices","to":{"list":[{"number":"4"},{"number":"9"},{"number":"2"}]}}
+{"line":7,"event":"set","name":"expenses","to":{"list":[{"record":"Expense","fields":{"name":{"text":"Rent"},"amount":{"number":"10"}}}]}}
+{"line":8,"event":"set","name":"prices","item":2,"from":{"number":"9"},"to":{"number":"8"}}
+{"line":9,"event":"set","name":"expenses","item":1,"field":"amount","from":{"number":"10"},"to":{"number":"2.5"}}
