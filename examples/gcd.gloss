@@ -13,3 +13,12 @@ feature start
   show "gcd of 17 and 5 is ", (gcd with 17, 5)
   show "lcm of 4 and 6 is ", (lcm with 4, 6)
   show "lcm of 21 and 6 is ", (lcm with 21, 6)
+
+test "gcd finds the greatest common divisor"
+  expect gcd with 12, 18 is 6
+
+test "gcd of two numbers with nothing in common is 1"
+  expect gcd with 7, 13 is 1
+
+test "lcm is the smallest number both divide"
+  expect lcm with 4, 6 is 12
