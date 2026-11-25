@@ -221,8 +221,13 @@ fn routines_swapping(backend: Backend, replaced: &[&str], extra: Vec<Function>) 
     for f in &extra {
         assert!(
             replaced.contains(&f.name.as_str()) || !all.iter().any(|r| r.name == f.name),
-            "test routine `{}` has a real routine's name but does not replace it: \
+            "{} routine `{}` has a real routine's name but does not replace it: \
              add_reachable takes the first of a name and would silently use the real one",
+            match backend {
+                Backend::Real => "real",
+                Backend::Test => "test",
+                Backend::Trace => "trace",
+            },
             f.name
         );
     }

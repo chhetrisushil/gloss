@@ -127,7 +127,10 @@ fn only_the_reachable_routines_are_added_once_each() {
     );
     let mut names: Vec<&str> = m.functions.iter().map(|f| f.name.as_str()).collect();
     names.sort();
-    assert_eq!(names, ["flush", "out_bytes", "out_text", "write_all"]);
+    assert_eq!(
+        names,
+        ["buf_bytes", "flush", "out_bytes", "out_text", "write_all"]
+    );
 }
 
 #[test]
@@ -1132,4 +1135,44 @@ fn the_trace_backend_starts_empty() {
     assert!(trace_backend::REPLACED.is_empty());
     assert!(trace_backend::routines().is_empty());
     assert_eq!(routines_for(Backend::Trace), routines());
+}
+
+#[test]
+#[should_panic(expected = "trace routine `flush`")]
+fn a_trace_extra_that_collides_with_a_real_routine_it_does_not_replace_is_refused() {
+    let extra = vec![stub_named("flush")];
+    super::routines_swapping(
+        super::Backend::Trace,
+        &super::trace_backend::REPLACED,
+        extra,
+    );
+}
+
+#[test]
+#[should_panic(expected = "`flsuh` is replaced but is not a real routine")]
+fn a_trace_replaced_name_that_is_no_real_routine_is_refused() {
+    super::routines_swapping(super::Backend::Trace, &["flsuh"], vec![]);
+}
+
+#[test]
+fn buf_bytes_flushes_when_full() {
+    // 50 writes of 100 bytes cross the 4096-byte buffer; every byte arrives, in order.
+    let text: Vec<u8> = (0..100).map(|i| i as u8).collect();
+    let one = [
+        AddressOf(A, Data::Text(0)),
+        AddImm(A, 8),
+        Push(A),
+        Const(A, 100),
+        Push(A),
+        Call("out_bytes".into()),
+    ];
+    let mut body: Vec<Inst> = one.iter().cloned().cycle().take(one.len() * 50).collect();
+    body.push(Call("flush".into()));
+    let o = run(&program(body, &[&text]));
+    assert_eq!(o.status, 0);
+    assert!(
+        o.stdout == text.repeat(50),
+        "{} bytes arrived",
+        o.stdout.len()
+    );
 }

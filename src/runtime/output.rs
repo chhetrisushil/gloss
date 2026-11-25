@@ -94,9 +94,9 @@ fn flush() -> Function {
     s.finish("flush", 0, 0)
 }
 
-/// `out_bytes(addr, len)`: appends to the buffer; a write that cannot fit even in an empty
+/// `buf_bytes(addr, len)`: appends to the buffer; a write that cannot fit even in an empty
 /// buffer goes straight out after a flush.
-fn out_bytes() -> Function {
+fn buf_bytes() -> Function {
     let mut s = Asm::default();
     let (copy, copying, copied) = (s.label(), s.label(), s.label());
     s.gload(A, Global::OutLen);
@@ -151,7 +151,17 @@ fn out_bytes() -> Function {
     s.i(LoadArg(B, 2));
     s.i(Int(IntOp::Add));
     s.gstore(Global::OutLen, A, B);
-    s.finish("out_bytes", 2, 3)
+    s.finish("buf_bytes", 2, 3)
+}
+
+/// `out_bytes(addr, len)`: the one place bytes enter the output buffer. The real one writes
+/// them as they are; a trace build replaces it.
+fn out_bytes() -> Function {
+    let mut s = Asm::default();
+    s.push_arg(1);
+    s.push_arg(2);
+    s.call("buf_bytes");
+    s.finish("out_bytes", 2, 0)
 }
 
 fn out_text() -> Function {
@@ -278,6 +288,7 @@ pub fn routines() -> Vec<Function> {
         write_all(),
         file_write(),
         flush(),
+        buf_bytes(),
         out_bytes(),
         out_text(),
         err_text(),
