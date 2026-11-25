@@ -332,6 +332,27 @@ pub struct Module {
 }
 
 impl Module {
+    /// True when an instruction opens, renames, syncs or changes the mode of a file, or reads
+    /// a descriptor. The test executable must have none (D36), so the sweeps assert it.
+    pub fn has_file_primitive(&self) -> bool {
+        // No wildcard: a new primitive must be put on one side here.
+        let reaches_files = |p: Prim| match p {
+            Prim::Open(_) | Prim::Rename | Prim::Sync | Prim::Mode | Prim::SetMode | Prim::Read => {
+                true
+            }
+            Prim::Write
+            | Prim::Map
+            | Prim::Exit
+            | Prim::StackSize
+            | Prim::Close
+            | Prim::Fork
+            | Prim::Wait
+            | Prim::DefaultChildSignal => false,
+        };
+        let mut insts = self.functions.iter().flat_map(|f| &f.body);
+        insts.any(|i| matches!(i, Inst::System(p) if reaches_files(*p)))
+    }
+
     /// Adds a text constant, or finds it: the same bytes give the same index.
     pub fn text(&mut self, bytes: &[u8]) -> u32 {
         let index = match self.texts.iter().position(|t| t == bytes) {

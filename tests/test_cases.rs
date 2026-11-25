@@ -70,7 +70,16 @@ fn every_test_case_gives_the_expected_output() {
     for case in cases() {
         let name = case.file_stem().unwrap().to_str().unwrap();
         let text = std::fs::read_to_string(&case).unwrap();
-        let bytes = gloss::build_test_executable(&text)
+        let checked = gloss::check_program(&text)
+            .1
+            .unwrap_or_else(|| panic!("{name}: does not check clean"));
+        let module = checked.test_module().unwrap();
+        assert!(
+            !module.has_file_primitive(),
+            "{name} reaches a file primitive"
+        );
+        let bytes = checked
+            .test_executable()
             .unwrap_or_else(|d| panic!("{name}: does not build: {d:?}"));
         let exe = dir.0.join(name);
         std::fs::write(&exe, bytes).unwrap();
