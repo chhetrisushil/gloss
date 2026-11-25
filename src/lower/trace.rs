@@ -58,8 +58,6 @@ impl Lowerer<'_> {
     }
 
     /// Writes `s` as a JSON string, with its quotes, escaped by the compiler.
-    // First used by the events of later tasks.
-    #[allow(dead_code)]
     pub fn ev_fixed_text(&mut self, s: &str) {
         self.ev_raw(&format!("\"{}\"", json_escape_host(s)));
     }
@@ -75,6 +73,15 @@ impl Lowerer<'_> {
             self.emit(Inst::AddressOf(Reg::A, Data::Desc(desc)));
             self.emit(Inst::Push(Reg::A));
             self.call("json_value");
+        }
+    }
+
+    /// Writes the text in `slot` as a JSON string, with its quotes (`json_text`).
+    pub fn ev_text_from_slot(&mut self, slot: u32) {
+        if self.mode == Mode::Trace {
+            self.emit(Inst::LoadSlot(Reg::A, slot));
+            self.emit(Inst::Push(Reg::A));
+            self.call("json_text");
         }
     }
 

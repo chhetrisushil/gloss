@@ -1,0 +1,3 @@
+feature start
+  ask "What would you like?" into drink
+  show "Coming up: ", drink

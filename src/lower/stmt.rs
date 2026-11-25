@@ -85,6 +85,9 @@ impl Lowerer<'_> {
             StmtKind::Ask { question, into } => {
                 self.mark_line(s.line);
                 self.expr(question)?;
+                if self.mode == Mode::Trace {
+                    return self.ask_event(s.line, into);
+                }
                 self.emit(Inst::Push(Reg::A));
                 self.emit(Inst::Const(Reg::A, i64::from(s.line)));
                 self.emit(Inst::Push(Reg::A));
@@ -322,6 +325,29 @@ impl Lowerer<'_> {
         self.set_escaping(false);
         self.set_open(false);
         self.ev_raw("\"");
+        self.ev_close();
+        Ok(())
+    }
+
+    /// A traced `ask`, with the question text in `a`: it goes into a hidden slot first (no user
+    /// code runs while an event is open), `ask` shows it as a `show` event and reads the
+    /// answer, which is stored in the variable, then the `ask` event records both.
+    fn ask_event(&mut self, line: u32, into: &str) -> Result<(), Diagnostic> {
+        let question = self.new_temp();
+        self.emit(Inst::StoreSlot(question, Reg::A));
+        self.emit(Inst::Push(Reg::A));
+        self.emit(Inst::Const(Reg::A, i64::from(line)));
+        self.emit(Inst::Push(Reg::A));
+        self.call("ask");
+        let answer = self.slots[into];
+        self.emit(Inst::StoreSlot(answer, Reg::A));
+        self.ev_open(line, "ask");
+        self.ev_key("name");
+        self.ev_fixed_text(into);
+        self.ev_key("question");
+        self.ev_text_from_slot(question);
+        self.ev_key("answer");
+        self.ev_text_from_slot(answer);
         self.ev_close();
         Ok(())
     }
