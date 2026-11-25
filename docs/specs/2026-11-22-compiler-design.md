@@ -1,7 +1,7 @@
 # Gloss v0 compiler - design spec
 
 - **Date:** 2026-11-22
-- **Status:** built (milestones 1 to 3, section 6); milestone 4 designed (section 4.8, D30–D40), not started; milestones 5–7 not started
+- **Status:** built (milestones 1 to 4, section 6); milestones 5–7 not started
 - **Context:** Implements the language defined in `spec/v0.md` (the *language spec*). This document decides *how* the compiler is built. Where the two disagree about the language, the language spec wins. Where they disagree about the implementation, this document wins.
 - **Plans:** `docs/plans/2026-11-22-compiler-m1-front-end.md` (milestone 1). Milestone 2: `docs/plans/2026-11-23-compiler-m2-codegen.md`. Milestone 3: `docs/plans/2026-11-24-compiler-m3-tables-files.md`. Milestone 4: `docs/plans/2026-11-24-compiler-m4-tests.md`. Later milestones get their own plans.
 
@@ -510,3 +510,92 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 - **Reviews:** the approval logic, `.allow` parsing, open and save paths, symbolic-link handling, safe writing, the new encoder primitives and the CSV reader each had a first review on the top tier.
 
 The milestone ledger (every ruling, review record and carry) is kept in `.superpowers/sdd/2026-11-24-compiler-m3-tables-files/progress.md`.
+
+### Milestone 4 (`gloss test`), finished 2026-11-25, `main` @ 4469cc9 plus the open stack and this documentation
+
+**What shipped:**
+- **`gloss test FILE`.** It checks the program (tests included), builds a test executable with the Test backend, runs it from a private folder (mode 0700, deleted on every path) and passes on its status: 0 all passed, 1 a test failed, 3 a compile error (D37). A program with no tests prints `No tests in x.gloss` and builds nothing.
+- **The driver.** Generated IR forks one child per test, in source order, and waits for it. `Fork`, `Wait` and `DefaultChildSignal` are new IR primitives with `irsim` models (D31, D32). Each child starts from the same untouched heap, tables and globals.
+- **The report.** `pass`/`fail` blocks, a blank line and `N passed, M failed`, written with `Prim::Write` through their own routines (D33). A child that ends other than 0 or 1 is `fail` with `ended without a result (status N)`.
+- **The Test backend.** `add_reachable` takes a `Backend`; `write_all`, `fail_begin`, `fail_end` and `ask` are replaced by name, and `load` and `save` lower to `pretend_read` and `pretend_save`. A 2 KiB test state global holds the title, the `shown` bytes, the input answers, the failing flag, the failure text and the current line.
+- **Statements.** `expect`, `input` (answers must be text), `shown`, `run start`, `ask` from the queue, tables that start empty and cleared, and pretend files that use the real CSV writer and reader (D34–D36).
+- **Tests.** Cases in `tests/test_cases/` run as real executables and under `irsim`; the language spec's §13 program is a case; four examples carry tests that `tests/examples.rs` runs (D39).
+- **Docs.** `spec/v0.md` §9, §10 and §11 describe what the compiler does; the README has a Tests section.
+
+**Pull requests.** #410–#417 are merged (tasks 1 to 5). The rest are stacked branches, not yet opened; their PR numbers are added at merge. Plan #409.
+
+| Task | What | PRs or branches |
+|---|---|---|
+| 1 | `Fork` and `Wait` in the IR | #410 |
+| 2a, 2b | `irsim` models `Fork` and `Wait`; its tests | #411, #412 |
+| 3a, 3b | Linux `fork` and `wait4`; difftests | #413, #414 |
+| 4 | The test-state global | #415 |
+| 5a, 5b | The backend switch; `err_int` through `write_all` | #416, #417 |
+| 6 | Report routines: lines, pass block, summary | `m4/t06a-report-lines`, `t06b-report-pass`, `t06c-report-summary` |
+| 7 | Test state, test backend, `test_expect` | `m4/t07a-test-state` … `t07c-test-expect` (6 branches) |
+| 8 | Test-mode lowering, the driver, `build_test_executable`, SIGCHLD | `m4/t08a-lower-tests` … `t08d-sigchld-real-run` (13 branches) |
+| 9, 10 | `expect`; tables start empty and cleared | `m4/t09-expect`, `m4/t10-tables-cleared` |
+| 11 | `testrun` and the `gloss test` command | `m4/t11a-testrun`, `t11a2-run-program`, `t11a3-run-failures`, `t11b-test-command` |
+| 12, 13 | Test-case harness, `irsim` cases; failure and isolation cases | `m4/t12a-case-harness` … `t13b-isolation-cases` |
+| 14, 15 | `input` text rule; `input` and `ask` | `m4/t14-input-text`, `t15a-input` … `t15c-ask-lowering` |
+| 16, 17 | Ask cases; `shown` | `m4/t16-ask-cases`, `t17-shown`, `t17b-shown-case` |
+| 18, 19 | Split `table_read`; pretend `load` and `save` | `m4/t18-split-table-read`, `t19a-pretend-read` … `t19b2-pretend-save-lowering` |
+| 20 | Pretend-file cases and CSV quirks | `m4/t20a-pretend-cases`, `t20b-pretend-quirks` |
+| 21 | Language spec: tests as built; the §13 program as a case | `m4/t21a-spec-example`, `t21b-spec-text` |
+| 22 | Examples gain tests | `m4/t22a-example-tests`, `t22b-example-tests-2` |
+| 23 | README; this section | `m4/t23a-readme`, `m4/t23b-as-built` |
+
+**Deviations from the decisions above** (rulings are numbered M4-R1 … M4-R17 in the milestone ledger, and the plan's P1–P18 are in the plan):
+- **D38:** `gloss test` refuses unless the host is x86-64 Linux, not "non-Linux" (P6), with the same message and status 3. The refusal comes after the compile errors, so a Mac user still sees them.
+- **D32:** three primitives, not two. `DefaultChildSignal` (`rt_sigaction`, 13) gives `SIGCHLD` its default disposition at the start of the test executable, because an inherited ignored `SIGCHLD` makes every `Wait` fail (M4-R12).
+- **P8 and D31:** the test run is streamed, not captured: standard output and error are piped and copied chunk by chunk (M4-R1, M4-R4), so a hung test still leaves every finished result on screen. Standard input is null.
+- **D18:** reworded to cover generated code, IR, `lower`, the runtime and `irsim` only; the host-side `testrun` decodes `ExitStatus` itself (M4-R4).
+- **D36:** `table_read` and `table_rows` share one `parse_rows` emitter, so each executable holds one parser copy and real builds stay byte-identical (M4-R16).
+- **§4.8 and scan 27:** `tests/examples.rs` runs each example's tests through `build_test_executable` and the runner, not through `gloss test`, which refuses on a host that is not Linux.
+- **D39:** no newline-in-text case in `csv_quirks_round_trip` (M4-R17).
+- **D34 and P7:** failures 6, 7 and 8 cannot occur in a program in a test; they are reachable only from a unit test.
+- **P3:** `input` answers must be text (a checker error otherwise); `spec/v0.md` §9 states it (M4-R5).
+- **Plan:** task 2 became two branches, task 6 three, task 7 six, task 8 thirteen, to stay under the 200-line cap.
+
+**As-built note (task 5).** After 5b, a `write_all` failure while `err_int` writes digits exits 2. Before it, `err_int` used `Prim::Write` for each digit and ignored a failed write. `fail_begin` already used `write_all`.
+
+**Rulings** (final state):
+
+*Plan and process*
+- M4-R1: P8 changed to streaming output before merge; a hung test must leave finished results visible.
+- M4-R2: every proposed ruling in the pre-flight scan (problems 1–28) was accepted as written.
+- M4-R3: `test_begin` allocates the shown buffer, and `test_fail` and `test_expect` flush before setting `FAILING`, so output shown before a failure is kept.
+- M4-R4: §4.8 amended for piped streaming and a null standard input, and D18 reworded (see above).
+- M4-R5: P3 kept; `input` answers are text, and `spec/v0.md` §9 says so.
+- M4-R6: task 1 was reviewed by the controller, not on the top tier; the semantics were reviewed in tasks 2 and 3.
+
+*Fork, wait and `irsim`*
+- M4-R7: `Faults` derives `Clone`, so the child machine can be cloned.
+- M4-R8: `irsim` panics at `Fork` if the parent holds open descriptors, because file offsets would be shared; the driver parent never opens files.
+- M4-R9: the brief's difftest names are cases of `system_programs_agree` plus `wait_decodes_a_signal`; same coverage.
+- M4-R10: `rcx` around `Fork` and `Wait` is pinned only by lowering tests, since QEMU's syscall keeps `rcx`; a native runner would add coverage.
+- M4-R11: the driver checks `Fork`'s result before `Wait`; a negative result is reported lost and `Wait` is never called, because `wait4` with a pid of 0 or less waits for a process group (fixes P14).
+- M4-R12: the test executable resets `SIGCHLD` to default before any fork (the third primitive).
+
+*The test backend*
+- M4-R13: the shown buffer keeps at least `IO_BUF_BYTES` free after every non-failing `shown_add`, so a failing flush always fits without allocating; each test uses 4 KiB more memory.
+- M4-R14: in test builds, lowering stores each statement's line in the state's line word, and growth of `shown` passes that word, so an out-of-memory failure names the `show` line.
+- M4-R15: after a user-feature call returns, lowering stores the caller's line again, so R14 names the line of the `show` and not the callee's last statement.
+
+*Pretend files and cases*
+- M4-R16: `table_read` and `table_rows` share one `parse_rows` emitter (see D36 above).
+- M4-R17: no newline-in-text case; v0 source cannot make text with a line break, and the M3 CSV unit tests cover newline cells.
+
+**Tests:** 844 pass and 1 is ignored (the stress test) at `m4/t22b-example-tests-2` plus the README: 702 unit tests and 142 integration tests in 26 files, from `CARGO_BUILD_JOBS=4 cargo test` on the Mac. They include 153 run cases (`MIN_CASES`, 152 in M3), 17 test cases (`MIN_TEST_CASES`, each run as a real executable and under `irsim`), 11 examples (`MIN_EXAMPLES`) of which 4 carry tests (`MIN_EXAMPLES_WITH_TESTS`). `MIN_TEST_CASES` rose 2, 5, 7, 10, 11, 14, 16, 17 over tasks 12 to 21. The tests of the `gloss test` command that need a Linux host were run in the machine (see below): after the task 11 review fixes `tests/cli.rs` passed 36, `testrun` 14 and `tests/test_runs.rs` 3.
+
+**Known limits and accepted risks:**
+- **A looping test hangs (D40).** v0 has no time limit. Streaming (M4-R1) means the finished tests' results are already on screen.
+- **No `--permissions`.** A test executable leaves out `permissions_text`, so it does not answer `--permissions`.
+- **Signals.** The test executable resets `SIGCHLD` and nothing else. Any other disposition the caller set (an ignored `SIGPIPE`, say) is inherited, and `gloss test` starts it from the compiler's own process.
+- **`ETXTBSY`.** If another thread forks while the executable is written, the file can still be open for writing and the spawn fails with `ETXTBSY`. `gloss test` retries up to 5 times with a backoff from 20 ms to 320 ms. The race itself is not reproduced; the retry path is tested through a seam.
+- **Out-of-memory line cases.** The line named by an out-of-memory failure inside `test_input` and while `shown` grows is pinned only in the IR (M4-R14), not by an end-to-end run.
+- **Linux only (D38).** On a Mac, the tests that start `gloss test` as a program cannot run natively. They are cross-compiled with `CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld cargo test --target x86_64-unknown-linux-musl --no-run` (after `rustup target add x86_64-unknown-linux-musl`) and the printed executables are run in the OrbStack machine with `orb -m gloss-amd64 sh -c "cd <worktree> && ./<exe>"`. The machine has no network or Rust.
+- **Deferred:** `trace` (M5), `explain` (M6), `flowchart` (M7); a time limit; fixtures that inject a bad file.
+- **Reviews:** `Fork` and `Wait` (target numbers, status decoding, the `irsim` clone) and the pretend-file backend each had a first review on the top tier.
+
+The milestone ledger (every ruling, review record and carry) is kept in `.superpowers/sdd/2026-11-24-compiler-m4-tests/progress.md`.
