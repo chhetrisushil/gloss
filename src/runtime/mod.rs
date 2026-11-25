@@ -93,12 +93,21 @@ const PASSED: u32 = 44;
 const FAILED: u32 = 45;
 const SHOWN_HEAD: u32 = 46;
 const EXPECT: u32 = 47;
+const GAVE: u32 = 48;
+const ANSWER: u32 = 49;
+const BUT_LINE: u32 = 50;
+const ASKED_A: u32 = 51;
+const QUESTION: u32 = 52;
+const ASKED_NUMBER: u32 = 53;
+const PLURAL_S: u32 = 54;
+/// The text of "first"; the ten ordinals follow in order, to "tenth".
+const FIRST_ORDINAL: u32 = 55;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 48] = [
+const TEXTS: [&[u8]; 65] = [
     b"line ",
     b": failure ",
     b": ",
@@ -147,6 +156,23 @@ const TEXTS: [&[u8]; 48] = [
     b" failed\n",
     b"      shown:\n",
     b"expect ",
+    b"the test gave ",
+    b" answer",
+    b" but line ",
+    b" asked a ",
+    b" question",
+    b" asked question number ",
+    b"s",
+    b"first",
+    b"second",
+    b"third",
+    b"fourth",
+    b"fifth",
+    b"sixth",
+    b"seventh",
+    b"eighth",
+    b"ninth",
+    b"tenth",
 ];
 
 /// The bytes of the runtime text `i`.
