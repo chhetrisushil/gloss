@@ -46,12 +46,13 @@ const DEEP_ENDING: &str = "enter of the other feature, then fail 10 of the call 
 /// Describes the last two lines of the trace in `stdout`. The real stack and irsim's are
 /// different sizes, so the two runs fail at different depths and at different ones of the two
 /// features; what must hold is that the failing call (named in the failure) wrote no `enter`,
-/// so the last `enter` is the other feature's. Anything else is returned as the lines.
+/// so the last `enter` is the other feature's, and the failure is at the line of the failing
+/// call (3 in `ping`, which calls `pong`; 10 in `pong`). Anything else is returned as the lines.
 fn deep_ending(stdout: &[u8]) -> String {
     let text = String::from_utf8_lossy(stdout);
     let lines: Vec<&str> = text.lines().collect();
-    let [enter, fail] = lines[lines.len() - 2..] else {
-        unreachable!()
+    let [enter, fail] = lines[lines.len().saturating_sub(2)..] else {
+        return format!("fewer than 2 lines of trace: {text:?}");
     };
     let between = |s: &str, from: &str, to: char| -> String {
         let at = s.find(from).map_or(s.len(), |i| i + from.len());
@@ -59,7 +60,8 @@ fn deep_ending(stdout: &[u8]) -> String {
     };
     let entered = between(enter, "\"event\":\"enter\",\"feature\":\"", '"');
     let failing = between(fail, "calls nested too deep (", ')');
-    let ok = fail.contains("\"event\":\"fail\",\"failure\":10,")
+    let line = if failing == "pong" { 3 } else { 10 };
+    let ok = fail.starts_with(&format!("{{\"line\":{line},\"event\":\"fail\",\"failure\":10,"))
         && ["ping", "pong"].contains(&entered.as_str())
         && ["ping", "pong"].contains(&failing.as_str())
         && entered != failing;
