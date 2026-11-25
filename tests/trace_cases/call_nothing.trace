@@ -1,0 +1,6 @@
+{"line":5,"event":"enter","feature":"greet","inputs":{}}
+{"line":2,"event":"show","text":"hi"}
+{"line":5,"event":"leave","feature":"greet"}
+{"line":6,"event":"enter","feature":"greet","inputs":{}}
+{"line":2,"event":"show","text":"hi"}
+{"line":6,"event":"leave","feature":"greet"}

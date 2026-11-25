@@ -1,0 +1,6 @@
+feature seven
+  give 7
+
+feature start
+  if seven is greater than 5
+    show "big"
