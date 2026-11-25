@@ -118,12 +118,17 @@ const JSON_TEXT: u32 = 67;
 const JSON_BRACE: u32 = 68;
 const JSON_YES: u32 = 69;
 const JSON_NO: u32 = 70;
+const JSON_RECORD: u32 = 71;
+const JSON_FIELDS: u32 = 72;
+const JSON_COLON: u32 = 73;
+const JSON_COMMA: u32 = 74;
+const JSON_RECORD_END: u32 = 75;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 71] = [
+const TEXTS: [&[u8]; 76] = [
     b"line ",
     b": failure ",
     b": ",
@@ -195,6 +200,11 @@ const TEXTS: [&[u8]; 71] = [
     b"}",
     b"{\"truth\":\"yes\"}",
     b"{\"truth\":\"no\"}",
+    b"{\"record\":",
+    b",\"fields\":{",
+    b":",
+    b",",
+    b"}}",
 ];
 
 /// The bytes of the runtime text `i`.

@@ -1,6 +1,7 @@
 //! Tests of the JSON writers: the exact bytes `json_bytes`, `json_int`, `json_text` and
 //! `json_value` write for each kind of input.
 
+use super::heap_tests::{Heap, W};
 use super::tests::{program, run};
 use crate::ir::Reg::A;
 use crate::ir::{Data, Desc, Inst, Inst::*, Module};
@@ -119,4 +120,42 @@ fn json_int_writes_a_whole_number_in_decimal() {
     assert_eq!(int(7), "7");
     assert_eq!(int(1_234_567), "1234567");
     assert_eq!(int(-10), "-10");
+}
+
+/// The descriptors of an `Expense` (a text `name`, a number `amount`, a truth `paid`), and the
+/// index of the record's.
+fn types() -> (Module, u32) {
+    let mut d = Module::default();
+    let (number, text, truth) = (
+        d.desc(Desc::Number),
+        d.desc(Desc::Text),
+        d.desc(Desc::Truth),
+    );
+    let fields = vec![
+        ("name".into(), text),
+        ("amount".into(), number),
+        ("paid".into(), truth),
+    ];
+    let expense = d.desc(Desc::Record {
+        name: "Expense".into(),
+        fields,
+    });
+    (d, expense)
+}
+
+/// What `json_value` writes for the value in slot `value` of `h`, of the type `desc`; the
+/// module's texts are `tea` and `rent`.
+fn json_of(h: Heap, value: u32, desc: u32, d: Module) -> String {
+    let out = h.call_with(&[b"tea", b"rent"], "json_value", &[value], desc, d);
+    String::from_utf8(out).unwrap()
+}
+
+const TEA: &str = r#"{"record":"Expense","fields":{"name":{"text":"tea"},"amount":{"number":"2.5"},"paid":{"truth":"no"}}}"#;
+
+#[test]
+fn a_record_has_its_fields_in_declaration_order() {
+    let (d, expense) = types();
+    let mut h = Heap::default();
+    let tea = h.block(&[W::T(0), W::N(25_000), W::N(0)]);
+    assert_eq!(json_of(h, tea, expense, d), TEA);
 }
