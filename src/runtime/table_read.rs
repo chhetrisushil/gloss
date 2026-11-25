@@ -5,7 +5,7 @@ use super::csv_header::{get, load_at, set};
 use super::csv_write::count_up;
 use crate::ir::Cond::{Eq, Ne};
 use crate::ir::Reg::{A, B};
-use crate::ir::{CWD, Function, Inst::*, IntOp, Shift};
+use crate::ir::{CWD, Function, Inst::*, IntOp, Label, Shift};
 
 // Slots of `table_record`.
 const RECORD: u32 = 1;
@@ -104,29 +104,16 @@ fn next_row(s: &mut Asm) {
     s.call("csv_next");
 }
 
-/// `table_read(path, shown, desc, line)`: the rows of the table file `path` (a NUL-terminated
-/// text in the current folder) as a new list of records of `desc`; `shown` names the file in
-/// messages. A missing, empty or header-only file gives an empty list; a row with other than
-/// the header's number of cells is failure 6. Nothing is shared until the caller stores it.
-fn table_read() -> Function {
-    let mut s = Asm::default();
-    let [rows, done, wrong] = [(); 3].map(|_| s.label());
-    s.push_const(4);
-    s.push_arg(4);
-    s.call("list_new");
-    s.i(StoreSlot(LIST, A));
-    s.push_const(CWD);
-    for arg in [1, 2, 4] {
-        s.push_arg(arg);
-    }
-    s.call("file_bytes");
-    s.i(Const(B, 0));
-    s.jump_if(Eq, done);
+/// The parser half, shared by `table_read` and `table_rows`: with the text in `a`, the rows
+/// become records pushed on the list in slot `LIST`; at `done` (and the end) it returns that
+/// list. A row with other than the header's number of cells is failure 6.
+fn parse_rows(s: &mut Asm, done: Label) {
+    let [rows, wrong] = [(); 2].map(|_| s.label());
     s.i(Push(A));
     s.push_arg(4);
     s.call("csv_cursor");
     s.i(StoreSlot(CURSOR, A));
-    next_row(&mut s);
+    next_row(s);
     s.i(StoreSlot(HEADER, A));
     s.i(Const(B, 0));
     s.jump_if(Eq, done);
@@ -137,14 +124,14 @@ fn table_read() -> Function {
     s.call("csv_header");
     s.i(StoreSlot(HEADER_MAP, A));
     s.i(LoadSlot(A, HEADER));
-    load_at(&mut s, 0);
+    load_at(s, 0);
     s.i(StoreSlot(WIDTH, A));
     s.i(Mark(rows));
-    next_row(&mut s);
+    next_row(s);
     s.i(StoreSlot(ROW, A));
     s.i(Const(B, 0));
     s.jump_if(Eq, done);
-    load_at(&mut s, 0);
+    load_at(s, 0);
     s.i(LoadSlot(B, WIDTH));
     s.jump_if(Ne, wrong);
     s.push_slot(ROW);
@@ -154,7 +141,7 @@ fn table_read() -> Function {
         s.push_arg(arg);
     }
     s.i(LoadSlot(A, CURSOR));
-    load_at(&mut s, 24);
+    load_at(s, 24);
     s.i(Push(A));
     s.call("table_record");
     s.i(Move { to: B, from: A });
@@ -170,13 +157,13 @@ fn table_read() -> Function {
     s.push_arg(4);
     s.push_arg(2);
     s.i(LoadSlot(A, CURSOR));
-    load_at(&mut s, 24);
+    load_at(s, 24);
     s.i(Push(A));
     s.call("fail_row");
     s.push_text(super::HAS);
     s.call("err_text");
     s.i(LoadSlot(A, ROW));
-    load_at(&mut s, 0);
+    load_at(s, 0);
     s.i(Push(A));
     s.call("err_int");
     s.push_text(super::CELLS_HEADER);
@@ -184,11 +171,46 @@ fn table_read() -> Function {
     s.push_slot(WIDTH);
     s.call("err_int");
     s.call("fail_end");
+}
+
+/// `table_read(path, shown, desc, line)`: the rows of the table file `path` (a NUL-terminated
+/// text in the current folder) as a new list of records of `desc`; `shown` names the file in
+/// messages. A missing, empty or header-only file gives an empty list; a row with other than
+/// the header's number of cells is failure 6. Nothing is shared until the caller stores it.
+fn table_read() -> Function {
+    let mut s = Asm::default();
+    let done = s.label();
+    s.push_const(4);
+    s.push_arg(4);
+    s.call("list_new");
+    s.i(StoreSlot(LIST, A));
+    s.push_const(CWD);
+    for arg in [1, 2, 4] {
+        s.push_arg(arg);
+    }
+    s.call("file_bytes");
+    s.i(Const(B, 0));
+    s.jump_if(Eq, done);
+    parse_rows(&mut s, done);
     s.finish("table_read", 4, 6)
 }
 
+/// `table_rows(text, shown, desc, line, list)`: the parser half of `table_read` over `text`
+/// already in memory: the records of `desc` are pushed on `list`, which is returned. The
+/// parsing is the same code as `table_read`'s (copied into it, so a real executable is the
+/// same as before the split); `shown` names the file in messages.
+fn table_rows() -> Function {
+    let mut s = Asm::default();
+    let done = s.label();
+    s.i(LoadArg(A, 5));
+    s.i(StoreSlot(LIST, A));
+    s.i(LoadArg(A, 1));
+    parse_rows(&mut s, done);
+    s.finish("table_rows", 5, 6)
+}
+
 pub fn routines() -> Vec<Function> {
-    vec![table_record(), table_read()]
+    vec![table_record(), table_read(), table_rows()]
 }
 
 #[cfg(test)]
@@ -487,5 +509,59 @@ mod file_tests {
             (o.status, err.as_str()),
             (2, "line 7: failure 6: data/e.csv cannot be read\n")
         );
+    }
+
+    /// Runs `table_rows` on `text` with a record `Item` of a text and a number, and an empty
+    /// list; shows the list. Gives the status, what was shown and the error output.
+    fn rows(text: &str) -> (i32, String, String) {
+        let mut descs = Module::default();
+        let (t, n) = (descs.desc(Desc::Text), descs.desc(Desc::Number));
+        let fields = ["name", "amount"].map(String::from);
+        let record = descs.desc(Desc::Record {
+            name: "Item".into(),
+            fields: fields.into_iter().zip([t, n]).collect(),
+        });
+        let list = descs.desc(Desc::List(record));
+        let mut body = vec![Const(A, 4), Push(A), Const(A, 7), Push(A)];
+        body.extend([Call("list_new".into()), StoreSlot(1, A)]);
+        body.extend([AddressOf(A, Data::Text(0)), Push(A)]);
+        body.extend([AddressOf(A, Data::Text(1)), Push(A)]);
+        body.extend([AddressOf(A, Data::Desc(record)), Push(A)]);
+        body.extend([Const(A, 7), Push(A), LoadSlot(A, 1), Push(A)]);
+        body.extend([Call("table_rows".into()), Push(A)]);
+        body.extend([AddressOf(A, Data::Desc(list)), Push(A)]);
+        body.extend([Call("show_value".into()), Call("flush".into())]);
+        let mut m = program(body, &[text.as_bytes(), b"e.csv"]);
+        m.descs = descs.descs;
+        let start = m.functions.iter_mut().find(|f| f.name == "_start").unwrap();
+        (start.slots, start.body[0]) = (1, Enter(1));
+        let o = irsim::run(&m, "_start", b"");
+        let text = |bytes: Vec<u8>| String::from_utf8(bytes).unwrap();
+        (o.status, text(o.stdout), text(o.stderr))
+    }
+
+    #[test]
+    fn table_rows_parses_what_table_read_parses() {
+        let want = "list of (Item with name \"Bus\", amount 40)";
+        assert_eq!(
+            rows("name,amount\nBus,40\n"),
+            (0, want.into(), String::new())
+        );
+    }
+
+    #[test]
+    fn table_rows_reports_failures_like_table_read() {
+        let msg = "line 7: failure 6: e.csv line 2: amount \"x\" is not a number\n";
+        assert_eq!(rows("name,amount\nBus,x\n"), (2, String::new(), msg.into()));
+    }
+
+    #[test]
+    fn table_read_still_makes_its_list_before_it_opens_the_file() {
+        let f = super::table_read();
+        let text = crate::ir::function_text(&f);
+        let (list, file) = (text.find("call list_new"), text.find("call file_bytes"));
+        let start = "enter 6\n  a = 4\n  push a\n  a = arg 4\n  push a\n  call list_new\n";
+        assert!(text.contains(start), "{text}");
+        assert!(list.is_some() && list < file, "{text}");
     }
 }
