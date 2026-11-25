@@ -1,0 +1,5 @@
+{"line":2,"event":"set","name":"prices","to":{"list":[{"number":"150"},{"number":"20"}]}}
+{"line":3,"event":"loop","name":"price","turn":1,"value":{"number":"150"}}
+{"line":4,"event":"show","text":"150"}
+{"line":3,"event":"loop","name":"price","turn":2,"value":{"number":"20"}}
+{"line":4,"event":"show","text":"20"}

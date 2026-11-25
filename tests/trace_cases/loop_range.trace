@@ -1,0 +1,6 @@
+{"line":2,"event":"loop","name":"i","turn":1,"value":{"number":"1"}}
+{"line":3,"event":"show","text":"1"}
+{"line":2,"event":"loop","name":"i","turn":2,"value":{"number":"2"}}
+{"line":3,"event":"show","text":"2"}
+{"line":2,"event":"loop","name":"i","turn":3,"value":{"number":"3"}}
+{"line":3,"event":"show","text":"3"}

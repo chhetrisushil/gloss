@@ -1,0 +1,4 @@
+feature start
+  set prices to list of 150, 20
+  for each price in prices
+    show price

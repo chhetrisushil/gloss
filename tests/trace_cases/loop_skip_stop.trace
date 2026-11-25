@@ -1,0 +1,13 @@
+{"line":2,"event":"loop","name":"i","turn":1,"value":{"number":"1"}}
+{"line":3,"event":"check","condition":"i is 2","values":{"i":{"number":"1"}},"result":"no"}
+{"line":5,"event":"check","condition":"i is 4","values":{"i":{"number":"1"}},"result":"no"}
+{"line":7,"event":"show","text":"1"}
+{"line":2,"event":"loop","name":"i","turn":2,"value":{"number":"2"}}
+{"line":3,"event":"check","condition":"i is 2","values":{"i":{"number":"2"}},"result":"yes"}
+{"line":2,"event":"loop","name":"i","turn":3,"value":{"number":"3"}}
+{"line":3,"event":"check","condition":"i is 2","values":{"i":{"number":"3"}},"result":"no"}
+{"line":5,"event":"check","condition":"i is 4","values":{"i":{"number":"3"}},"result":"no"}
+{"line":7,"event":"show","text":"3"}
+{"line":2,"event":"loop","name":"i","turn":4,"value":{"number":"4"}}
+{"line":3,"event":"check","condition":"i is 2","values":{"i":{"number":"4"}},"result":"no"}
+{"line":5,"event":"check","condition":"i is 4","values":{"i":{"number":"4"}},"result":"yes"}

@@ -1,0 +1,7 @@
+feature start
+  for each i from 1 to 5
+    if i is 2
+      skip
+    if i is 4
+      stop
+    show i
