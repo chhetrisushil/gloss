@@ -2,6 +2,7 @@ use super::*;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::process::ExitStatus;
+use std::sync::mpsc;
 
 #[test]
 fn the_private_folder_is_0700_and_removed() {
@@ -70,4 +71,94 @@ fn host_decision_is_linux_x86_64_only() {
     assert!(!host_can_run("linux", "aarch64"));
     assert!(!host_can_run("macos", "aarch64"));
     assert!(!host_can_run("macos", "x86_64"));
+}
+
+fn script(dir: &PrivateDir, body: &str) -> PathBuf {
+    let path = dir.path().join("prog");
+    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    path
+}
+
+#[test]
+fn a_script_stands_in_for_the_executable() {
+    let dir = PrivateDir::new().unwrap();
+    let path = script(&dir, "echo x; echo y >&2; exit 1");
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(run_program(&path, &mut out, &mut err), 1);
+    assert_eq!(out, b"x\n");
+    assert_eq!(err, b"y\n");
+}
+
+/// Runs the script on the standard input this process was given, and prints what it saw.
+#[test]
+fn stdin_probe() {
+    if std::env::var_os("GLOSS_STDIN_PROBE").is_none() {
+        return;
+    }
+    let dir = PrivateDir::new().unwrap();
+    let path = script(&dir, "if read line; then echo got; else echo none; fi");
+    let mut out = Vec::new();
+    run_program(&path, &mut out, &mut Vec::new());
+    println!("probe:{}", String::from_utf8(out).unwrap().trim());
+}
+
+#[test]
+fn standard_input_is_closed() {
+    use std::process::Stdio;
+    let mut me = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "testrun::tests::stdin_probe", "--nocapture"])
+        .env("GLOSS_STDIN_PROBE", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    me.stdin.take().unwrap().write_all(b"hello\n").unwrap();
+    let done = me.wait_with_output().unwrap();
+    let text = String::from_utf8(done.stdout).unwrap();
+    assert!(text.contains("probe:none"), "{text}");
+}
+
+#[test]
+fn a_signal_ends_the_run_with_a_message() {
+    let dir = PrivateDir::new().unwrap();
+    let path = script(&dir, "kill -9 $$");
+    let mut err = Vec::new();
+    assert_eq!(run_program(&path, &mut Vec::new(), &mut err), 1);
+    let text = String::from_utf8(err).unwrap();
+    assert_eq!(text, "the test run ended without finishing (status 265)\n");
+}
+
+/// Holds what is written until it is flushed, as a buffered terminal would.
+struct Chan(mpsc::Sender<Vec<u8>>, Vec<u8>);
+impl Write for Chan {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.1.extend_from_slice(b);
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        let _ = self.0.send(std::mem::take(&mut self.1));
+        Ok(())
+    }
+}
+
+#[test]
+fn output_is_streamed_before_the_run_ends() {
+    let dir = PrivateDir::new().unwrap();
+    let fifo = dir.path().join("gate");
+    let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
+    assert!(made.success());
+    let path = script(
+        &dir,
+        &format!("echo x; read go < '{}'; echo z", fifo.display()),
+    );
+    let (tx, rx) = mpsc::channel();
+    let runner =
+        std::thread::spawn(move || run_program(&path, &mut Chan(tx, Vec::new()), &mut Vec::new()));
+    // The script is still blocked on the FIFO, so only streaming can deliver `x`.
+    let wait = std::time::Duration::from_secs(10);
+    assert_eq!(rx.recv_timeout(wait).unwrap(), b"x\n");
+    std::fs::write(&fifo, "go\n").unwrap();
+    assert_eq!(runner.join().unwrap(), 0);
+    assert_eq!(rx.recv_timeout(wait).unwrap(), b"z\n");
 }
