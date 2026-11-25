@@ -1061,3 +1061,71 @@ fn an_expect_condition_is_evaluated_once() {
     let t = function_text(function(&lowered_tests(&passing).unwrap(), "t_0"));
     assert_eq!(t.matches("call f_noisy").count(), 1, "{t}");
 }
+
+const TWO_TABLES: &str = "record Row\n  name as text\n\ntable a of Row in \"a.csv\"\n\
+                          table b of Row in \"b.csv\"\n\nfeature start\n  show \"ran\"\n\
+                          test \"t\"\n  show 1\n";
+
+fn tables_init_text(m: &Module) -> String {
+    function_text(function(m, "tables_init"))
+}
+
+#[test]
+fn a_test_module_starts_every_table_cleared() {
+    // Each table's entry is 16 bytes: the list, then the loaded flag at +8.
+    let flags = ["a = 1\n  [b + 8] = a\n", "a = 1\n  [b + 24] = a\n"];
+    let test = tables_init_text(&lowered_tests(TWO_TABLES).unwrap());
+    assert!(flags.iter().all(|f| test.contains(f)), "{test}");
+    let real = tables_init_text(&lowered(TWO_TABLES).unwrap());
+    assert!(
+        !real.contains("[b + 8]") && !real.contains("[b + 24]"),
+        "{real}"
+    );
+}
+
+/// A module whose `probe` runs the start-up routines (not `stack_init`, which reads the
+/// process's entry stack), loads the table block, follows `path`
+/// (offsets read in turn from `a`) and exits with the word it reaches.
+fn probed(m: &mut Module, path: &[i32]) {
+    use crate::ir::{Data, Function, Global, Inst, Prim, Reg};
+    let mut body = vec![Inst::Enter(0)];
+    for routine in ["heap_init", "tables_init"] {
+        body.push(Inst::Call(routine.to_string()));
+    }
+    body.push(Inst::AddressOf(Reg::B, Data::Global(Global::Tables)));
+    body.push(Inst::Load {
+        to: Reg::A,
+        base: Reg::B,
+        offset: 0,
+    });
+    for &offset in path {
+        body.push(Inst::Load {
+            to: Reg::A,
+            base: Reg::A,
+            offset,
+        });
+    }
+    body.push(Inst::Push(Reg::A));
+    body.push(Inst::System(Prim::Exit));
+    m.functions.push(Function {
+        name: "probe".into(),
+        params: 0,
+        slots: 0,
+        body,
+    });
+}
+
+#[test]
+fn after_tables_init_in_a_test_module_the_flags_are_1_and_the_lists_empty() {
+    let status = |path: &[i32]| {
+        let mut m = lowered_tests(TWO_TABLES).unwrap();
+        probed(&mut m, path);
+        crate::irsim::run(&m, "probe", b"").status
+    };
+    // The second table's flag, then the first table's list count.
+    assert_eq!(status(&[24]), 1);
+    assert_eq!(status(&[0, 0]), 0);
+    let mut real = lowered(TWO_TABLES).unwrap();
+    probed(&mut real, &[24]);
+    assert_eq!(crate::irsim::run(&real, "probe", b"").status, 0);
+}

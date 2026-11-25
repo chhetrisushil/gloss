@@ -298,7 +298,7 @@ fn lower_program(
     }
     module
         .functions
-        .push(table::tables_init(program, &mut called));
+        .push(table::tables_init(program, &mut called, mode));
     size_stack_checks(&mut module);
     let backend = match mode {
         Mode::Real => runtime::Backend::Real,
