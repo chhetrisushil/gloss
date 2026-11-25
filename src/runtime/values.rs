@@ -6,6 +6,7 @@ use super::{
 };
 use crate::ir::Cond::{Eq, Ge, Le, Ne};
 use crate::ir::Reg::{A, B};
+use crate::ir::{DESC_LIST, DESC_NUMBER, DESC_RECORD, DESC_TEXT, DESC_TRUTH};
 use crate::ir::{Function, Inst::*, IntOp, Shift};
 
 /// Writes the runtime text `n` to standard output.
@@ -90,9 +91,9 @@ fn show_in_record() -> Function {
         base: A,
         offset: 0,
     });
-    s.i(Const(B, 1));
+    s.i(Const(B, i64::from(DESC_TEXT)));
     s.jump_if(Eq, text);
-    s.i(Const(B, 2));
+    s.i(Const(B, i64::from(DESC_TRUTH)));
     s.jump_if(Eq, truth);
     s.i(Mark(number));
     s.push_arg(1);
@@ -228,7 +229,7 @@ fn show_list() -> Function {
     s.jump_if(Ne, named);
     out_const(&mut s, EMPTY_LIST);
     kind_of(&mut s, 3);
-    s.i(Const(B, 3));
+    s.i(Const(B, i64::from(DESC_RECORD)));
     s.jump_if(Ne, scalar);
     s.i(LoadSlot(A, 3));
     s.i(Load {
@@ -241,9 +242,9 @@ fn show_list() -> Function {
     s.i(Return);
     // The item type's name: `number`, `text` or `truth` by the descriptor's kind.
     s.i(Mark(scalar));
-    for (kind, text) in [(0, NUMBER), (1, TEXT)] {
+    for (kind, text) in [(DESC_NUMBER, NUMBER), (DESC_TEXT, TEXT)] {
         let next = s.label();
-        s.i(Const(B, kind));
+        s.i(Const(B, i64::from(kind)));
         s.jump_if(Ne, next);
         out_const(&mut s, text);
         s.i(Return);
@@ -282,7 +283,7 @@ fn show_list() -> Function {
     s.i(Push(A));
     s.push_slot(3);
     kind_of(&mut s, 3);
-    s.i(Const(B, 3));
+    s.i(Const(B, i64::from(DESC_RECORD)));
     s.jump_if(Eq, record);
     s.call("show_in_record");
     s.i(Jump(shown));
@@ -309,9 +310,9 @@ fn show_value() -> Function {
         base: A,
         offset: 0,
     });
-    s.i(Const(B, 3));
+    s.i(Const(B, i64::from(DESC_RECORD)));
     s.jump_if(Eq, record);
-    s.i(Const(B, 4));
+    s.i(Const(B, i64::from(DESC_LIST)));
     s.jump_if(Eq, list);
     s.push_arg(1);
     s.push_arg(2);

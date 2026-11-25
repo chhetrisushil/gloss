@@ -1,10 +1,13 @@
 //! Tests of the JSON writers: the exact bytes `json_bytes`, `json_int`, `json_text` and
 //! `json_value` write for each kind of input.
 
+use super::Backend;
 use super::heap_tests::{Heap, W};
+use super::tests::program_for;
 use super::tests::{program, run};
-use crate::ir::Reg::A;
-use crate::ir::{Data, Desc, Inst, Inst::*, Module};
+use super::trace_state::ESCAPING;
+use crate::ir::Reg::{A, B};
+use crate::ir::{Data, Desc, Global, Inst, Inst::*, Module};
 
 /// What `json_bytes` writes for `bytes`, flushed to standard output.
 fn escaped(bytes: &[u8]) -> Vec<u8> {
@@ -188,4 +191,47 @@ fn a_list_of_records_has_a_record_for_each_item() {
     let list = h.list(&[W::S(tea), W::S(rent)]);
     let want = format!(r#"{{"list":[{TEA},{RENT}]}}"#);
     assert_eq!(json_of(h, list, expenses, d), want);
+}
+
+#[test]
+fn json_text_with_escaping_off_quotes_plainly_and_leaves_it_off() {
+    let body = vec![
+        AddressOf(A, Data::Text(0)),
+        Push(A),
+        Call("json_text".into()),
+        AddressOf(B, Data::Global(Global::TraceState)),
+        Load {
+            to: A,
+            base: B,
+            offset: ESCAPING,
+        },
+        Push(A),
+        Call("out_number".into()),
+        Call("flush".into()),
+    ];
+    let o = run(&program_for(Backend::Trace, body, &[b"a\"b"]));
+    // The quotes are bare, the inner quote has one backslash, and ESCAPING reads 0 after.
+    assert_eq!(String::from_utf8(o.stdout).unwrap(), "\"a\\\"b\"0");
+}
+
+#[test]
+fn a_quote_in_a_record_field_text_is_escaped() {
+    let (d, [expense, ..]) = types();
+    let mut h = Heap::default();
+    let tea = h.block(&[W::T(0), W::N(25_000), W::N(0)]);
+    let out = h.call_with(&[b"say \"hi\""], "json_value", &[tea], expense, d);
+    let want = TEA.replace("tea", r#"say \"hi\""#);
+    assert_eq!(String::from_utf8(out).unwrap(), want);
+}
+
+#[test]
+fn a_quote_in_a_list_text_item_is_escaped() {
+    let mut d = Module::default();
+    let text = d.desc(Desc::Text);
+    let texts = d.desc(Desc::List(text));
+    let mut h = Heap::default();
+    let list = h.list(&[W::T(0)]);
+    let out = h.call_with(&[b"say \"hi\""], "json_value", &[list], texts, d);
+    let want = r#"{"list":[{"text":"say \"hi\""}]}"#;
+    assert_eq!(String::from_utf8(out).unwrap(), want);
 }

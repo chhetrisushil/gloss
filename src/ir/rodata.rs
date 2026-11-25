@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use super::{Desc, Module};
+use super::{DESC_LIST, DESC_NUMBER, DESC_RECORD, DESC_TEXT, DESC_TRUTH, Desc, Module};
 
 /// The read-only bytes and where each text and descriptor starts in them.
 pub struct Rodata {
@@ -64,11 +64,11 @@ pub fn rodata(m: &Module, base: u64) -> Rodata {
     let address = |offset: usize| base + offset as u64;
     for d in &m.descs {
         match d {
-            Desc::Number => push_word(&mut bytes, 0),
-            Desc::Text => push_word(&mut bytes, 1),
-            Desc::Truth => push_word(&mut bytes, 2),
+            Desc::Number => push_word(&mut bytes, u64::from(DESC_NUMBER)),
+            Desc::Text => push_word(&mut bytes, u64::from(DESC_TEXT)),
+            Desc::Truth => push_word(&mut bytes, u64::from(DESC_TRUTH)),
             Desc::Record { name, fields } => {
-                push_word(&mut bytes, 3);
+                push_word(&mut bytes, u64::from(DESC_RECORD));
                 push_word(&mut bytes, address(at[name.as_bytes()]));
                 push_word(&mut bytes, fields.len() as u64);
                 for (field, desc) in fields {
@@ -77,7 +77,7 @@ pub fn rodata(m: &Module, base: u64) -> Rodata {
                 }
             }
             Desc::List(item) => {
-                push_word(&mut bytes, 4);
+                push_word(&mut bytes, u64::from(DESC_LIST));
                 push_word(&mut bytes, address(descs[*item as usize]));
             }
         }
