@@ -9,7 +9,9 @@ const READ: i64 = 0;
 const WRITE: i64 = 1;
 const MMAP: i64 = 9;
 const GETRLIMIT: i64 = 97;
-const EXIT_GROUP: i64 = 231;
+/// The numbers `tests/test_runs.rs`'s launcher uses are public, so they live only here (D18).
+pub const EXIT_GROUP: i64 = 231;
+pub const EXECVE: i64 = 59;
 const RLIMIT_STACK: i64 = 3;
 const PROT_READ_WRITE: i64 = 3;
 const MAP_PRIVATE_ANONYMOUS: i64 = 0x22;
@@ -18,10 +20,14 @@ const FSYNC: i64 = 74;
 const FSTAT: i64 = 5;
 const FORK: i64 = 57;
 const WAIT4: i64 = 61;
-const RT_SIGACTION: i64 = 13;
-const SIGCHLD: i64 = 17;
+pub const RT_SIGACTION: i64 = 13;
+pub const SIGCHLD: i64 = 17;
+/// The handler value that ignores a signal; 0 is the default.
+pub const SIG_IGN: i64 = 1;
+/// The size of the kernel's signal mask, in bytes.
+pub const SIGSET_SIZE: i64 = 8;
 /// `sizeof(struct sigaction)` as the kernel reads it: handler, flags, restorer and mask.
-const SIGACTION_SIZE: i32 = 32;
+pub const SIGACTION_SIZE: i32 = 32;
 const FCHMOD: i64 = 91;
 const RENAMEAT: i64 = 264;
 const OPENAT2: i64 = 437;
@@ -214,7 +220,7 @@ fn default_child_signal(out: &mut Vec<X>) {
         X::MovRI(R::Rdi, SIGCHLD),
         X::MovRR(R::Rsi, R::Rsp),
         X::MovRI(R::Rdx, 0),
-        X::MovRI(R::R10, 8),
+        X::MovRI(R::R10, SIGSET_SIZE),
     ]);
     call(RT_SIGACTION, out);
     out.push(X::AluI(AluOp::Add, R::Rsp, SIGACTION_SIZE));
