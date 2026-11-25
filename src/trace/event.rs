@@ -66,6 +66,15 @@ pub fn decode_value(json: &Json) -> Result<Value, String> {
         "record" => {
             let name = text(pairs, "record")?;
             let fields = decode_fields(get(pairs, "fields")?)?;
+            // Records hold only numbers, text and truths.
+            if let Some((field, _)) = fields
+                .iter()
+                .find(|(_, v)| matches!(v, Value::List(_) | Value::Record { .. }))
+            {
+                return Err(format!(
+                    "field \"{field}\" of a record must be a number, text or truth"
+                ));
+            }
             Ok(Value::Record { name, fields })
         }
         other => Err(format!("unknown value type \"{other}\"")),
@@ -280,6 +289,15 @@ mod tests {
                 ],
             })
         );
+    }
+
+    #[test]
+    fn a_record_field_that_is_not_a_scalar_is_an_error_naming_it() {
+        for bad in [r#"{"list":[]}"#, r#"{"record":"F","fields":{}}"#] {
+            let text = format!(r#"{{"record":"E","fields":{{"a":{bad}}}}}"#);
+            let err = value(&text).unwrap_err();
+            assert!(err.contains("field \"a\""), "{err}");
+        }
     }
 
     #[test]

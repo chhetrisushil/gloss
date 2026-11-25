@@ -281,6 +281,40 @@ mod tests {
         );
         assert_eq!(expr_with(&x, &swap), "1 + b is greater than f with 1, c");
         assert_eq!(expr(&x), "a + b is greater than f with a, c");
+        // Every arm passes `sub` to its parts.
+        let a = || name("a");
+        let b = || name("b");
+        for (x, want) in [
+            (e(K::Or(vec![a(), b()])), "1 or b"),
+            (e(K::And(vec![a(), b()])), "1 and b"),
+            (e(K::Not(bx(a()))), "not 1"),
+            (field_of("f", a()), "f of 1"),
+            (fact(Fact::Count, a()), "count of 1"),
+            (
+                e(K::ItemOf {
+                    position: bx(a()),
+                    of: bx(b()),
+                }),
+                "item 1 of b",
+            ),
+            (
+                e(K::IsNumber {
+                    value: bx(a()),
+                    negated: true,
+                }),
+                "1 is not number",
+            ),
+            (e(K::BuildList(vec![a(), b()])), "list of 1, b"),
+            (
+                e(K::BuildRecord {
+                    record: "R".into(),
+                    fields: vec![("x".into(), a())],
+                }),
+                "R with x 1",
+            ),
+        ] {
+            assert_eq!(expr_with(&x, &swap), want, "{x:?}");
+        }
         // The whole expression can be replaced, too.
         assert_eq!(expr_with(&name("a"), &swap), "1");
     }

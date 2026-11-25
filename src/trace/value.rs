@@ -23,7 +23,8 @@ fn say_scalar(v: &Value) -> String {
         Value::Number(n) => n.clone(),
         Value::Truth(b) => if *b { "yes" } else { "no" }.into(),
         Value::Text(t) => quoted(t),
-        Value::List(_) | Value::Record { .. } => unreachable!("records hold only scalars"),
+        // The decoder keeps these out of records; say them whole if one gets here anyway.
+        Value::List(_) | Value::Record { .. } => say(v),
     }
 }
 
@@ -38,7 +39,7 @@ fn quoted(t: &str) -> String {
 
 fn say_record(v: &Value) -> String {
     let Value::Record { name, fields } = v else {
-        unreachable!("only called on records");
+        return say(v);
     };
     if fields.is_empty() {
         return name.clone();
@@ -111,6 +112,8 @@ mod tests {
         let programs = [
             "feature start\n  set v to 7.5\n  show v\n".to_string(),
             "feature start\n  set v to yes\n  show v\n".to_string(),
+            "feature start\n  set v to list of 1, 2\n  show v\n".to_string(),
+            "feature start\n  set v to list of \"a\", \"b\"\"\"\n  show v\n".to_string(),
             format!(
                 "{RECORD}feature start\n  set v to P with name \"say \"\"hi\"\"\", age 9\n  show v\n"
             ),
