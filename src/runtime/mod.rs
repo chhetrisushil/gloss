@@ -25,6 +25,7 @@ mod numbers;
 mod output;
 mod parse;
 mod places;
+mod pretend;
 mod report;
 mod save;
 mod shown;
@@ -239,6 +240,7 @@ pub fn routines() -> Vec<Function> {
     all.extend(numbers::routines());
     all.extend(parse::routines());
     all.extend(places::routines());
+    all.extend(pretend::routines());
     all.extend(report::routines());
     all.extend(save::routines());
     all.extend(shown::routines());
