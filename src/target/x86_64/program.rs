@@ -81,9 +81,20 @@ pub fn executable(m: &Module) -> Result<Vec<u8>, String> {
         .get("_start")
         .ok_or("the module has no _start function")?;
     let (rodata, symbols) = rodata(m);
+    // `TestState` is the last global, so leaving it out moves no other one. Only a test
+    // executable refers to it; a real one stays as M3 laid it out.
+    let uses_test_state = m.functions.iter().flat_map(|f| &f.body).any(|i| {
+        matches!(
+            i,
+            ir::Inst::AddressOf(_, ir::Data::Global(Global::TestState))
+        )
+    });
     let mut globals = HashMap::new();
     let mut data_size = 0;
     for g in GLOBALS {
+        if g == Global::TestState && !uses_test_state {
+            continue;
+        }
         globals.insert(g, data_size);
         data_size += global_size(g);
     }

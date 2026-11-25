@@ -182,7 +182,7 @@ The examples `gcd`, `primes`, `fibonacci` and `expenses` carry tests; `tests/exa
 | `gloss explain FILE` | Prints each source line beside its machine instructions | Milestone 6 |
 | `gloss flowchart FILE` | Writes one SVG flowchart per feature | Milestone 7 |
 
-Exit status is **0** on success, **1** when a test failed, **3** on a compile error or wrong usage, and **4** when file access was not approved. Warnings alone do not fail a build. The full set of statuses (including failed tests and run-time failures) is in section 11 of the spec.
+Exit status is **0** on success, **1** when a test failed, **3** on a compile error, wrong usage, or a test run that `gloss test` could not start, and **4** when file access was not approved. Warnings alone do not fail a build. The full set of statuses (including failed tests and run-time failures) is in section 11 of the spec.
 
 ## Working on the compiler
 

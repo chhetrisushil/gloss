@@ -23,7 +23,8 @@ use crate::runtime;
 use crate::source::Source;
 
 /// What a lowering is for: the program as it runs, or the test executable `gloss test`
-/// builds, where the statements this milestone has not built are refused.
+/// builds: line stores, the driver, pretend files and the test statements (`expect`, `input`,
+/// `shown`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
     Real,

@@ -1,5 +1,5 @@
 use super::inst::{AluOp, Cc, Mem, R, Sym, X, text};
-use crate::ir::{Data, Function, Global, Inst, Reg, function_text};
+use crate::ir::{Data, Function, Global, Inst, Reg, TEST_STATE_BYTES, function_text};
 
 fn local(d: i32) -> Mem {
     Mem::Base(R::Rbp, d)
@@ -171,4 +171,33 @@ fn conditions_print() {
         assert_eq!(text(&X::Setcc(c, R::Rax)), format!("set{name} al"));
         assert_eq!(text(&X::Jcc(c, "L3".to_string())), format!("j{name} L3"));
     }
+}
+
+/// The memory size of the data segment (the third program header) of an executable.
+fn data_memsz(exe: &[u8]) -> u64 {
+    let at = 64 + 56 * 2 + 40;
+    u64::from_le_bytes(exe[at..at + 8].try_into().unwrap())
+}
+
+#[test]
+fn only_a_module_that_refers_to_the_test_state_reserves_it() {
+    let module = |body: Vec<Inst>| {
+        let mut m = crate::ir::Module::default();
+        m.functions.push(Function {
+            name: "_start".into(),
+            params: 0,
+            slots: 0,
+            body,
+        });
+        m
+    };
+    let plain = module(vec![Inst::Enter(0), Inst::Return]);
+    let with_state = module(vec![
+        Inst::Enter(0),
+        Inst::AddressOf(Reg::A, Data::Global(Global::TestState)),
+        Inst::Return,
+    ]);
+    let size = |m| data_memsz(&crate::target::x86_64_linux().executable(&m).unwrap());
+    let (without, with) = (size(plain), size(with_state));
+    assert_eq!(with - without, TEST_STATE_BYTES as u64);
 }
