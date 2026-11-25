@@ -32,6 +32,8 @@ mod table_read;
 mod test_backend;
 mod test_state;
 #[cfg(test)]
+mod test_state_tests;
+#[cfg(test)]
 mod tests;
 mod text;
 mod utf8;
@@ -207,6 +209,7 @@ pub fn routines() -> Vec<Function> {
     all.extend(save::routines());
     all.extend(shown::routines());
     all.extend(table_read::routines());
+    all.extend(test_state::routines());
     all.extend(text::routines());
     all.extend(utf8::routines());
     all.extend(values::routines());
