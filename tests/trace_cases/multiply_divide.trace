@@ -1,0 +1,4 @@
+{"line":2,"event":"set","name":"price","to":{"number":"10"}}
+{"line":3,"event":"set","name":"price","from":{"number":"10"},"to":{"number":"30"}}
+{"line":4,"event":"set","name":"price","from":{"number":"30"},"to":{"number":"7.5"}}
+{"line":5,"event":"show","text":"7.5"}

@@ -1,0 +1,5 @@
+feature start
+  set price to 10
+  multiply price by 3
+  divide price by 4
+  show price
