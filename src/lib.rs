@@ -71,6 +71,20 @@ impl Checked {
             .executable(&module)
             .map_err(Diagnostic::program)
     }
+
+    /// Lowers and encodes the test executable `gloss test` runs: the features and a driver
+    /// that runs each test in a child process of its own.
+    pub fn test_executable(&self) -> Result<Vec<u8>, Diagnostic> {
+        let module = lower::lower_tests(&self.program, &self.types, &self.src)?;
+        target::x86_64_linux()
+            .executable(&module)
+            .map_err(Diagnostic::program)
+    }
+
+    /// How many tests the program has.
+    pub fn test_count(&self) -> usize {
+        self.program.tests().count()
+    }
 }
 
 /// Parses and checks a program once: the diagnostics, and the program when none is an error.
@@ -98,10 +112,51 @@ pub fn build_executable(text: &str) -> Result<Vec<u8>, Vec<Diagnostic>> {
     }
 }
 
+/// `build_executable` for the test executable: checks, lowers and encodes the features and a
+/// driver that runs each test. A program with an error, or one that cannot be built yet, gives
+/// its diagnostics instead.
+pub fn build_test_executable(text: &str) -> Result<Vec<u8>, Vec<Diagnostic>> {
+    match check_program(text) {
+        (_, Some(checked)) => checked.test_executable().map_err(|d| vec![d]),
+        (diagnostics, None) => Err(diagnostics),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
     fn a_clean_program_has_no_diagnostics() {
         assert!(super::check_source("feature start\n  show 1\n").is_empty());
+    }
+
+    const TWO: &str =
+        "feature start\n  show 1\n\ntest \"a\"\n  set y to 1\n\ntest \"b\"\n  set y to 2\n";
+
+    #[test]
+    fn build_test_executable_gives_bytes_for_a_program_with_tests() {
+        let bytes = super::build_test_executable(TWO).unwrap();
+        assert_eq!(&bytes[..4], b"\x7fELF");
+        // It is not the program's own executable, which has no driver.
+        assert_ne!(bytes, super::build_executable(TWO).unwrap());
+        let (_, checked) = super::check_program(TWO);
+        assert_eq!(checked.unwrap().test_count(), 2);
+        let (_, none) = super::check_program("feature start\n  show 1\n");
+        assert_eq!(none.unwrap().test_count(), 0);
+    }
+
+    #[test]
+    fn build_test_executable_gives_the_usual_errors() {
+        let bad = "feature start\n  show x\n\ntest \"t\"\n  set y to 1\n";
+        let errors = super::build_test_executable(bad).unwrap_err();
+        assert!(errors.iter().any(|d| d.is_error()));
+        assert_eq!(errors, super::build_executable(bad).unwrap_err());
+        // A statement the test build has not built yet is one error, with its line.
+        let asks = "feature start\n  show 1\n\ntest \"t\"\n  ask \"q\" into a\n";
+        let errors = super::build_test_executable(asks).unwrap_err();
+        let shown: Vec<String> = errors.iter().map(|d| d.render()).collect();
+        assert_eq!(
+            shown,
+            ["line 5: ask \"q\" into a. this compiler cannot build this statement yet."]
+        );
     }
 }
