@@ -21,6 +21,8 @@ pub trait Prompt {
 pub struct BuildOptions {
     /// The files named by `--allow`, in the order given.
     pub allow: Vec<String>,
+    /// The command's name as the refusal to approve says it: `Build` or `Trace`.
+    pub command: &'static str,
 }
 
 /// The commands that take `--allow` (the USAGE text names the same two).
@@ -89,12 +91,18 @@ pub fn run(
     };
     match command {
         "build" => {
-            let options = BuildOptions { allow };
+            let options = BuildOptions {
+                allow,
+                command: "Build",
+            };
             build(Path::new(file), &name, &text, &options, prompt, out, err)
         }
         "test" => test(&name, &text, out, err),
         "trace" => {
-            let options = BuildOptions { allow };
+            let options = BuildOptions {
+                allow,
+                command: "Trace",
+            };
             trace(Path::new(file), &name, &text, &options, prompt, out, err)
         }
         _ => format(file, &name, &text, out, err),
@@ -156,7 +164,7 @@ fn prepare(
     crate::approve::check_flags(&entries, &options.allow, err).map_err(|_| 3)?;
     if !entries.is_empty() {
         let _ = out.write_all(crate::permissions::render(&entries).as_bytes());
-        crate::approve::approve(path, name, &entries, &options.allow, prompt, out, err)?;
+        crate::approve::approve(path, name, &entries, options, prompt, out, err)?;
     }
     Ok(checked)
 }

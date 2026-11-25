@@ -633,7 +633,7 @@ fn trace_with_a_table_asks_for_approval() {
     assert_eq!((code, out.as_str()), (4, LISTED));
     assert_eq!(
         err,
-        "Not approved: e.csv. Build in a terminal to answer, or add --allow e.csv.\n"
+        "Not approved: e.csv. Trace in a terminal to answer, or add --allow e.csv.\n"
     );
     assert!(!p.with_extension("trace").exists() && !p.with_extension("allow").exists());
 }

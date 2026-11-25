@@ -3,7 +3,7 @@
 use std::io::Write;
 use std::path::Path;
 
-use crate::cli::{Prompt, write_atomically};
+use crate::cli::{BuildOptions, Prompt, write_atomically};
 use crate::permissions::{self, Entry};
 
 /// P3: every `--allow` must name a file some table of the program uses, exactly as written.
@@ -25,7 +25,7 @@ pub fn approve(
     source: &Path,
     name: &str,
     entries: &[Entry],
-    flags: &[String],
+    options: &BuildOptions,
     prompt: &mut dyn Prompt,
     out: &mut dyn Write,
     err: &mut dyn Write,
@@ -55,7 +55,7 @@ pub fn approve(
             3
         },
     )?;
-    let needing = permissions::needing_approval(entries, &recorded, flags);
+    let needing = permissions::needing_approval(entries, &recorded, &options.allow);
     if let Some(first) = needing.first() {
         if !prompt.is_terminal() {
             let names: Vec<String> = needing
@@ -64,8 +64,9 @@ pub fn approve(
                 .collect();
             let _ = writeln!(
                 err,
-                "Not approved: {}. Build in a terminal to answer, or add --allow {}.",
+                "Not approved: {}. {} in a terminal to answer, or add --allow {}.",
                 names.join(", "),
+                options.command,
                 shell_word(&first.file)
             );
             return Err(4);
@@ -174,12 +175,23 @@ mod tests {
     }
 
     fn approve_in(dir: &Path, files: &[&str], flags: &[&str], prompt: &mut Fake) -> Ran {
-        let flags: Vec<String> = flags.iter().map(|s| s.to_string()).collect();
+        approve_as("Build", dir, files, flags, prompt)
+    }
+
+    fn approve_as(
+        command: &'static str,
+        dir: &Path,
+        files: &[&str],
+        flags: &[&str],
+        prompt: &mut Fake,
+    ) -> Ran {
+        let allow: Vec<String> = flags.iter().map(|s| s.to_string()).collect();
+        let options = BuildOptions { allow, command };
         let entries: Vec<Entry> = files.iter().map(|f| entry(f)).collect();
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let source = dir.join("t.gloss");
         let result = approve(
-            &source, "t.gloss", &entries, &flags, prompt, &mut out, &mut err,
+            &source, "t.gloss", &entries, &options, prompt, &mut out, &mut err,
         );
         Ran {
             result,
@@ -266,6 +278,18 @@ mod tests {
         assert_eq!(p.asked, ["Allow? "]);
         let text = std::fs::read_to_string(dir.join("t.allow")).unwrap();
         assert!(text.contains("a.csv") && text.contains("b.csv"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_refusal_names_the_command_that_was_run() {
+        let dir = folder();
+        let ran = approve_as("Trace", &dir, &["a.csv"], &[], &mut Fake::new(false, None));
+        assert_eq!(ran.result, Err(4));
+        assert_eq!(
+            ran.err,
+            "Not approved: a.csv. Trace in a terminal to answer, or add --allow a.csv.\n"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
