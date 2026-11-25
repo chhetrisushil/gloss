@@ -1,0 +1,14 @@
+feature start
+  show 1
+
+test "answers come in order"
+  input "Lunch", "120", "spare"
+  ask "What?" into a
+  ask "How much?" into b
+  expect a is "Lunch"
+  expect b is "120"
+
+test "the next test has its own answers"
+  input "Bus"
+  ask "Who?" into c
+  expect c is "Bus"
