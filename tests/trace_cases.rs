@@ -99,3 +99,16 @@ fn every_trace_case_matches_on_linux() {
         assert_eq!(ran.unwrap(), want, "{name}");
     }
 }
+
+#[test]
+fn a_call_nested_too_deep_ends_on_the_enter_then_the_failure_on_linux() {
+    let dir = TempDir::new("trace-deep");
+    let exe = dir.0.join("deep");
+    std::fs::write(&exe, gloss::build_trace_executable(DEEP_PROGRAM).unwrap()).unwrap();
+    std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let Some(ran) = run_case(&exe, b"", DEADLINE, &dir.0, &[], None) else {
+        return;
+    };
+    let (status, stdout, _) = ran.unwrap();
+    assert_eq!((status, deep_ending(&stdout)), (2, DEEP_ENDING.to_string()));
+}

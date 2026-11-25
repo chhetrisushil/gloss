@@ -69,3 +69,23 @@ fn the_irsim_trace_harness_is_not_vacuous() {
     let case = cases().into_iter().next().expect("a case");
     assert!(compare(&case, b"not what the case prints\n").is_err());
 }
+
+#[test]
+fn a_call_nested_too_deep_ends_on_the_enter_then_the_failure_in_irsim() {
+    let src = Source::new(DEEP_PROGRAM);
+    let program = crate::parse_source(&src).expect("parses");
+    let types = check(&program, &src).types.expect("checks clean");
+    let module = lower_trace(&program, &types, &src).expect("lowers");
+    let o = run_with(
+        &module,
+        "_start",
+        b"",
+        &[],
+        Faults::default(),
+        &mut Files::default(),
+    );
+    assert_eq!(
+        (o.status, deep_ending(&o.stdout)),
+        (2, DEEP_ENDING.to_string())
+    );
+}
