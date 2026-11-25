@@ -1,3 +1,5 @@
+{"line":6,"event":"enter","feature":"greet","inputs":{}}
 {"line":2,"event":"show","text":"Name?"}
 {"line":2,"event":"ask","name":"name","question":"Name?","answer":"Bo"}
+{"line":6,"event":"leave","feature":"greet","result":{"text":"Bo"}}
 {"line":6,"event":"show","text":"Hello, Bo"}

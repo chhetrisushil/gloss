@@ -1380,7 +1380,9 @@ fn a_show_inside_a_show_item_is_a_complete_event_before_the_outer_one() {
     let o = crate::irsim::run(&m, "_start", b"");
     assert_eq!(
         String::from_utf8(o.stdout).unwrap(),
-        "{\"line\":2,\"event\":\"show\",\"text\":\"inner\"}\n\
+        "{\"line\":6,\"event\":\"enter\",\"feature\":\"f\",\"inputs\":{}}\n\
+         {\"line\":2,\"event\":\"show\",\"text\":\"inner\"}\n\
+         {\"line\":6,\"event\":\"leave\",\"feature\":\"f\",\"result\":{\"text\":\"x\"}}\n\
          {\"line\":6,\"event\":\"show\",\"text\":\"ax\"}\n"
     );
 }
@@ -1486,10 +1488,10 @@ fn a_verb_operand_that_shows_writes_its_event_before_the_set_event() {
     let o = crate::irsim::run(&m, "_start", b"");
     let out = String::from_utf8(o.stdout).unwrap();
     let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(lines.len(), 3, "{out}");
-    assert!(lines[1].contains("\"show\""), "{out}");
+    assert_eq!(lines.len(), 5, "{out}");
+    assert!(lines[2].contains("\"show\""), "{out}");
     assert!(
-        lines[2].contains("\"from\":{\"number\":\"1\"},\"to\":{\"number\":\"2\"}"),
+        lines[4].contains("\"from\":{\"number\":\"1\"},\"to\":{\"number\":\"2\"}"),
         "{out}"
     );
 }
@@ -1666,5 +1668,71 @@ fn a_list_loop_writes_the_position_plus_one_and_a_zero_turn_loop_nothing() {
     assert_eq!(
         traced("  for each x in (empty list of number)\n    skip\n"),
         ""
+    );
+}
+
+/// What a trace build of the whole `program` writes.
+fn traced_program(program: &str) -> String {
+    let o = crate::irsim::run(&lowered_trace(program), "_start", b"");
+    assert_eq!(o.status, 0);
+    String::from_utf8(o.stdout).expect("utf-8")
+}
+
+#[test]
+fn a_call_writes_enter_with_its_inputs_and_leave_with_its_result() {
+    let out = traced_program(
+        "feature sum\n  needs a as number, b as number\n  give a + b\n\nfeature start\n  set r to sum with 1, 2\n",
+    );
+    assert_eq!(
+        out,
+        "{\"line\":6,\"event\":\"enter\",\"feature\":\"sum\",\"inputs\":{\"a\":{\"number\":\"1\"},\"b\":{\"number\":\"2\"}}}\n\
+         {\"line\":6,\"event\":\"leave\",\"feature\":\"sum\",\"result\":{\"number\":\"3\"}}\n\
+         {\"line\":6,\"event\":\"set\",\"name\":\"r\",\"to\":{\"number\":\"3\"}}\n"
+    );
+}
+
+#[test]
+fn a_call_that_gives_nothing_has_no_result_and_no_inputs_is_empty() {
+    let out = traced_program("feature hi\n  set x to 1\n\nfeature start\n  run hi\n");
+    assert_eq!(
+        out,
+        "{\"line\":5,\"event\":\"enter\",\"feature\":\"hi\",\"inputs\":{}}\n\
+         {\"line\":2,\"event\":\"set\",\"name\":\"x\",\"to\":{\"number\":\"1\"}}\n\
+         {\"line\":5,\"event\":\"leave\",\"feature\":\"hi\"}\n"
+    );
+}
+
+#[test]
+fn a_call_in_an_input_is_entered_and_left_before_the_outer_enter() {
+    let out = traced_program(
+        "feature seven\n  give 7\n\nfeature echo\n  needs n as number\n  give n\n\nfeature start\n  set r to echo with seven\n",
+    );
+    let kinds: Vec<(&str, &str)> = out
+        .lines()
+        .filter(|l| l.contains("enter") || l.contains("leave"))
+        .map(|l| {
+            let feature = if l.contains("\"seven\"") {
+                "seven"
+            } else {
+                "echo"
+            };
+            (
+                if l.contains("enter") {
+                    "enter"
+                } else {
+                    "leave"
+                },
+                feature,
+            )
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("enter", "seven"),
+            ("leave", "seven"),
+            ("enter", "echo"),
+            ("leave", "echo")
+        ]
     );
 }

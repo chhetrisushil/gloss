@@ -186,15 +186,31 @@ impl Lowerer<'_> {
 
     /// Pushes the inputs left to right, checks the stack, calls; the backend drops the inputs
     /// and the result is in `a`. The check's size is filled in once every feature is lowered.
+    /// A trace build evaluates the inputs into hidden slots first, so no user code runs while
+    /// the `enter` event is open, and writes `enter` after the stack check (failure 10 writes
+    /// none) and `leave` after the call.
     pub fn feature_call(&mut self, feature: &str, inputs: &[Expr]) -> Result<(), Diagnostic> {
+        let mut held = Vec::new();
         for input in inputs {
             self.expr(input)?;
-            self.emit(Inst::Push(Reg::A));
+            if self.mode == Mode::Trace {
+                let slot = self.new_temp();
+                self.emit(Inst::StoreSlot(slot, Reg::A));
+                held.push(slot);
+            } else {
+                self.emit(Inst::Push(Reg::A));
+            }
         }
         let fail = self.too_deep(feature);
         self.emit(Inst::StackCheck { bytes: 0, fail });
+        if self.mode == Mode::Trace {
+            self.enter_event(feature, &held);
+        }
         self.emit(Inst::Call(super::function_name(feature)));
         self.restore_line();
+        if self.mode == Mode::Trace {
+            self.leave_event(feature);
+        }
         Ok(())
     }
 }
