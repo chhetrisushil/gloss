@@ -561,10 +561,6 @@ fn refusal(body: &str) -> String {
 fn test_mode_refuses_what_is_not_built_yet() {
     let stmt = "this compiler cannot build this statement yet.";
     // The statement under `test` is line 10.
-    assert_eq!(
-        refusal("ask \"q\" into a"),
-        format!("line 10: ask \"q\" into a. {stmt}")
-    );
     assert_eq!(refusal("load rows"), format!("line 10: load rows. {stmt}"));
     assert_eq!(
         refusal("show shown"),
@@ -580,14 +576,9 @@ fn test_mode_refuses_what_is_not_built_yet() {
     // The same refusals in a feature no test calls, plain and nested under if and for each.
     let head = "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\n";
     let in_features = [
-        ("ask \"q\" into a\n  show a", 7, "ask \"q\" into a"),
         ("clear rows\n  save rows", 8, "save rows"),
         ("if 1 is 1\n    load rows", 8, "load rows"),
-        (
-            "for each i from 1 to 2\n    ask \"q\" into a\n    show a",
-            8,
-            "ask \"q\" into a",
-        ),
+        ("for each i from 1 to 2\n    load rows", 8, "load rows"),
     ];
     for (body, line, shown) in in_features {
         let text = format!("{head}feature start\n  {body}\n\ntest \"t\"\n  show 1\n");
@@ -597,10 +588,7 @@ fn test_mode_refuses_what_is_not_built_yet() {
     // And nested in a test body (its statement is line 11).
     for (body, shown) in [
         ("if 1 is 1\n    load rows", "load rows"),
-        (
-            "for each i from 1 to 2\n    ask \"q\" into a\n    show a",
-            "ask \"q\" into a",
-        ),
+        ("for each i from 1 to 2\n    load rows", "load rows"),
     ] {
         assert_eq!(refusal(body), format!("line 11: {shown}. {stmt}"), "{body}");
     }
@@ -626,6 +614,66 @@ fn input_lowers_each_answer_to_a_test_input_call_with_its_line() {
     // Nested under an `if`, the statement lowers too.
     let nested = format!("{ROWS}test \"t\"\n  if 1 is 1\n    input \"x\"\n");
     assert!(lowered_tests(&nested).is_ok());
+}
+
+/// Runs the test program `body` (statements under `test "t"`) and gives stdout and status.
+fn run_test_body(body: &str, stdin: &[u8]) -> (String, i32) {
+    let m = lowered_tests(&format!("{ROWS}test \"t\"\n{body}")).unwrap();
+    let o = crate::irsim::run(&m, "_start", stdin);
+    assert_eq!(o.stderr, b"");
+    (String::from_utf8(o.stdout).unwrap(), o.status)
+}
+
+#[test]
+fn ask_takes_the_input_answers_in_order_and_shows_nothing() {
+    let body = "  input \"a\", \"b\"\n  ask \"first?\" into x\n  ask \"second?\" into y\n  \
+                expect x is \"a\"\n  expect y is \"b\"\n";
+    let (out, status) = run_test_body(body, b"");
+    assert_eq!(
+        (out.as_str(), status),
+        ("pass  t\n\n1 passed, 0 failed\n", 0)
+    );
+}
+
+#[test]
+fn a_second_input_statement_extends_what_ask_takes() {
+    let body = "  input \"a\"\n  ask \"q\" into x\n  input \"b\"\n  ask \"q\" into y\n  \
+                expect y is \"b\"\n";
+    assert_eq!(run_test_body(body, b"").1, 0);
+}
+
+#[test]
+fn ask_with_no_answer_fails_the_test_with_the_spec_message() {
+    let body = "  input \"a\"\n  ask \"q\" into x\n  ask \"q\" into y\n";
+    let (out, status) = run_test_body(body, b"x\n");
+    let want = "fail  t\n      the test gave 1 answer but line 12 asked a second question\n\n\
+                0 passed, 1 failed\n";
+    assert_eq!((out.as_str(), status), (want, 1));
+    // Without any `input`, it is the first question, with 0 answers.
+    let (out, _) = run_test_body("  ask \"q\" into x\n", b"x\n");
+    assert!(out.contains("the test gave 0 answers but line 10 asked a first question"));
+}
+
+#[test]
+fn real_ask_is_unchanged() {
+    let real = lowered("feature start\n  ask \"Q\" into s\n  show s\n").unwrap();
+    let real_ask = function(&real, "ask");
+    // Reads standard input (through in_fill) and shows the question.
+    let text = function_text(real_ask);
+    assert!(
+        text.contains("call in_fill") && text.contains("call out_text"),
+        "{text}"
+    );
+    assert_eq!(real_ask.params, 2);
+    // A test build swaps it for the queue's version, which calls neither.
+    let test = lowered_tests(&format!("{ROWS}test \"t\"\n  ask \"q\" into x\n")).unwrap();
+    let text = function_text(function(&test, "ask"));
+    assert!(text.contains("call test_ask_fail"), "{text}");
+    assert!(
+        !text.contains("in_fill") && !text.contains("out_text"),
+        "{text}"
+    );
+    assert!(!has_file_primitive(&test));
 }
 
 #[test]
@@ -734,7 +782,7 @@ fn the_line_is_stored_before_every_kind_of_statement() {
 }
 
 /// A program whose test has one statement per kind from line 11 on (the feature `f` gives 1).
-const KINDS: [&str; 12] = [
+const KINDS: [&str; 14] = [
     "append Row with n 1 to rows",
     "set n of item 1 of rows to 5",
     "set item 1 of rows to Row with n 2",
@@ -746,6 +794,8 @@ const KINDS: [&str; 12] = [
     "divide y by 2",
     "run g",
     "clear rows",
+    "ask \"q\" into w",
+    "expect w is \"a\"",
     "show f",
 ];
 
