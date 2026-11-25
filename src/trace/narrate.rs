@@ -1,10 +1,10 @@
-//! Sentences for trace events. So far: the `check` sentence and the map from a line to the
-//! condition that starts on it.
+//! Sentences for trace events: one per event, indented by call depth, and the map from a line
+//! to the condition that starts on it.
 
 use std::collections::HashMap;
 use std::io::{self, Write};
 
-use super::event::{Event, Value, decode};
+use super::event::{Event, FileAction, Value, decode};
 use super::value::say;
 use crate::ast::print::{expr, expr_with};
 use crate::ast::program::Program;
@@ -49,6 +49,7 @@ impl<'p> Narrator<'p> {
             Ok(event) => event,
             Err(e) => return Ok(Err(e)),
         };
+        let enters = matches!(event, Event::Enter { .. });
         let sentence = match event {
             Event::Show { text, .. } => {
                 writeln!(out, "{text}")?;
@@ -77,10 +78,67 @@ impl<'p> Narrator<'p> {
                 result,
                 ..
             } => self.check(line, &values, result),
-            _ => None,
+            Event::Loop {
+                line, name, value, ..
+            } => Some(format!("line {line}: {name} is {}", say(&value))),
+            Event::Enter {
+                line,
+                feature,
+                inputs,
+            } => {
+                let with: Vec<String> = inputs
+                    .iter()
+                    .map(|(k, v)| format!("{k} = {}", say(v)))
+                    .collect();
+                let with = if with.is_empty() {
+                    String::new()
+                } else {
+                    format!(" with {}", with.join(", "))
+                };
+                Some(format!("line {line}: calling {feature}{with}"))
+            }
+            Event::Leave {
+                line,
+                feature,
+                result,
+            } => {
+                // The callee's own sentences are one level deeper than its enter and leave.
+                self.depth = self.depth.saturating_sub(1);
+                Some(match result {
+                    Some(v) => format!("line {line}: {feature} gives {}", say(&v)),
+                    None => format!("line {line}: {feature} ends"),
+                })
+            }
+            Event::Ask {
+                line, name, answer, ..
+            } => Some(format!(
+                "line {line}: the answer {} goes into {name}",
+                say(&Value::Text(answer))
+            )),
+            Event::File {
+                line,
+                table,
+                file,
+                action,
+                rows,
+            } => {
+                let s = if rows == 1 { "" } else { "s" };
+                Some(match action {
+                    FileAction::Load => {
+                        format!("line {line}: loaded {table} from {file} ({rows} row{s})")
+                    }
+                    FileAction::Save => {
+                        format!("line {line}: saved {table} to {file} ({rows} row{s})")
+                    }
+                    FileAction::Clear => format!("line {line}: cleared {table}"),
+                })
+            }
         };
         if let Some(sentence) = sentence {
             writeln!(out, "{}{sentence}", "  ".repeat(self.depth))?;
+        }
+        if enters {
+            self.depth += 1;
         }
         Ok(Ok(()))
     }
@@ -247,6 +305,35 @@ mod tests {
             set(r#","item":4"#, &five),
             "line 4: 5 is appended to x (now 4 items)\n"
         );
+    }
+
+    #[test]
+    fn loop_ask_file_and_calls_are_narrated_with_a_staircase() {
+        let lines = [
+            r#"{"line":9,"event":"loop","name":"price","turn":1,"value":{"number":"150"}}"#,
+            r#"{"line":8,"event":"enter","feature":"gcd","inputs":{"a":{"number":"48"},"b":{"number":"36"}}}"#,
+            r#"{"line":3,"event":"enter","feature":"report","inputs":{}}"#,
+            r#"{"line":4,"event":"ask","name":"item","question":"q","answer":"a \"b\""}"#,
+            r#"{"line":3,"event":"leave","feature":"report"}"#,
+            r#"{"line":8,"event":"leave","feature":"gcd","result":{"number":"12"}}"#,
+            r#"{"line":2,"event":"file","table":"expenses","file":"expenses.csv","action":"load","rows":12}"#,
+            r#"{"line":3,"event":"file","table":"expenses","file":"expenses.csv","action":"save","rows":1}"#,
+            r#"{"line":4,"event":"file","table":"expenses","file":"expenses.csv","action":"clear","rows":0}"#,
+        ];
+        let (out, err) = narrate("  show 1\n", &lines);
+        assert_eq!(
+            out,
+            "line 9: price is 150\n\
+             line 8: calling gcd with a = 48, b = 36\n\
+             \x20 line 3: calling report\n\
+             \x20   line 4: the answer \"a \"\"b\"\"\" goes into item\n\
+             \x20 line 3: report ends\n\
+             line 8: gcd gives 12\n\
+             line 2: loaded expenses from expenses.csv (12 rows)\n\
+             line 3: saved expenses to expenses.csv (1 row)\n\
+             line 4: cleared expenses\n"
+        );
+        assert_eq!(err, "");
     }
 
     #[test]
