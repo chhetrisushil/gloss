@@ -333,6 +333,48 @@ impl Lowerer<'_> {
         self.ev_close();
     }
 
+    /// Writes the `enter` event of a call of `feature` whose input values are in the slots
+    /// `held`, then pushes them for the call.
+    pub(super) fn enter_event(&mut self, feature: &str, held: &[u32]) {
+        let names = self.types.features[feature].inputs.clone();
+        self.ev_open(self.line, "enter");
+        self.ev_key("feature");
+        self.ev_fixed_text(feature);
+        self.ev_raw(",\"inputs\":{");
+        for (i, ((name, ty), slot)) in names.iter().zip(held).enumerate() {
+            let comma = if i == 0 { "" } else { "," };
+            self.ev_raw(&format!("{comma}\"{}\":", json_escape_host(name)));
+            self.ev_value_from_slot(*slot, ty);
+        }
+        self.ev_raw("}");
+        self.ev_close();
+        for slot in held {
+            self.emit(Inst::LoadSlot(Reg::A, *slot));
+            self.emit(Inst::Push(Reg::A));
+        }
+    }
+
+    /// Writes the `leave` event of a call of `feature` that returned, its result in `a`
+    /// (left there; the event has no `result` when the feature gives nothing).
+    pub(super) fn leave_event(&mut self, feature: &str) {
+        let ty = self.types.features[feature].result.clone();
+        let slot = (ty != Ty::Nothing).then(|| self.new_temp());
+        if let Some(slot) = slot {
+            self.emit(Inst::StoreSlot(slot, Reg::A));
+        }
+        self.ev_open(self.line, "leave");
+        self.ev_key("feature");
+        self.ev_fixed_text(feature);
+        if let Some(slot) = slot {
+            self.ev_key("result");
+            self.ev_value_from_slot(slot, &ty);
+        }
+        self.ev_close();
+        if let Some(slot) = slot {
+            self.emit(Inst::LoadSlot(Reg::A, slot));
+        }
+    }
+
     /// Sets `name`'s made flag (see `Lowerer::made`); clobbers `a`.
     pub(super) fn set_made(&mut self, name: &str) {
         if let Some(&flag) = self.made.get(name) {
