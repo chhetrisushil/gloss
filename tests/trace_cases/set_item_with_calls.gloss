@@ -1,0 +1,13 @@
+feature pick
+  needs n as number
+  show "pick"
+  give n
+
+feature put
+  needs n as number
+  show "put"
+  give n
+
+feature start
+  set xs to list of 4, 9, 2
+  set item (pick with 1) of xs to (put with 5)
