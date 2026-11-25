@@ -1,0 +1,11 @@
+feature start
+  show 1
+
+test "first"
+  expect 1 + 1 is 2
+
+test "second"
+  expect 1 + 1 is 3
+
+test "third"
+  expect 1 + 1 is 2

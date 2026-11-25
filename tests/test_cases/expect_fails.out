@@ -1,0 +1,6 @@
+pass  first
+fail  second
+      line 8: expect 1 + 1 is 3
+pass  third
+
+2 passed, 1 failed
