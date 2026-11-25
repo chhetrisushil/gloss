@@ -122,13 +122,15 @@ const JSON_RECORD: u32 = 71;
 const JSON_FIELDS: u32 = 72;
 const JSON_COLON: u32 = 73;
 const JSON_COMMA: u32 = 74;
-const JSON_RECORD_END: u32 = 75;
+const JSON_LIST: u32 = 75;
+const JSON_LIST_END: u32 = 76;
+const JSON_RECORD_END: u32 = 77;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 76] = [
+const TEXTS: [&[u8]; 78] = [
     b"line ",
     b": failure ",
     b": ",
@@ -204,6 +206,8 @@ const TEXTS: [&[u8]; 76] = [
     b",\"fields\":{",
     b":",
     b",",
+    b"{\"list\":[",
+    b"]}",
     b"}}",
 ];
 

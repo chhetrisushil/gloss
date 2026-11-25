@@ -4,8 +4,8 @@ use super::asm::Asm;
 use super::shown::{AT, CP, END, LEN, TMP, decode};
 use super::values::out_const;
 use super::{
-    JSON_BRACE, JSON_COLON, JSON_COMMA, JSON_FIELDS, JSON_NO, JSON_NUMBER, JSON_NUMBER_END,
-    JSON_RECORD, JSON_RECORD_END, JSON_TEXT, JSON_YES, QUOTE,
+    JSON_BRACE, JSON_COLON, JSON_COMMA, JSON_FIELDS, JSON_LIST, JSON_LIST_END, JSON_NO,
+    JSON_NUMBER, JSON_NUMBER_END, JSON_RECORD, JSON_RECORD_END, JSON_TEXT, JSON_YES, QUOTE,
 };
 use crate::ir::Cond::{Eq, Ge, Gt, Lt, Ne};
 use crate::ir::Reg::{self, A, B};
@@ -147,7 +147,7 @@ fn json_text() -> Function {
     s.finish("json_text", 1, 0)
 }
 
-// Slots of `json_record`.
+// Slots of `json_record` and `json_list`.
 const INDEX: u32 = 1;
 const COUNT: u32 = 2;
 
@@ -219,15 +219,54 @@ fn json_record() -> Function {
     s.finish("json_record", 2, 2)
 }
 
+/// `json_list(list, desc)`: `{"list":[v,…]}`. The list is `[count, capacity, items]`, the item
+/// at `items + 8 * i`; the item descriptor is the word after the kind. Slot 3 holds it.
+fn json_list() -> Function {
+    let mut s = Asm::default();
+    let (again, done) = (s.label(), s.label());
+    out_const(&mut s, JSON_LIST);
+    s.i(LoadArg(A, 2));
+    load(&mut s, A, A, 8);
+    s.i(StoreSlot(3, A));
+    s.i(LoadArg(A, 1));
+    load(&mut s, A, A, 0);
+    s.i(StoreSlot(COUNT, A));
+    s.i(Const(A, 0));
+    s.i(StoreSlot(INDEX, A));
+    s.i(Mark(again));
+    s.i(LoadSlot(A, INDEX));
+    s.i(LoadSlot(B, COUNT));
+    s.jump_if(Ge, done);
+    comma_between(&mut s);
+    s.i(LoadArg(B, 1));
+    load(&mut s, B, B, 16);
+    s.i(LoadSlot(A, INDEX));
+    s.i(Shift(Shift::Left, 3));
+    s.i(Int(IntOp::Add));
+    load(&mut s, A, A, 0);
+    s.i(Push(A));
+    s.push_slot(3);
+    s.call("json_value");
+    s.i(LoadSlot(A, INDEX));
+    s.i(AddImm(A, 1));
+    s.i(StoreSlot(INDEX, A));
+    s.i(Jump(again));
+    s.i(Mark(done));
+    out_const(&mut s, JSON_LIST_END);
+    s.finish("json_list", 2, 3)
+}
+
 /// `json_value(value, desc)`: the typed JSON value by the kind of the descriptor (see
 /// `ir::Desc`), as `show_value` walks it.
 fn json_value() -> Function {
     let mut s = Asm::default();
-    let (text, truth, no, record) = (s.label(), s.label(), s.label(), s.label());
+    let (text, truth, no, record, list) = (s.label(), s.label(), s.label(), s.label(), s.label());
     s.i(LoadArg(A, 2));
     load(&mut s, A, A, 0);
     s.i(Const(B, 3));
     s.jump_if(Eq, record);
+    s.i(Const(B, 4));
+    s.jump_if(Eq, list);
     s.i(Const(B, 1));
     s.jump_if(Eq, text);
     s.i(Const(B, 2));
@@ -252,11 +291,13 @@ fn json_value() -> Function {
     s.i(Mark(no));
     out_const(&mut s, JSON_NO);
     s.i(Return);
-    s.i(Mark(record));
-    s.push_arg(1);
-    s.push_arg(2);
-    s.call("json_record");
-    s.i(Return);
+    for (label, routine) in [(record, "json_record"), (list, "json_list")] {
+        s.i(Mark(label));
+        s.push_arg(1);
+        s.push_arg(2);
+        s.call(routine);
+        s.i(Return);
+    }
     s.finish("json_value", 2, 0)
 }
 
@@ -267,5 +308,6 @@ pub fn routines() -> Vec<Function> {
         json_text(),
         json_value(),
         json_record(),
+        json_list(),
     ]
 }
