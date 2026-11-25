@@ -164,22 +164,35 @@ fn run_program_with(
 /// Why a run could not be driven to the end.
 enum Failure {
     Start(std::io::Error),
+    /// Writing standard error failed.
     Output(std::io::Error),
+    /// The consumer of standard output (`on_out`) failed.
+    Sink(std::io::Error),
     Wait(std::io::Error),
 }
 
 impl Failure {
+    fn source(&self) -> &std::io::Error {
+        match self {
+            Failure::Start(e) | Failure::Output(e) | Failure::Sink(e) | Failure::Wait(e) => e,
+        }
+    }
+
+    /// The error a caller of `run_traced` gets: the consumer's own error unchanged, any other
+    /// failure with its message.
     fn into_error(self) -> std::io::Error {
-        let kind = match &self {
-            Failure::Start(e) | Failure::Output(e) | Failure::Wait(e) => e.kind(),
-        };
-        std::io::Error::new(kind, self.message())
+        if let Failure::Sink(e) = self {
+            return e;
+        }
+        std::io::Error::new(self.source().kind(), self.message())
     }
 
     fn message(&self) -> String {
         match self {
             Failure::Start(e) => format!("cannot run the test executable: {e}"),
-            Failure::Output(e) => format!("cannot write the test output: {e}"),
+            Failure::Output(e) | Failure::Sink(e) => {
+                format!("cannot write the test output: {e}")
+            }
             Failure::Wait(e) => format!("cannot wait for the test run: {e}"),
         }
     }
@@ -203,7 +216,8 @@ fn drive(
             other => break other,
         }
     };
-    let mut child = spawned.map_err(Failure::Start)?;
+    // Ends the child if this function is left early, by a panic in `on_out` for one.
+    let mut child = Reaper(spawned.map_err(Failure::Start)?);
     let (tx, rx) = mpsc::channel::<(bool, Vec<u8>)>();
     let mut readers = Vec::new();
     if let Some(stdout) = child.stdout.take() {
@@ -216,9 +230,11 @@ fn drive(
     let mut failed = None;
     for (is_err, chunk) in &rx {
         let written = if is_err {
-            err.write_all(&chunk).and_then(|()| err.flush())
+            err.write_all(&chunk)
+                .and_then(|()| err.flush())
+                .map_err(Failure::Output)
         } else {
-            on_out(&chunk)
+            on_out(&chunk).map_err(Failure::Sink)
         };
         if let Err(e) = written {
             failed = Some(e);
@@ -233,12 +249,35 @@ fn drive(
         for r in readers {
             let _ = r.join();
         }
-        return Err(Failure::Output(e));
+        return Err(e);
     }
     for r in readers {
         let _ = r.join();
     }
     child.wait().map_err(Failure::Wait)
+}
+
+/// A started child that is killed and reaped when dropped; a no-op once it has been waited for.
+struct Reaper(Child);
+
+impl std::ops::Deref for Reaper {
+    type Target = Child;
+    fn deref(&self) -> &Child {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Reaper {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.0
+    }
+}
+
+impl Drop for Reaper {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 /// Reads `from` on its own thread, sending each chunk as it arrives.
@@ -278,9 +317,6 @@ pub fn status_for(ended: ExitStatus) -> (i32, Option<String>) {
     }
 }
 
-#[cfg(test)]
-mod tests;
-
 /// How a traced run ended: it finished (status 0, or 2 for a run-time failure the program
 /// reported itself), or it did not (any other status, or a last line cut short).
 #[derive(Debug, PartialEq, Eq)]
@@ -299,8 +335,61 @@ fn spawn_inheriting(path: &Path) -> std::io::Result<Child> {
         .spawn()
 }
 
+/// Splits the bytes of standard output at `\n` into lines, whatever the chunks are.
+#[derive(Default)]
+struct LineSplitter {
+    /// The start of a line whose newline has not arrived yet.
+    rest: Vec<u8>,
+    /// How many lines have been handed on.
+    lines: usize,
+}
+
+impl LineSplitter {
+    /// Hands each line the chunk completes to `on_line`, without its newline. Only the new
+    /// bytes are scanned. A line that is not UTF-8 is an `InvalidData` error naming its number:
+    /// events are always text, so such bytes mean the stream is corrupt.
+    fn feed(
+        &mut self,
+        chunk: &[u8],
+        on_line: &mut dyn FnMut(&str) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
+        let mut start = 0;
+        while let Some(found) = chunk[start..].iter().position(|&b| b == b'\n') {
+            let end = start + found;
+            self.rest.extend_from_slice(&chunk[start..end]);
+            start = end + 1;
+            self.lines += 1;
+            let line = std::mem::take(&mut self.rest);
+            let text = std::str::from_utf8(&line).map_err(|_| {
+                let n = self.lines;
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("line {n} of the program's output is not text"),
+                )
+            })?;
+            on_line(text)?;
+        }
+        self.rest.extend_from_slice(&chunk[start..]);
+        Ok(())
+    }
+
+    /// Whether a last line is still waiting for its newline.
+    fn unfinished(&self) -> bool {
+        !self.rest.is_empty()
+    }
+}
+
 /// Runs a traced executable: standard output is one JSON event per line, each handed whole to
-/// `on_line`; standard error goes to `err`. A failing `on_line` or `err` ends the run.
+/// `on_line` (no limit on a line's length); standard error goes to `err`. A failing `on_line`
+/// ends the run and its error is returned unchanged; a failing `err` ends it too. Output that
+/// is not UTF-8 is an `InvalidData` error.
+///
+/// `err` and `on_line` are both called from this thread, in the order their bytes arrive, so
+/// a narrator line is never split inside another write; but standard output is held until a
+/// newline while standard error is passed at once, so the program's stderr and the narration
+/// interleave by arrival. A child that never closes its standard output keeps the run going
+/// until it ends or is interrupted (accepted, like D49). When the run ends early, the child is
+/// killed and the rest of its standard error is dropped.
 pub fn run_traced(
     executable: &[u8],
     on_line: &mut dyn FnMut(&str) -> std::io::Result<()>,
@@ -320,20 +409,15 @@ fn run_traced_with(
     err: &mut dyn Write,
     start: &mut dyn FnMut(&Path) -> std::io::Result<Child>,
 ) -> std::io::Result<TraceEnd> {
-    // The bytes of a line whose newline has not arrived yet.
-    let mut rest: Vec<u8> = Vec::new();
-    let mut on_out = |chunk: &[u8]| {
-        rest.extend_from_slice(chunk);
-        while let Some(at) = rest.iter().position(|&b| b == b'\n') {
-            let line: Vec<u8> = rest.drain(..=at).collect();
-            on_line(&String::from_utf8_lossy(&line[..at]))?;
-        }
-        Ok(())
-    };
-    let ended = drive(path, &mut on_out, err, start).map_err(|f| f.into_error())?;
+    let mut splitter = LineSplitter::default();
+    let mut on_out = |chunk: &[u8]| splitter.feed(chunk, on_line);
+    let ended = drive(path, &mut on_out, err, start).map_err(Failure::into_error)?;
     let code = exit_code(ended);
     Ok(match code {
-        0 | 2 if rest.is_empty() => TraceEnd::Exited(code),
+        0 | 2 if !splitter.unfinished() => TraceEnd::Exited(code),
         n => TraceEnd::Unfinished(n),
     })
 }
+
+#[cfg(test)]
+mod tests;
