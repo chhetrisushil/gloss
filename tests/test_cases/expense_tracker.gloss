@@ -1,0 +1,66 @@
+note Expense tracker: record one expense, then report on its category
+
+record Expense
+  name as text
+  amount as number
+  category as text
+
+table expenses of Expense in "expenses.csv"
+
+feature category_total
+  needs wanted as text
+  set total to 0
+  for each expense in expenses
+    if category of expense is wanted
+      add amount of expense to total
+  give total
+
+feature largest_expense
+  set largest to first of expenses
+  for each expense in expenses
+    if amount of expense is greater than amount of largest
+      set largest to expense
+  give largest
+
+feature ask_amount
+  ask "How much did it cost?" into cost
+  repeat while cost is not number
+    ask "Please type a number, such as 120.50" into cost
+  give cost as number
+
+feature start
+  load expenses
+  ask "What did you buy?" into bought
+  set cost to ask_amount
+  ask "Which category?" into kind
+  append Expense with name bought, amount cost, category kind to expenses
+  save expenses
+  show "Total for ", kind, ": ", (category_total with kind)
+  set biggest to largest_expense
+  show "Largest so far: ", name of biggest, " at ", amount of biggest
+
+test "category total counts only the matching category"
+  append Expense with name "Lunch", amount 120, category "food" to expenses
+  append Expense with name "Bus", amount 40, category "travel" to expenses
+  append Expense with name "Dinner", amount 300, category "food" to expenses
+  expect category_total with "food" is 420
+  expect category_total with "rent" is 0
+
+test "largest expense is found"
+  append Expense with name "Bus", amount 40, category "travel" to expenses
+  append Expense with name "Dinner", amount 300, category "food" to expenses
+  expect name of largest_expense is "Dinner"
+
+test "a cost that is not a number is asked for again"
+  input "Dinner", "abc", "300", "food"
+  run start
+  expect amount of first of expenses is 300
+
+test "a new expense is added to the saved ones and reported"
+  append Expense with name "Lunch", amount 120, category "food" to expenses
+  save expenses
+  input "Dinner", "300", "food"
+  run start
+  expect count of expenses is 2
+  expect item 1 of shown is "Total for food: 420"
+  expect item 2 of shown is "Largest so far: Dinner at 300"

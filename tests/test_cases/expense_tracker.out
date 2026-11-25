@@ -1,0 +1,6 @@
+pass  category total counts only the matching category
+pass  largest expense is found
+pass  a cost that is not a number is asked for again
+pass  a new expense is added to the saved ones and reported
+
+4 passed, 0 failed
