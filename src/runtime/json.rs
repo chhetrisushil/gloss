@@ -9,6 +9,7 @@ use super::{
 };
 use crate::ir::Cond::{Eq, Ge, Gt, Lt, Ne};
 use crate::ir::Reg::{self, A, B};
+use crate::ir::{DESC_LIST, DESC_RECORD, DESC_TEXT, DESC_TRUTH};
 use crate::ir::{Function, Inst::*, IntOp, Shift};
 
 // Slots of `json_bytes` besides those `decode` uses.
@@ -125,6 +126,9 @@ fn json_bytes() -> Function {
 /// `json_int(n)`: the whole number `n` in decimal. It is `number_format` of `n` in
 /// ten-thousandths, so it holds for the 15 whole digits `number_format` shows; lines, items,
 /// turns, row counts and failure codes are far below that.
+///
+/// Callers must have `ESCAPING` at 0: the fixed JSON pieces and the quotes go through
+/// `out_bytes`, which would escape them (`\"`) otherwise. Nothing here sets `ESCAPING`.
 fn json_int() -> Function {
     let mut s = Asm::default();
     s.i(LoadArg(A, 1));
@@ -137,7 +141,11 @@ fn json_int() -> Function {
     s.finish("json_int", 1, 0)
 }
 
-/// `json_text(text)`: the text as a JSON string, in double quotes.
+/// `json_text(text)`: the text as a JSON string, in double quotes. The quotes go through
+/// `out_bytes` and the text through `json_bytes`, which escapes on its own.
+///
+/// Callers must have `ESCAPING` at 0: the fixed JSON pieces and the quotes go through
+/// `out_bytes`, which would escape them (`\"`) otherwise. Nothing here sets `ESCAPING`.
 fn json_text() -> Function {
     let mut s = Asm::default();
     out_const(&mut s, QUOTE);
@@ -150,6 +158,10 @@ fn json_text() -> Function {
 // Slots of `json_record` and `json_list`.
 const INDEX: u32 = 1;
 const COUNT: u32 = 2;
+// Slot of `json_list` holding the item descriptor.
+const ITEM_DESC: u32 = 3;
+// `json_list`'s slot count: INDEX, COUNT and ITEM_DESC.
+const LIST_SLOTS: u32 = 3;
 
 /// Writes `,` before every item but the first, when the index in `INDEX` is not 0.
 fn comma_between(s: &mut Asm) {
@@ -220,14 +232,14 @@ fn json_record() -> Function {
 }
 
 /// `json_list(list, desc)`: `{"list":[v,…]}`. The list is `[count, capacity, items]`, the item
-/// at `items + 8 * i`; the item descriptor is the word after the kind. Slot 3 holds it.
+/// at `items + 8 * i`; the item descriptor is the word after the kind. `ITEM_DESC` holds it.
 fn json_list() -> Function {
     let mut s = Asm::default();
     let (again, done) = (s.label(), s.label());
     out_const(&mut s, JSON_LIST);
     s.i(LoadArg(A, 2));
     load(&mut s, A, A, 8);
-    s.i(StoreSlot(3, A));
+    s.i(StoreSlot(ITEM_DESC, A));
     s.i(LoadArg(A, 1));
     load(&mut s, A, A, 0);
     s.i(StoreSlot(COUNT, A));
@@ -245,7 +257,7 @@ fn json_list() -> Function {
     s.i(Int(IntOp::Add));
     load(&mut s, A, A, 0);
     s.i(Push(A));
-    s.push_slot(3);
+    s.push_slot(ITEM_DESC);
     s.call("json_value");
     s.i(LoadSlot(A, INDEX));
     s.i(AddImm(A, 1));
@@ -253,23 +265,26 @@ fn json_list() -> Function {
     s.i(Jump(again));
     s.i(Mark(done));
     out_const(&mut s, JSON_LIST_END);
-    s.finish("json_list", 2, 3)
+    s.finish("json_list", 2, LIST_SLOTS)
 }
 
 /// `json_value(value, desc)`: the typed JSON value by the kind of the descriptor (see
 /// `ir::Desc`), as `show_value` walks it.
+///
+/// Callers must have `ESCAPING` at 0: the fixed JSON pieces and the quotes go through
+/// `out_bytes`, which would escape them (`\"`) otherwise. Nothing here sets `ESCAPING`.
 fn json_value() -> Function {
     let mut s = Asm::default();
     let (text, truth, no, record, list) = (s.label(), s.label(), s.label(), s.label(), s.label());
     s.i(LoadArg(A, 2));
     load(&mut s, A, A, 0);
-    s.i(Const(B, 3));
+    s.i(Const(B, i64::from(DESC_RECORD)));
     s.jump_if(Eq, record);
-    s.i(Const(B, 4));
+    s.i(Const(B, i64::from(DESC_LIST)));
     s.jump_if(Eq, list);
-    s.i(Const(B, 1));
+    s.i(Const(B, i64::from(DESC_TEXT)));
     s.jump_if(Eq, text);
-    s.i(Const(B, 2));
+    s.i(Const(B, i64::from(DESC_TRUTH)));
     s.jump_if(Eq, truth);
     out_const(&mut s, JSON_NUMBER);
     s.push_arg(1);

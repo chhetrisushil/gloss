@@ -303,10 +303,17 @@ pub struct Function {
     pub body: Vec<Inst>,
 }
 
+/// The kind word that starts each descriptor in memory (see `Desc`).
+pub const DESC_NUMBER: u8 = 0;
+pub const DESC_TEXT: u8 = 1;
+pub const DESC_TRUTH: u8 = 2;
+pub const DESC_RECORD: u8 = 3;
+pub const DESC_LIST: u8 = 4;
+
 /// A type descriptor the runtime uses to print values.
 ///
-/// In memory (read-only), every field is 8 bytes. A descriptor starts with its kind: 0
-/// number, 1 text, 2 truth, 3 record, 4 list. A record continues with the address of its
+/// In memory (read-only), every field is 8 bytes. A descriptor starts with its kind:
+/// `DESC_NUMBER` 0, `DESC_TEXT` 1, `DESC_TRUTH` 2, `DESC_RECORD` 3, `DESC_LIST` 4. A record continues with the address of its
 /// name text, its field count, then per field the address of the field-name text and of the
 /// field's descriptor. A list continues with the address of its item descriptor. Values:
 /// a text is the address of its 8-byte length, followed by the bytes; a list is the address
