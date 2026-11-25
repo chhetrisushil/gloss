@@ -1,4 +1,4 @@
-use super::lower;
+use super::{Mode, lower, table};
 use crate::check::check;
 use crate::diag::Diagnostic;
 use crate::ir::{Module, function_text};
@@ -552,49 +552,38 @@ fn a_test_body_that_can_fail_gets_its_failure_block_frame_and_routines() {
     assert!(!function_text(function(&real, "fail_end")).contains("test_fail"));
 }
 
-fn refusal(body: &str) -> String {
-    let text = format!("{ROWS}test \"t\"\n  {body}\n");
-    lowered_tests(&text).expect_err("refused").render()
-}
-
 #[test]
 fn test_mode_refuses_what_is_not_built_yet() {
     let stmt = "this compiler cannot build this statement yet.";
-    // The statement under `test` is line 10.
-    assert_eq!(refusal("load rows"), format!("line 10: load rows. {stmt}"));
-    // `save` needs a feature that loads or clears the table.
-    let text = "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\n\
-                feature start\n  clear rows\n\ntest \"t\"\n  save rows\n";
-    assert_eq!(
-        lowered_tests(text).expect_err("refused").render(),
-        format!("line 10: save rows. {stmt}")
-    );
-    // The same refusals in a feature no test calls, plain and nested under if and for each.
     let head = "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\n";
+    // `save` needs a feature that loads or clears the table; the statement is line 10.
+    let in_test = |body: &str| {
+        let text = format!("{head}feature start\n  clear rows\n\ntest \"t\"\n  {body}\n");
+        lowered_tests(&text).expect_err("refused").render()
+    };
+    assert_eq!(in_test("save rows"), format!("line 10: save rows. {stmt}"));
+    // Nested in a test body (its statement is line 11).
+    for body in [
+        "if 1 is 1\n    save rows",
+        "for each i from 1 to 2\n    save rows",
+    ] {
+        assert_eq!(
+            in_test(body),
+            format!("line 11: save rows. {stmt}"),
+            "{body}"
+        );
+    }
+    // The same refusals in a feature no test calls, plain and nested under if and for each.
     let in_features = [
-        ("clear rows\n  save rows", 8, "save rows"),
-        ("if 1 is 1\n    load rows", 8, "load rows"),
-        ("for each i from 1 to 2\n    load rows", 8, "load rows"),
+        ("clear rows\n  save rows", 8),
+        ("clear rows\n  if 1 is 1\n    save rows", 9),
+        ("clear rows\n  for each i from 1 to 2\n    save rows", 9),
     ];
-    for (body, line, shown) in in_features {
+    for (body, line) in in_features {
         let text = format!("{head}feature start\n  {body}\n\ntest \"t\"\n  show 1\n");
         let err = lowered_tests(&text).expect_err("refused").render();
-        assert_eq!(err, format!("line {line}: {shown}. {stmt}"));
+        assert_eq!(err, format!("line {line}: save rows. {stmt}"));
     }
-    // And nested in a test body (its statement is line 11).
-    for (body, shown) in [
-        ("if 1 is 1\n    load rows", "load rows"),
-        ("for each i from 1 to 2\n    load rows", "load rows"),
-    ] {
-        assert_eq!(refusal(body), format!("line 11: {shown}. {stmt}"), "{body}");
-    }
-    // Features are lowered whole: a `load` no test calls is refused too.
-    let text = "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\n\
-                feature start\n  load rows\n\ntest \"t\"\n  show 1\n";
-    assert_eq!(
-        lowered_tests(text).expect_err("refused").render(),
-        format!("line 7: load rows. {stmt}")
-    );
 }
 
 #[test]
@@ -1128,13 +1117,13 @@ fn tables_init_text(m: &Module) -> String {
 
 #[test]
 fn a_test_module_starts_every_table_cleared() {
-    // Each table's entry is 16 bytes: the list, then the loaded flag at +8.
-    let flags = ["a = 1\n  [b + 8] = a\n", "a = 1\n  [b + 24] = a\n"];
+    // Each table's entry is 24 bytes: the list, the loaded flag at +8, the pretend file.
+    let flags = ["a = 1\n  [b + 8] = a\n", "a = 1\n  [b + 32] = a\n"];
     let test = tables_init_text(&lowered_tests(TWO_TABLES).unwrap());
     assert!(flags.iter().all(|f| test.contains(f)), "{test}");
     let real = tables_init_text(&lowered(TWO_TABLES).unwrap());
     assert!(
-        !real.contains("[b + 8]") && !real.contains("[b + 24]"),
+        !real.contains("[b + 8]") && !real.contains("[b + 24]") && !real.contains("[b + 32]"),
         "{real}"
     );
 }
@@ -1179,7 +1168,7 @@ fn after_tables_init_in_a_test_module_the_flags_are_1_and_the_lists_empty() {
         crate::irsim::run(&m, "probe", b"").status
     };
     // The second table's flag, then the first table's list count.
-    assert_eq!(status(&[24]), 1);
+    assert_eq!(status(&[32]), 1);
     assert_eq!(status(&[0, 0]), 0);
     let mut real = lowered(TWO_TABLES).unwrap();
     probed(&mut real, &[24]);
@@ -1216,5 +1205,56 @@ fn shown_is_a_fresh_copy_each_time_it_is_read() {
     assert_eq!(
         (out.as_str(), status),
         ("pass  t\n\n1 passed, 0 failed\n", 0)
+    );
+}
+
+const LOAD_ROWS: &str = "record Row\n  n as number\n\ntable rows of Row in \"data/rows.csv\"\n\n\
+                         feature start\n  load rows\n\ntest \"t\"\n  show 1\n";
+
+#[test]
+fn a_test_load_uses_the_pretend_read_routine() {
+    let m = lowered_tests(LOAD_ROWS).unwrap();
+    let text = function_text(function(&m, "f_start"));
+    assert!(text.contains("call pretend_read"), "{text}");
+    assert!(
+        text.contains("a = 0\n  push a\n  a = address of text 0\n"),
+        "{text}"
+    );
+    assert!(!text.contains("table_read"), "{text}");
+    assert!(m.functions.iter().any(|f| f.name == "table_rows"));
+    assert!(!m.functions.iter().any(|f| f.name == "table_read"));
+}
+
+#[test]
+fn a_test_module_with_a_load_has_no_real_file_primitive_but_the_real_one_has() {
+    assert!(!has_file_primitive(&lowered_tests(LOAD_ROWS).unwrap()));
+    assert!(has_file_primitive(&lowered(LOAD_ROWS).unwrap()));
+}
+
+#[test]
+fn real_mode_load_is_unchanged() {
+    let m = lowered(LOAD_ROWS).unwrap();
+    let text = function_text(function(&m, "f_start"));
+    assert!(
+        text.contains("call table_read") && !text.contains("pretend"),
+        "{text}"
+    );
+    assert!(!m.functions.iter().any(|f| f.name == "pretend_read"));
+}
+
+#[test]
+fn entry_bytes_are_24_in_test_mode_and_16_in_real() {
+    assert_eq!(table::entry_bytes(Mode::Test), 24);
+    assert_eq!(table::entry_bytes(Mode::Real), 16);
+}
+
+#[test]
+fn a_test_load_of_a_missing_pretend_file_gives_an_empty_table() {
+    let text = "record Row\n  n as number\n\ntable rows of Row in \"data/rows.csv\"\n\n\
+                feature start\n  show 1\n\ntest \"t\"\n  append Row with n 1 to rows\n  \
+                load rows\n  expect count of rows is 0\n";
+    assert_eq!(
+        run_tests(text),
+        ("pass  t\n\n1 passed, 0 failed\n".into(), 0)
     );
 }

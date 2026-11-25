@@ -134,7 +134,8 @@ pub enum Global {
     InPos,
     InBuf,
     /// The address of the tables block: two words per table, in declaration order, the
-    /// table's list and its loaded flag. Set by `tables_init`.
+    /// table's list and its loaded flag; a test build adds a third, the pretend file. Set by
+    /// `tables_init`.
     Tables,
     /// Scratch for formatting a number as a text; see `NUMBER_BUF_BYTES`.
     NumBuf,

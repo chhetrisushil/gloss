@@ -42,6 +42,7 @@ mod text;
 mod utf8;
 mod values;
 
+pub use pretend::ENTRY_BYTES;
 pub use test_state::CURRENT_LINE;
 
 use crate::ir::{Data, Function, Inst, Module};

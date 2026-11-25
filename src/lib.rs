@@ -153,12 +153,12 @@ mod tests {
         assert_eq!(errors, super::build_executable(bad).unwrap_err());
         // A statement the test build has not built yet is one error, with its line.
         let asks = "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\n\
-                    feature start\n  show 1\n\ntest \"t\"\n  load rows\n";
+                    feature start\n  clear rows\n\ntest \"t\"\n  save rows\n";
         let errors = super::build_test_executable(asks).unwrap_err();
         let shown: Vec<String> = errors.iter().map(|d| d.render()).collect();
         assert_eq!(
             shown,
-            ["line 10: load rows. this compiler cannot build this statement yet."]
+            ["line 10: save rows. this compiler cannot build this statement yet."]
         );
     }
 }
