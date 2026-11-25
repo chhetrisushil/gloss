@@ -15,7 +15,7 @@ mod tests;
 use std::collections::BTreeMap;
 
 use crate::ast::program::{FeatureDecl, Program};
-use crate::check::TypeInfo;
+use crate::check::{LoopVar, Ty, TypeInfo};
 use crate::diag::Diagnostic;
 use crate::ir::{Data, Function, Inst, Label, Module, Reg};
 use crate::runtime;
@@ -82,55 +82,72 @@ fn function_name(feature: &str) -> String {
     format!("f_{feature}")
 }
 
+impl<'a> Lowerer<'a> {
+    /// A lowerer for a function whose variables are `vars` and `loops`, reading `inputs` by
+    /// position.
+    fn new(
+        module: &'a mut Module,
+        (src, program, types): (&'a Source, &'a Program, &'a TypeInfo),
+        (vars, loops): (&[(String, Ty, u32)], &[LoopVar]),
+        inputs: Vec<String>,
+    ) -> Self {
+        let slots = assign_slots(vars, loops);
+        Lowerer {
+            module,
+            src,
+            program,
+            called: Vec::new(),
+            body: vec![Inst::Enter(slots.len() as u32)],
+            types,
+            slots,
+            vars: variable_types(vars),
+            inputs,
+            labels: 0,
+            fails: Vec::new(),
+            line: 0,
+            loops: Vec::new(),
+            temps: 0,
+        }
+    }
+
+    /// Ends the function: the failure blocks, the frame (the named slots and the hidden
+    /// ones) and the routines it called, added to `called`. Gives the slot count and body.
+    fn finish(mut self, called: &mut Vec<String>) -> (u32, Vec<Inst>) {
+        self.emit_fails();
+        let count = self.slots.len() as u32 + self.temps;
+        self.body[0] = Inst::Enter(count);
+        for name in self.called {
+            if !called.contains(&name) {
+                called.push(name);
+            }
+        }
+        (count, self.body)
+    }
+}
+
 fn lower_feature(
     module: &mut Module,
-    src: &Source,
-    program: &Program,
-    types: &TypeInfo,
+    context: (&Source, &Program, &TypeInfo),
     feature: &FeatureDecl,
     called: &mut Vec<String>,
 ) -> Result<Function, Diagnostic> {
-    let slots = assign_slots(types, &feature.name);
-    let named = slots.len() as u32;
-    let mut l = Lowerer {
-        module,
-        src,
-        program,
-        called: Vec::new(),
-        body: vec![Inst::Enter(named)],
-        types,
-        slots,
-        vars: variable_types(types, &feature.name),
-        inputs: feature.needs.iter().map(|i| i.name.clone()).collect(),
-        labels: 0,
-        fails: Vec::new(),
-        line: 0,
-        loops: Vec::new(),
-        temps: 0,
-    };
+    let types = context.2;
+    let info = types.features.get(&feature.name);
+    let (vars, loops) = info.map_or((&[][..], &[][..]), |i| (&i.vars[..], &i.loops[..]));
+    let inputs = feature.needs.iter().map(|i| i.name.clone()).collect();
+    let mut l = Lowerer::new(module, context, (vars, loops), inputs);
     l.stmts(&feature.body)?;
-    let gives = types
-        .features
-        .get(&feature.name)
-        .is_some_and(|i| !i.gives.is_empty());
-    if gives {
+    if info.is_some_and(|i| !i.gives.is_empty()) {
         l.fall_off_end(&feature.name);
     } else {
         l.emit(Inst::Return);
     }
-    l.emit_fails();
-    let count = named + l.temps;
-    l.body[0] = Inst::Enter(count);
-    for name in l.called {
-        if !called.contains(&name) {
-            called.push(name);
-        }
-    }
+    let (slots, body) = l.finish(called);
     Ok(Function {
         name: function_name(&feature.name),
         params: feature.needs.len() as u32,
-        slots: count,
-        body: l.body,
+        slots,
+        body,
     })
 }
 
@@ -154,14 +171,10 @@ fn size_stack_checks(module: &mut Module) {
     }
 }
 
-/// The type of each variable of `feature`. A loop variable gets its type while its loop's body
+/// The type of each variable in `vars`. A loop variable gets its type while its loop's body
 /// is lowered (`loop_body`), because two loops may reuse a name with different types.
-fn variable_types(types: &TypeInfo, feature: &str) -> BTreeMap<String, crate::check::Ty> {
-    let Some(info) = types.features.get(feature) else {
-        return BTreeMap::new();
-    };
-    info.vars
-        .iter()
+fn variable_types(vars: &[(String, Ty, u32)]) -> BTreeMap<String, Ty> {
+    vars.iter()
         .map(|(n, ty, _)| (n.clone(), ty.clone()))
         .collect()
 }
@@ -169,18 +182,15 @@ fn variable_types(types: &TypeInfo, feature: &str) -> BTreeMap<String, crate::ch
 /// Slots are numbered from 1: variables first, then loop variables. A name gets one slot, so
 /// two loops that use the same name share it; the count is the number of unique variable and
 /// loop names, inputs excluded (they are read with `LoadArg`).
-fn assign_slots(types: &TypeInfo, feature: &str) -> BTreeMap<String, u32> {
+fn assign_slots(vars: &[(String, Ty, u32)], loops: &[LoopVar]) -> BTreeMap<String, u32> {
     let mut slots = BTreeMap::new();
-    if let Some(info) = types.features.get(feature) {
-        let names = info
-            .vars
-            .iter()
-            .map(|(name, ..)| name)
-            .chain(info.loops.iter().map(|l| &l.name));
-        for name in names {
-            let next = slots.len() as u32 + 1;
-            slots.entry(name.clone()).or_insert(next);
-        }
+    let names = vars
+        .iter()
+        .map(|v| &v.0)
+        .chain(loops.iter().map(|l| &l.name));
+    for name in names {
+        let next = slots.len() as u32 + 1;
+        slots.entry(name.clone()).or_insert(next);
     }
     slots
 }
@@ -207,8 +217,9 @@ pub fn lower(program: &Program, types: &TypeInfo, src: &Source) -> Result<Module
 fn lower_program(program: &Program, types: &TypeInfo, src: &Source) -> Result<Module, Diagnostic> {
     let mut module = Module::default();
     let mut called = vec!["_start".to_string()];
+    let context = (src, program, types);
     for feature in program.features() {
-        let f = lower_feature(&mut module, src, program, types, feature, &mut called)?;
+        let f = lower_feature(&mut module, context, feature, &mut called)?;
         module.functions.push(f);
     }
     let list = crate::permissions::render(&crate::permissions::list(program));

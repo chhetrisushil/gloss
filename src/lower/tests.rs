@@ -125,7 +125,10 @@ fn slots_are_unique_names_without_inputs() {
     let src = Source::new(text);
     let program = crate::parse_source(&src).unwrap();
     let types = check(&program, &src).types.expect("checks clean");
-    let slots = super::assign_slots(&types, "start");
+    let slots = super::assign_slots(
+        &types.features["start"].vars,
+        &types.features["start"].loops,
+    );
     assert_eq!(slots.len(), 2);
     assert_eq!((slots["x"], slots["i"]), (1, 2));
 }
