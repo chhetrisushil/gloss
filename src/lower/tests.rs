@@ -313,6 +313,15 @@ fn a_call_checks_the_stack_for_the_callee_frame() {
 }
 
 #[test]
+fn a_trace_call_checks_the_stack_for_the_callee_frame_despite_the_enter_event() {
+    let text =
+        "feature deep\n  needs n as number\n  give n\n\nfeature start\n  show (deep with 1)\n";
+    let t = start_text(&lowered_trace(text));
+    assert!(t.contains("stack check 88"), "{t}");
+    assert!(!t.contains("stack check 0\n"), "{t}");
+}
+
+#[test]
 fn the_check_counts_the_callees_named_and_hidden_slots() {
     // `total` plus the count loop's hidden slots: read the callee's real slot count.
     let text = "feature sum\n  set total to 0\n  for each i from 1 to 3\n    add i to total\n  give total\n\nfeature start\n  show sum\n";
