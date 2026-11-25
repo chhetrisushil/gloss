@@ -551,3 +551,83 @@ fn a_test_body_that_can_fail_gets_its_failure_block_frame_and_routines() {
     assert!(!real.functions.iter().any(|f| f.name == "t_0"));
     assert!(!function_text(function(&real, "fail_end")).contains("test_fail"));
 }
+
+fn refusal(body: &str) -> String {
+    let text = format!("{ROWS}test \"t\"\n  {body}\n");
+    lowered_tests(&text).expect_err("refused").render()
+}
+
+#[test]
+fn test_mode_refuses_what_is_not_built_yet() {
+    let stmt = "this compiler cannot build this statement yet.";
+    // The statement under `test` is line 10.
+    assert_eq!(
+        refusal("ask \"q\" into a"),
+        format!("line 10: ask \"q\" into a. {stmt}")
+    );
+    assert_eq!(refusal("load rows"), format!("line 10: load rows. {stmt}"));
+    assert_eq!(
+        refusal("input \"x\""),
+        format!("line 10: input \"x\". {stmt}")
+    );
+    assert_eq!(
+        refusal("expect 1 is 1"),
+        format!("line 10: expect 1 is 1. {stmt}")
+    );
+    assert_eq!(
+        refusal("show shown"),
+        "line 10: show shown. this compiler cannot build this expression yet."
+    );
+    // `save` needs a feature that loads or clears the table.
+    let text = "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\n\
+                feature start\n  clear rows\n\ntest \"t\"\n  save rows\n";
+    assert_eq!(
+        lowered_tests(text).expect_err("refused").render(),
+        format!("line 10: save rows. {stmt}")
+    );
+    // The same refusals in a feature no test calls, plain and nested under if and for each.
+    let head = "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\n";
+    let in_features = [
+        ("ask \"q\" into a\n  show a", 7, "ask \"q\" into a"),
+        ("clear rows\n  save rows", 8, "save rows"),
+        ("if 1 is 1\n    load rows", 8, "load rows"),
+        (
+            "for each i from 1 to 2\n    ask \"q\" into a\n    show a",
+            8,
+            "ask \"q\" into a",
+        ),
+    ];
+    for (body, line, shown) in in_features {
+        let text = format!("{head}feature start\n  {body}\n\ntest \"t\"\n  show 1\n");
+        let err = lowered_tests(&text).expect_err("refused").render();
+        assert_eq!(err, format!("line {line}: {shown}. {stmt}"));
+    }
+    // And nested in a test body (its statement is line 11).
+    for (body, shown) in [
+        ("if 1 is 1\n    load rows", "load rows"),
+        (
+            "for each i from 1 to 2\n    ask \"q\" into a\n    show a",
+            "ask \"q\" into a",
+        ),
+        ("if 1 is 1\n    input \"x\"", "input \"x\""),
+        ("if 1 is 1\n    expect 1 is 1", "expect 1 is 1"),
+    ] {
+        assert_eq!(refusal(body), format!("line 11: {shown}. {stmt}"), "{body}");
+    }
+    // Features are lowered whole: a `load` no test calls is refused too.
+    let text = "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\n\
+                feature start\n  load rows\n\ntest \"t\"\n  show 1\n";
+    assert_eq!(
+        lowered_tests(text).expect_err("refused").render(),
+        format!("line 7: load rows. {stmt}")
+    );
+}
+
+#[test]
+fn real_mode_still_lowers_load_and_save() {
+    let text = "record Row\n  n as number\n\ntable rows of Row in \"rows.csv\"\n\n\
+                feature start\n  load rows\n  save rows\n\ntest \"t\"\n  show 1\n";
+    let m = lowered(text).unwrap();
+    assert!(m.functions.iter().any(|f| f.name == "table_read"));
+    assert!(m.functions.iter().any(|f| f.name == "table_save"));
+}
