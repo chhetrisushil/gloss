@@ -26,11 +26,22 @@ impl Lowerer<'_> {
         let start = self.whole_end("start", from)?;
         let end = self.whole_end("end", to)?;
         let counter = self.slots[var];
+        let turn = self.begin_turns();
+        if let Some(turn) = turn {
+            self.emit(Inst::Const(Reg::A, 0));
+            self.emit(Inst::StoreSlot(turn, Reg::A));
+        }
         let (top, next, exit) = (self.new_label(), self.new_label(), self.new_label());
         self.emit(Inst::LoadSlot(Reg::A, start));
         self.emit(Inst::StoreSlot(counter, Reg::A));
         self.emit(Inst::Mark(top));
         self.compare_counter(counter, end, Cond::Gt, exit);
+        if let Some(turn) = turn {
+            self.emit(Inst::LoadSlot(Reg::A, turn));
+            self.emit(Inst::AddImm(Reg::A, 1));
+            self.emit(Inst::StoreSlot(turn, Reg::A));
+            self.loop_event(line, var, &Ty::Number, turn);
+        }
         self.loop_body(var, Ty::Number, (next, exit), body)?;
         self.emit(Inst::Mark(next));
         self.compare_counter(counter, end, Cond::Eq, exit);

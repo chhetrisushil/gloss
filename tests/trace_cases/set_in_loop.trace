@@ -1,3 +1,6 @@
+{"line":2,"event":"loop","name":"i","turn":1,"value":{"number":"1"}}
 {"line":3,"event":"set","name":"seen","to":{"number":"1"}}
+{"line":2,"event":"loop","name":"i","turn":2,"value":{"number":"2"}}
 {"line":3,"event":"set","name":"seen","from":{"number":"1"},"to":{"number":"2"}}
+{"line":2,"event":"loop","name":"i","turn":3,"value":{"number":"3"}}
 {"line":3,"event":"set","name":"seen","from":{"number":"2"},"to":{"number":"3"}}

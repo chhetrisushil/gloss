@@ -1638,3 +1638,33 @@ fn and_or_conditions_list_each_name_once() {
         "{check}"
     );
 }
+
+#[test]
+fn a_counting_loop_writes_each_turn_with_its_number_and_value() {
+    assert_eq!(
+        traced("  for each i from 2 to 3\n    skip\n"),
+        "{\"line\":2,\"event\":\"loop\",\"name\":\"i\",\"turn\":1,\"value\":{\"number\":\"2\"}}\n\
+         {\"line\":2,\"event\":\"loop\",\"name\":\"i\",\"turn\":2,\"value\":{\"number\":\"3\"}}\n"
+    );
+}
+
+#[test]
+fn a_counting_loop_starts_again_at_turn_one_in_an_outer_loop() {
+    let events = traced("  for each a from 1 to 2\n    for each b from 5 to 5\n      skip\n");
+    let turns: Vec<&str> = events.lines().filter(|l| l.contains("\"b\"")).collect();
+    assert_eq!(turns.len(), 2);
+    assert!(turns.iter().all(|l| l.contains("\"turn\":1,")), "{events}");
+}
+
+#[test]
+fn a_list_loop_writes_the_position_plus_one_and_a_zero_turn_loop_nothing() {
+    assert_eq!(
+        traced("  for each x in (list of 7)\n    skip\n"),
+        "{\"line\":2,\"event\":\"loop\",\"name\":\"x\",\"turn\":1,\"value\":{\"number\":\"7\"}}\n"
+    );
+    assert_eq!(traced("  for each i from 3 to 1\n    skip\n"), "");
+    assert_eq!(
+        traced("  for each x in (empty list of number)\n    skip\n"),
+        ""
+    );
+}
