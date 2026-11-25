@@ -34,7 +34,11 @@ pub(super) fn get<'a>(pairs: &'a [(String, Json)], key: &str) -> Result<&'a Json
 
 /// The text under `key`, or an error naming it.
 pub(super) fn text(pairs: &[(String, Json)], key: &str) -> Result<String, String> {
-    match get(pairs, key)? {
+    as_text(get(pairs, key)?, key)
+}
+
+fn as_text(json: &Json, key: &str) -> Result<String, String> {
+    match json {
         Json::Str(s) => Ok(s.clone()),
         _ => Err(format!("key \"{key}\" must be text")),
     }
@@ -50,11 +54,7 @@ pub fn decode_value(json: &Json) -> Result<Value, String> {
     match kind.as_str() {
         "number" => text(pairs, "number").map(Value::Number),
         "text" => text(pairs, "text").map(Value::Text),
-        "truth" => match text(pairs, "truth")?.as_str() {
-            "yes" => Ok(Value::Truth(true)),
-            "no" => Ok(Value::Truth(false)),
-            _ => Err("key \"truth\" must be yes or no".to_string()),
-        },
+        "truth" => truth(pairs, "truth").map(Value::Truth),
         "list" => match body {
             Json::Array(items) => items
                 .iter()
@@ -147,15 +147,27 @@ pub enum Event {
 
 /// The integer under `key`, or an error naming it.
 fn int(pairs: &[(String, Json)], key: &str) -> Result<i64, String> {
-    match get(pairs, key)? {
+    as_int(get(pairs, key)?, key)
+}
+
+fn as_int(json: &Json, key: &str) -> Result<i64, String> {
+    match json {
         Json::Int(n) => Ok(*n),
         _ => Err(format!("key \"{key}\" must be an integer")),
     }
 }
 
-/// The value under `key`, if the event has one.
-fn optional<'a>(pairs: &'a [(String, Json)], key: &str) -> Option<&'a Json> {
-    get(pairs, key).ok()
+/// Reads the optional key `key` with `read`; a key that is there but wrong is an error.
+fn optional<T>(
+    pairs: &[(String, Json)],
+    key: &str,
+    read: impl FnOnce(&Json) -> Result<T, String>,
+) -> Result<Option<T>, String> {
+    pairs
+        .iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| read(v))
+        .transpose()
 }
 
 /// A `yes` or `no` under `key`.
@@ -171,15 +183,14 @@ fn truth(pairs: &[(String, Json)], key: &str) -> Result<bool, String> {
 pub fn decode(line: &str) -> Result<Event, String> {
     let json = parse(line)?;
     let p = pairs(&json, "an event")?;
-    let at = u32::try_from(int(p, "line")?).map_err(|_| "key \"line\" is out of range")?;
-    let line = at;
+    let line = u32::try_from(int(p, "line")?).map_err(|_| "key \"line\" is out of range")?;
     Ok(match text(p, "event")?.as_str() {
         "set" => Event::Set {
             line,
             name: text(p, "name")?,
-            item: optional(p, "item").map(|_| int(p, "item")).transpose()?,
-            field: optional(p, "field").map(|_| text(p, "field")).transpose()?,
-            from: optional(p, "from").map(decode_value).transpose()?,
+            item: optional(p, "item", |j| as_int(j, "item"))?,
+            field: optional(p, "field", |j| as_text(j, "field"))?,
+            from: optional(p, "from", decode_value)?,
             to: decode_value(get(p, "to")?)?,
         },
         "check" => Event::Check {
@@ -202,7 +213,7 @@ pub fn decode(line: &str) -> Result<Event, String> {
         "leave" => Event::Leave {
             line,
             feature: text(p, "feature")?,
-            result: optional(p, "result").map(decode_value).transpose()?,
+            result: optional(p, "result", decode_value)?,
         },
         "show" => Event::Show {
             line,
@@ -445,5 +456,41 @@ mod tests {
             }
         }
         assert!(files >= 44 && lines > files);
+    }
+
+    #[test]
+    fn more_bad_events_name_the_key() {
+        let err = |text: &str| decode(text).unwrap_err();
+        let line = |extra: &str| format!(r#"{{"line":1,"event":{extra}}}"#);
+        assert_eq!(
+            err(r#"{"line":4294967296,"event":"show","text":""}"#),
+            "key \"line\" is out of range"
+        );
+        assert_eq!(
+            err(r#"{"line":-1,"event":"show","text":""}"#),
+            "key \"line\" is out of range"
+        );
+        let action = line(r#""file","table":"t","file":"f","action":"zap","rows":0"#);
+        assert_eq!(err(&action), "key \"action\" must be load, save or clear");
+        let result = line(r#""check","condition":"c","values":{},"result":"maybe""#);
+        assert_eq!(err(&result), "key \"result\" must be yes or no");
+        let missing = [
+            (r#""set","to":{"number":"1"}"#, "name"),
+            (r#""set","name":"a""#, "to"),
+            (r#""check","values":{},"result":"yes""#, "condition"),
+            (r#""check","condition":"c","result":"yes""#, "values"),
+            (r#""check","condition":"c","values":{}"#, "result"),
+            (r#""loop","name":"p","turn":1"#, "value"),
+            (r#""loop","name":"p","value":{"number":"1"}"#, "turn"),
+            (r#""enter","feature":"f""#, "inputs"),
+            (r#""enter","inputs":{}"#, "feature"),
+            (r#""file","table":"t","file":"f","action":"load""#, "rows"),
+            (r#""file","table":"t","action":"load","rows":0"#, "file"),
+            (r#""ask","name":"n","question":"q""#, "answer"),
+            (r#""fail","failure":1"#, "message"),
+        ];
+        for (rest, key) in missing {
+            assert_eq!(err(&line(rest)), format!("missing key \"{key}\""), "{rest}");
+        }
     }
 }
