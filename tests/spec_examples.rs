@@ -2,13 +2,14 @@
 
 mod run_support;
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 
 use gloss::parser::parse_stmts_str;
 use gloss::source::Source;
 use gloss::{check_source, format_source, parse_source};
-use run_support::{DEADLINE, TempDir, run_limited};
+use run_support::{DEADLINE, TempDir, run_limited, run_within, skip};
 
 const SPEC: &str = include_str!("../spec/v0.md");
 
@@ -536,4 +537,115 @@ fn table_failure_messages_match_the_design() {
         spec, design,
         "spec section 10 rows 6-8 and the design's table must hold the same messages"
     );
+}
+
+/// Whether a block has tests, and the number of them.
+fn test_count(block: &str) -> usize {
+    block.lines().filter(|l| l.starts_with("test \"")).count()
+}
+
+/// Builds `source` as a test executable and runs it with no input; `None` without a runner.
+fn run_tests(name: &str, source: &str) -> Option<(i32, String)> {
+    let bytes = gloss::build_test_executable(source)
+        .unwrap_or_else(|d| panic!("{name}: does not build: {d:?}"));
+    let dir = TempDir::new(&format!("spec-tests-{name}"));
+    let exe = dir.0.join("tests");
+    std::fs::write(&exe, bytes).unwrap();
+    std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (status, out, _) = run_within(&exe, b"", DEADLINE)?.unwrap();
+    Some((status, String::from_utf8(out).unwrap()))
+}
+
+#[test]
+fn the_spec_13_program_is_the_expense_tracker_case() {
+    let block = gloss_blocks()
+        .into_iter()
+        .find(|b| b.starts_with("note Expense tracker"))
+        .expect("the section 13 program");
+    let case = include_str!("test_cases/expense_tracker.gloss");
+    assert_eq!(block, case, "spec section 13 and the test case differ");
+}
+
+#[test]
+fn every_complete_spec_program_with_tests_passes() {
+    let mut run_programs = 0;
+    for (index, block) in gloss_blocks().iter().enumerate() {
+        let class = classify(block);
+        let tests = test_count(block);
+        if tests == 0 || !matches!(class, Class::Program | Class::Top) {
+            continue;
+        }
+        let name = format!("block{index}");
+        let source = if class == Class::Program {
+            block.clone()
+        } else {
+            in_context(block)
+        };
+        let needs_start = block.contains("run start");
+        if class == Class::Top && needs_start {
+            // These tests run `start`, which the stand-in context does not have: build only.
+            gloss::build_test_executable(&source)
+                .unwrap_or_else(|d| panic!("{name}: does not build: {d:?}"));
+            continue;
+        }
+        let Some((status, out)) = run_tests(&name, &source) else {
+            skip();
+            return;
+        };
+        let want = format!("\n{tests} passed, 0 failed\n");
+        assert!(out.ends_with(&want), "{name}: {out}");
+        assert_eq!(status, 0, "{name}: {out}");
+        run_programs += 1;
+    }
+    // The section 13 program and the section 9 `category_total` test.
+    assert_eq!(run_programs, 2, "spec programs with tests that were run");
+}
+
+#[test]
+fn the_section_9_test_snippets_parse_check_and_format() {
+    let blocks = gloss_blocks();
+    let block = blocks
+        .iter()
+        .find(|b| b.contains("input \"Dinner\", \"300\", \"food\""))
+        .expect("the section 9 whole-program test");
+    assert!(block.contains("expect first of shown is \"Total for food: 420\""));
+    assert_eq!(classify(block), Class::Top);
+    check_block(0, block, Class::Top);
+}
+
+/// The section 9 report sample is what the real report looks like: a program with the
+/// sample's titles, its failed `expect` on line 23 and its one printed line gives it exactly.
+#[test]
+fn the_section_9_report_sample_is_the_real_report() {
+    let sample = SPEC
+        .split("```text\n")
+        .map(|part| part.split("```").next().unwrap())
+        .find(|part| part.starts_with("pass  category total"))
+        .expect("the section 9 report sample");
+    let head = "record Expense\n  name as text\n  amount as number\n  category as text\n\n\
+                feature largest_expense\n  give Expense with name \"Bus\", amount 40, category \"travel\"\n\n\
+                feature start\n  show 1\n\n\
+                test \"category total counts only the matching category\"\n  expect 1 is 1\n\n\
+                test \"largest expense is found\"\n";
+    let mut source = head.to_string();
+    while source.lines().count() < 21 {
+        source.push_str("  note padding so the failing expect is on line 23\n");
+    }
+    source.push_str("  show \"Largest so far: Bus at 40\"\n");
+    source.push_str("  expect name of largest_expense is \"Dinner\"\n\n");
+    source.push_str("test \"a cost that is not a number is asked for again\"\n  expect 1 is 1\n");
+    assert_eq!(
+        source
+            .lines()
+            .position(|l| l.contains("expect name of largest"))
+            .unwrap()
+            + 1,
+        23
+    );
+    let Some((status, out)) = run_tests("report-sample", &source) else {
+        skip();
+        return;
+    };
+    assert_eq!(out, sample, "the spec's report sample");
+    assert_eq!(status, 1);
 }
