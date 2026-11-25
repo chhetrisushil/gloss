@@ -5,13 +5,17 @@
 
 mod run_support;
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use run_support::{DEADLINE, TempDir, run_case};
+use run_support::{DEADLINE, TempDir, run_case, skip};
 
 /// Raised by every change that adds examples, so a lost file fails the sweep.
 const MIN_EXAMPLES: usize = 11;
+
+/// Raised by every change that gives an example tests.
+const MIN_EXAMPLES_WITH_TESTS: usize = 4;
 
 fn examples() -> Vec<PathBuf> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
@@ -98,4 +102,72 @@ fn every_example_is_already_formatted() {
             "{name} is not formatted"
         );
     }
+}
+
+fn test_outputs() -> Vec<PathBuf> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.to_str().is_some_and(|s| s.ends_with(".tests.out")))
+        .collect();
+    found.sort();
+    found
+}
+
+/// The example a `<name>.tests.out` belongs to.
+fn program_of(tests_out: &Path) -> PathBuf {
+    let name = tests_out.file_name().unwrap().to_str().unwrap();
+    tests_out.with_file_name(format!(
+        "{}.gloss",
+        name.strip_suffix(".tests.out").unwrap()
+    ))
+}
+
+#[test]
+fn every_tests_out_has_its_example() {
+    for out in test_outputs() {
+        assert!(
+            program_of(&out).is_file(),
+            "{} has no .gloss",
+            out.display()
+        );
+    }
+}
+
+/// Runs each example's tests through `build_test_executable` and the runner, not through
+/// `gloss test`, which refuses to run on a host that is not Linux (D38). The folder the tests
+/// run in is empty: tests use pretend files, so none is created.
+#[test]
+fn every_example_with_tests_passes_them() {
+    let outs = test_outputs();
+    assert!(
+        outs.len() >= MIN_EXAMPLES_WITH_TESTS,
+        "too few examples with tests"
+    );
+    let folder = TempDir::new("example-tests");
+    for out in outs {
+        let program = program_of(&out);
+        let name = program.file_stem().unwrap().to_str().unwrap();
+        let text = std::fs::read_to_string(&program).unwrap();
+        let bytes = gloss::build_test_executable(&text)
+            .unwrap_or_else(|d| panic!("{name}: does not build as tests: {d:?}"));
+        let exe = folder.0.join(format!("{name}.tests"));
+        std::fs::write(&exe, bytes).unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let Some(ran) = run_case(&exe, b"", DEADLINE, &folder.0, &[], None) else {
+            skip();
+            return;
+        };
+        let want = std::fs::read(&out).unwrap();
+        assert_eq!(ran.unwrap(), (0, want, Vec::new()), "{name}");
+    }
+    let left: Vec<_> = std::fs::read_dir(&folder.0)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert!(
+        left.iter().all(|f| f.to_str().unwrap().ends_with(".tests")),
+        "a test run left files behind: {left:?}"
+    );
 }
