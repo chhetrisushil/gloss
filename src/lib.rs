@@ -19,6 +19,7 @@ pub mod target;
 #[cfg(test)]
 mod testing;
 pub mod testrun;
+pub mod trace;
 
 use ast::program::Program;
 use diag::Diagnostic;
