@@ -1,0 +1,11 @@
+record Expense
+  name as text
+  amount as number
+
+table expenses of Expense in "expenses.csv"
+
+feature start
+  clear expenses
+  append Expense with name "Rent", amount 10 to expenses
+  set amount of item 1 of expenses to 3
+  show amount of item 1 of expenses
