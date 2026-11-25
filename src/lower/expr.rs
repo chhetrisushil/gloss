@@ -1,5 +1,5 @@
 //! Lowering expressions: the value ends up in register `a`.
-use super::Lowerer;
+use super::{Lowerer, Mode};
 use crate::ast::print;
 use crate::ast::{ArithOp, Conversion, Expr, ExprKind, Fact};
 use crate::check::NameKind;
@@ -122,6 +122,12 @@ impl Lowerer<'_> {
                     },
                 };
                 self.emit(inst);
+                Ok(())
+            }
+            ExprKind::Shown if self.mode == Mode::Test => {
+                self.emit(Inst::Const(Reg::A, i64::from(self.line)));
+                self.emit(Inst::Push(Reg::A));
+                self.call("shown_list");
                 Ok(())
             }
             ExprKind::Remainder { of, by } => {

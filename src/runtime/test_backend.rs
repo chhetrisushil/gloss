@@ -247,6 +247,80 @@ fn ask() -> Function {
     s.finish("ask", 2, 3)
 }
 
+/// `shown_list(line)`: a fresh list of text, one entry per line of the shown bytes. A line
+/// ends at `\n`, which is not part of it; a final fragment without one is not a line. It
+/// flushes first, so what `show` left in the output buffer is included. `line` is where
+/// running out of memory is reported. Slots: 1 the list, 2 where the line starts, 3 the
+/// index, 4 the new text, 5 its length.
+fn shown_list() -> Function {
+    let mut s = Asm::default();
+    let (next, again, done) = (s.label(), s.label(), s.label());
+    s.call("flush");
+    s.push_const(4);
+    s.push_arg(1);
+    s.call("list_new");
+    s.i(StoreSlot(1, A));
+    s.i(Const(A, 0));
+    s.i(StoreSlot(2, A));
+    s.i(StoreSlot(3, A));
+    s.i(Mark(again));
+    s.i(LoadSlot(A, 3));
+    get(&mut s, B, SHOWN_LEN);
+    s.jump_if(Ge, done);
+    get(&mut s, A, SHOWN);
+    s.i(AddImm(A, 8));
+    s.i(LoadSlot(B, 3));
+    s.i(Int(IntOp::Add));
+    s.i(LoadByte {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(Const(B, b'\n' as i64));
+    s.jump_if(Ne, next);
+    s.i(LoadSlot(A, 3));
+    s.i(LoadSlot(B, 2));
+    s.i(Int(IntOp::Sub));
+    s.i(StoreSlot(5, A));
+    s.i(AddImm(A, 8));
+    s.i(Push(A));
+    s.push_arg(1);
+    s.call("alloc");
+    s.i(StoreSlot(4, A));
+    s.i(LoadSlot(B, 5));
+    s.i(Store {
+        base: A,
+        offset: 0,
+        from: B,
+    });
+    get(&mut s, A, SHOWN);
+    s.i(AddImm(A, 8));
+    s.i(LoadSlot(B, 2));
+    s.i(Int(IntOp::Add));
+    s.i(Push(A));
+    s.i(LoadSlot(A, 4));
+    s.i(AddImm(A, 8));
+    s.i(Push(A));
+    s.push_slot(5);
+    s.call("copy_bytes");
+    s.push_slot(1);
+    s.push_slot(4);
+    s.push_arg(1);
+    s.call("list_push");
+    s.i(LoadSlot(A, 3));
+    s.i(AddImm(A, 1));
+    s.i(StoreSlot(2, A));
+    s.i(Mark(next));
+    s.i(LoadSlot(A, 3));
+    s.i(AddImm(A, 1));
+    s.i(StoreSlot(3, A));
+    s.i(Jump(again));
+    s.i(Mark(done));
+    s.i(LoadSlot(A, 1));
+    s.i(Return);
+    s.finish("shown_list", 1, 5)
+}
+
 /// The test versions, appended after the real routines that are kept.
 pub fn routines() -> Vec<Function> {
     vec![
@@ -258,5 +332,6 @@ pub fn routines() -> Vec<Function> {
         test_input(),
         test_ask_fail(),
         ask(),
+        shown_list(),
     ]
 }
