@@ -10,26 +10,31 @@ use crate::ir::{Data, Function, Global, Inst::*, IntOp, Label};
 const SHOWN_CHARS: i64 = 40;
 
 // Slots of `err_shown`.
-const AT: u32 = 1;
-const END: u32 = 2;
+pub(super) const AT: u32 = 1;
+pub(super) const END: u32 = 2;
 const COUNT: u32 = 3;
-const CP: u32 = 4;
-const LEN: u32 = 5;
-const K: u32 = 6;
-const TMP: u32 = 7;
+pub(super) const CP: u32 = 4;
+pub(super) const LEN: u32 = 5;
+pub(super) const K: u32 = 6;
+pub(super) const TMP: u32 = 7;
 const ENTRY: u32 = 8;
 const POWER: u32 = 9;
 const STARTED: u32 = 10;
 
 /// The byte of text argument 1 at the index in `a`, into `a` (clobbers `b`).
 fn byte_at(s: &mut Asm) {
+    byte_at_from(s, 8);
+}
+
+/// The byte at the index in `a` of the bytes that start `first` bytes after argument 1.
+fn byte_at_from(s: &mut Asm, first: i32) {
     s.i(Move { to: B, from: A });
     s.i(LoadArg(A, 1));
     s.i(Int(IntOp::Add));
     s.i(LoadByte {
         to: A,
         base: A,
-        offset: 8,
+        offset: first,
     });
 }
 
@@ -101,11 +106,13 @@ fn err_flush() -> Function {
 /// The code point at `AT` into `CP`, its length in bytes into `LEN`. A byte that does not
 /// start a valid sequence of the text (a bad lead, a sequence cut by `END`, a bad
 /// continuation, an overlong or surrogate or too large value) is one character, `U+FFFD`
-/// of length 1, and the jump goes to `hidden` to have it spelled.
-fn decode(s: &mut Asm, hidden: Label) {
+/// of length 1, and the jump goes to `hidden` to have it spelled. The text is argument 1
+/// with its bytes `first` bytes on (8 for a text value; 0 when argument 1 is the address of
+/// bytes alone).
+pub(super) fn decode(s: &mut Asm, hidden: Label, first: i32) {
     let [bad, rest, more, done, ok] = [(); 5].map(|_| s.label());
     s.i(LoadSlot(A, AT));
-    byte_at(s);
+    byte_at_from(s, first);
     s.i(StoreSlot(CP, A));
     // Below `limit` the byte is a lead of `len` bytes (or invalid when `len` is 0).
     for (limit, len, mask) in [
@@ -146,7 +153,7 @@ fn decode(s: &mut Asm, hidden: Label) {
     s.i(LoadSlot(A, AT));
     s.i(LoadSlot(B, K));
     s.i(Int(IntOp::Add));
-    byte_at(s);
+    byte_at_from(s, first);
     s.i(StoreSlot(TMP, A));
     s.i(Const(B, 0xC0));
     s.i(Int(IntOp::And));
@@ -302,7 +309,7 @@ fn err_shown() -> Function {
     s.i(LoadSlot(A, COUNT));
     s.i(Const(B, SHOWN_CHARS));
     s.jump_if(Ge, cut);
-    decode(&mut s, hidden);
+    decode(&mut s, hidden, 8);
     lookup(&mut s, hidden);
     // A quote is doubled, as in a text written in the source.
     s.i(LoadSlot(A, CP));
