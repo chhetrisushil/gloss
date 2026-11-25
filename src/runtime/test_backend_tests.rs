@@ -368,3 +368,72 @@ fn the_question_message_comes_before_what_was_shown() {
     let want = "fail  t\n      the test gave 0 answers but line 2 asked a first question\n      shown:\n        hi\n";
     assert_eq!(out, want);
 }
+
+fn ask(question: u32, line: i64) -> Vec<Inst> {
+    call("ask", &[text(question), number(line)])
+}
+
+/// Shows the text `ask` left in `A`.
+fn show_result() -> Vec<Inst> {
+    call("out_text", &[vec![Push(A)]])
+}
+
+#[test]
+fn ask_takes_the_answers_in_order_and_shows_only_them() {
+    let body = [
+        input(1, 3),
+        input(2, 3),
+        ask(3, 5),
+        show_result(),
+        ask(3, 6),
+        show_result(),
+        call("test_fail", &[]),
+    ];
+    let (out, err, status) = run_test(&body, &[b"a\n", b"b\n", b"Q?\n"]);
+    let want = "fail  t\n      shown:\n        a\n        b\n";
+    assert_eq!((out.as_str(), err.as_str(), status), (want, "", 1));
+}
+
+#[test]
+fn ask_with_none_left_fails_with_the_count_and_the_line() {
+    let body = [input(1, 3), ask(2, 5), ask(2, 8)];
+    let (out, err, status) = run_test(&body, &[b"a\n", b"Q?\n"]);
+    let want = "fail  t\n      the test gave 1 answer but line 8 asked a second question\n";
+    assert_eq!((out.as_str(), err.as_str(), status), (want, "", 1));
+    let (out, _, _) = run_test(&[ask(1, 4)], &[b"Q?\n"]);
+    let want = "fail  t\n      the test gave 0 answers but line 4 asked a first question\n";
+    assert_eq!(out, want);
+}
+
+#[test]
+fn ask_never_reads_standard_input() {
+    use crate::irsim::{self, Faults, Files};
+    let body = [input(1, 3), ask(2, 5), show_result(), ask(2, 6)];
+    let all: Vec<&[u8]> = vec![b"t", b"a\n", b"Q?\n"];
+    let body = [call("test_begin", &[text(0)]), body.concat()].concat();
+    let m = program_for(Backend::Test, body, &all);
+    // A read of descriptor 0 would fail here (and a real `ask` would end the program with
+    // failure 9): the test still gets its queued answer and then the message.
+    let faults = Faults {
+        failing_read: true,
+        ..Faults::default()
+    };
+    let o = irsim::run_with(&m, "_start", b"x\n", &[], faults, &mut Files::default());
+    let want = "fail  t\n      the test gave 1 answer but line 6 asked a second question\n      shown:\n        a\n";
+    assert_eq!(String::from_utf8(o.stdout).unwrap(), want);
+    assert_eq!((o.stderr.as_slice(), o.status), (&b""[..], 1));
+    // And with input available it is not consumed either.
+    let o = irsim::run(&m, "_start", b"x\n");
+    assert!(
+        String::from_utf8(o.stdout)
+            .unwrap()
+            .contains("asked a second question")
+    );
+}
+
+#[test]
+fn the_ask_prompt_is_not_part_of_shown() {
+    let body = [input(1, 3), ask(2, 5), call("test_fail", &[])];
+    let (out, _, _) = run_test(&body, &[b"a\n", b"Prompt?\n"]);
+    assert_eq!(out, "fail  t\n");
+}
