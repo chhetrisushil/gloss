@@ -26,6 +26,23 @@ fn escaped(bytes: &[u8]) -> Vec<u8> {
 }
 
 #[test]
+fn json_escape_host_agrees_with_json_bytes() {
+    let inputs = [
+        "",
+        "plain",
+        "a\"b\\c",
+        "\n\r\t",
+        "\u{1}\u{1f}\u{7f}\u{b}\n",
+        "é€a😀b",
+        "x is \"yes\" and y is at least 1.5",
+    ];
+    for text in inputs {
+        let host = super::json::json_escape_host(text);
+        assert_eq!(host.as_bytes(), escaped(text.as_bytes()), "{text:?}");
+    }
+}
+
+#[test]
 fn quote_and_backslash_get_a_backslash() {
     assert_eq!(escaped(b"a\"b\\c"), b"a\\\"b\\\\c");
 }
