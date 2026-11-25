@@ -17,8 +17,12 @@ pub fn check_saving(ctx: &mut Ctx) {
     features.iter().for_each(|b| loaded_in(b, &mut loaded));
     let mut reported = BTreeSet::new();
     let tests = program.tests().map(|t| t.body.as_slice());
-    for body in features.iter().copied().chain(tests) {
+    // A test body is left out of `unloaded_saves`: its tables start cleared (spec 9), and its
+    // `save` never runs in the built program.
+    for body in &features {
         unloaded_saves(ctx, body, &loaded, &mut reported);
+    }
+    for body in features.iter().copied().chain(tests) {
         load_after_append(ctx, body, &mut BTreeMap::new());
     }
 }
@@ -140,6 +144,16 @@ mod tests {
         let in_feature =
             format!("{HEAD}feature start\n  load es\n  save es\ntest \"t\"\n  load es\n");
         assert!(diags(&in_feature).is_empty());
+    }
+
+    #[test]
+    fn a_save_in_a_test_needs_no_load_in_a_feature() {
+        // Spec 9: a table in a test counts as cleared, and a test never runs in the built program.
+        let p = format!("{HEAD}feature start\n  show 1\ntest \"t\"\n  save es\n  load es\n");
+        assert!(diags(&p).is_empty());
+        // A load in a test still does not count for a save in a feature.
+        let p = format!("{HEAD}feature start\n  save es\ntest \"t\"\n  save es\n  load es\n");
+        assert_eq!(diags(&p).len(), 1);
     }
 
     #[test]
