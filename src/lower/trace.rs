@@ -166,6 +166,28 @@ impl Lowerer<'_> {
         self.emit(Inst::LoadSlot(Reg::A, new));
     }
 
+    /// Writes the `set` event of an `append` to `name`, whose list is in slot `list` and whose
+    /// pushed item of type `ty` is in slot `item`: `"item"` is the new count, and only the new
+    /// item is written, never the whole list (D44).
+    pub(super) fn append_event(&mut self, name: &str, (list, item): (u32, u32), ty: &Ty) {
+        let count = self.new_temp();
+        self.emit(Inst::LoadSlot(Reg::A, list));
+        self.emit(Inst::Load {
+            to: Reg::A,
+            base: Reg::A,
+            offset: 0,
+        });
+        self.emit(Inst::StoreSlot(count, Reg::A));
+        self.ev_open(self.line, "set");
+        self.ev_key("name");
+        self.ev_fixed_text(name);
+        self.ev_key("item");
+        self.ev_int_from_slot(count);
+        self.ev_key("to");
+        self.ev_value_from_slot(item, ty);
+        self.ev_close();
+    }
+
     /// Sets `name`'s made flag (see `Lowerer::made`); clobbers `a`.
     pub(super) fn set_made(&mut self, name: &str) {
         if let Some(&flag) = self.made.get(name) {

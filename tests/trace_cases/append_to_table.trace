@@ -1,0 +1,2 @@
+{"line":8,"event":"set","name":"rows","item":1,"to":{"record":"Row","fields":{"name":{"text":"a"},"n":{"number":"1"}}}}
+{"line":9,"event":"show","text":"1"}

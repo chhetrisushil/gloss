@@ -250,6 +250,9 @@ impl Lowerer<'_> {
         self.emit(Inst::Const(Reg::A, i64::from(self.line)));
         self.emit(Inst::Push(Reg::A));
         self.call("list_push");
+        if self.mode == Mode::Trace {
+            self.append_event(list, (slot, item), &self.expr_ty(value));
+        }
         Ok(())
     }
 
