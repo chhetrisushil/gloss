@@ -56,7 +56,8 @@ pub(super) fn lower_driver(
     main.emit(Inst::StoreSlot(failed, Reg::A));
     for (i, test) in context.1.tests().enumerate() {
         let title = super::fail::spell_invisible(&test.title);
-        let (parent, pass, fail, next) = (
+        let (parent, lost, pass, fail, next) = (
+            main.new_label(),
             main.new_label(),
             main.new_label(),
             main.new_label(),
@@ -72,6 +73,12 @@ pub(super) fn lower_driver(
         main.emit(Inst::Call(test_name(i)));
         main.call("test_pass");
         main.emit(Inst::Mark(parent));
+        // A fork that failed gave a negative result, and there is no child to wait for (a
+        // wait on it would be for a process group): the test is lost with that status.
+        main.emit(Inst::StoreSlot(status, Reg::A));
+        main.emit(Inst::Const(Reg::B, 0));
+        main.emit(Inst::Compare);
+        main.emit(Inst::JumpIf(Cond::Lt, lost));
         main.emit(Inst::Push(Reg::A));
         main.emit(Inst::System(Prim::Wait));
         main.emit(Inst::StoreSlot(status, Reg::A));
@@ -80,6 +87,7 @@ pub(super) fn lower_driver(
             main.emit(Inst::Compare);
             main.emit(Inst::JumpIf(Cond::Eq, to));
         }
+        main.emit(Inst::Mark(lost));
         main.push_text(title.as_bytes());
         main.emit(Inst::LoadSlot(Reg::A, status));
         main.emit(Inst::Push(Reg::A));

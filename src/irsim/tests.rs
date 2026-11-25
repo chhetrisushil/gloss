@@ -1629,3 +1629,19 @@ fn a_grandchild_does_not_reuse_a_pid() {
     body.extend(exit_with(0));
     assert_eq!(forking(3, body).status, 2);
 }
+
+#[test]
+fn a_failing_fork_gives_eagain_and_starts_no_child() {
+    let mut body = vec![System(Prim::Fork), Push(A)];
+    body.extend([System(Prim::Exit)]);
+    let m = with_slots(0, body);
+    let faults = super::Faults {
+        failing_fork: true,
+        ..super::Faults::default()
+    };
+    let mut files = super::Files::default();
+    let o = super::run_with(&m, "f", b"", &[], faults, &mut files);
+    // The exit status is the low byte of -11.
+    assert_eq!(o.status, (-11i64 & 0xff) as i32);
+    assert!(o.stdout.is_empty());
+}
