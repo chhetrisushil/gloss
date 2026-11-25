@@ -163,12 +163,16 @@ impl Lowerer<'_> {
             StmtKind::Load(name) => {
                 self.mark_line(s.line);
                 let index = self.table_index(name).expect("the checker found the table");
-                self.read_table(index)
+                self.read_table(index)?;
+                self.file_event(index, "load");
+                Ok(())
             }
             StmtKind::Save(name) => {
                 self.mark_line(s.line);
                 let index = self.table_index(name).expect("the checker found the table");
-                self.save_table(index)
+                self.save_table(index)?;
+                self.file_event(index, "save");
+                Ok(())
             }
             _ => Err(self.cannot_build(s)),
         }
