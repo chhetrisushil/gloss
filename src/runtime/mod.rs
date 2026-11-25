@@ -45,10 +45,11 @@ mod text;
 pub(crate) mod trace_backend;
 #[cfg(test)]
 mod trace_backend_tests;
-mod trace_state;
+pub mod trace_state;
 mod utf8;
 mod values;
 
+pub use json::json_escape_host;
 pub use pretend::ENTRY_BYTES;
 pub use test_state::CURRENT_LINE;
 

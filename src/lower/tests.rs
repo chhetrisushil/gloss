@@ -1325,7 +1325,61 @@ fn uses_global(m: &Module, g: crate::ir::Global) -> bool {
 fn a_trace_build_runs_start() {
     let m = lowered_trace("feature start\n  show \"hi\"\n");
     let o = crate::irsim::run(&m, "_start", b"");
-    assert_eq!((o.stdout, o.status), (b"hi\n".to_vec(), 0));
+    let shown = r#"{"line":2,"event":"show","text":"hi"}"#;
+    assert_eq!((o.stdout, o.status), (format!("{shown}\n").into_bytes(), 0));
+}
+
+/// What a trace build of `body` (the statements of `feature start`, from line 2) writes.
+fn traced(body: &str) -> String {
+    let m = lowered_trace(&format!("feature start\n{body}"));
+    let o = crate::irsim::run(&m, "_start", b"");
+    assert_eq!(o.status, 0);
+    String::from_utf8(o.stdout).expect("utf-8")
+}
+
+#[test]
+fn a_show_is_one_event_with_its_text() {
+    assert_eq!(
+        traced("  show \"hi\"\n"),
+        "{\"line\":2,\"event\":\"show\",\"text\":\"hi\"}\n"
+    );
+}
+
+#[test]
+fn the_items_of_a_show_join_in_one_text() {
+    assert_eq!(
+        traced("  show \"a\", 1.5, yes\n"),
+        "{\"line\":2,\"event\":\"show\",\"text\":\"a1.5yes\"}\n"
+    );
+}
+
+#[test]
+fn a_quote_in_shown_text_is_escaped() {
+    assert_eq!(
+        traced("  set t to \"say \"\"x\"\"\"\n  show t\n"),
+        "{\"line\":3,\"event\":\"show\",\"text\":\"say \\\"x\\\"\"}\n"
+    );
+}
+
+#[test]
+fn two_shows_are_two_lines() {
+    assert_eq!(
+        traced("  show \"a\"\n  show \"b\"\n"),
+        "{\"line\":2,\"event\":\"show\",\"text\":\"a\"}\n\
+         {\"line\":3,\"event\":\"show\",\"text\":\"b\"}\n"
+    );
+}
+
+#[test]
+fn a_shown_record_is_its_source_form_escaped() {
+    let m = lowered_trace(
+        "record Row\n  name as text\n\nfeature start\n  show (Row with name \"a\"\"b\")\n",
+    );
+    let o = crate::irsim::run(&m, "_start", b"");
+    assert_eq!(
+        String::from_utf8(o.stdout).unwrap(),
+        "{\"line\":5,\"event\":\"show\",\"text\":\"Row with name \\\"a\\\"\\\"b\\\"\"}\n"
+    );
 }
 
 #[test]
