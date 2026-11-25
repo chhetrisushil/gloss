@@ -39,6 +39,7 @@ mod test_state_tests;
 #[cfg(test)]
 mod tests;
 mod text;
+pub(crate) mod trace_backend;
 mod utf8;
 mod values;
 
@@ -186,18 +187,26 @@ fn text_bytes(i: u32) -> Vec<u8> {
     }
 }
 
-/// Which routines a module is built from: the real ones, or a test build's, where
-/// `test_backend` replaces some.
+/// Which routines a module is built from: the real ones, or a test or trace build's, where
+/// `test_backend` or `trace_backend` replaces some.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Backend {
     Real,
     Test,
+    Trace,
 }
 
-/// The routines of `backend`: the real ones, and for `Test` those in `test_backend::REPLACED`
-/// swapped for `test_backend::routines()`.
+/// The routines of `backend`: the real ones, and for `Test` or `Trace` those in the backend's
+/// `REPLACED` swapped for its `routines()`.
 pub fn routines_for(backend: Backend) -> Vec<Function> {
-    routines_swapping(backend, &test_backend::REPLACED, test_backend::routines())
+    match backend {
+        Backend::Real | Backend::Test => {
+            routines_swapping(backend, &test_backend::REPLACED, test_backend::routines())
+        }
+        Backend::Trace => {
+            routines_swapping(backend, &trace_backend::REPLACED, trace_backend::routines())
+        }
+    }
 }
 
 /// `routines_for` with the replaced names and the replacements given. `Real` ignores both.
@@ -217,9 +226,12 @@ fn routines_swapping(backend: Backend, replaced: &[&str], extra: Vec<Function>) 
             f.name
         );
     }
-    if backend == Backend::Test {
-        all.retain(|f| !replaced.contains(&f.name.as_str()));
-        all.extend(extra);
+    match backend {
+        Backend::Real => {}
+        Backend::Test | Backend::Trace => {
+            all.retain(|f| !replaced.contains(&f.name.as_str()));
+            all.extend(extra);
+        }
     }
     all
 }
