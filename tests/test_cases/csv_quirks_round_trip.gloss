@@ -1,0 +1,65 @@
+record Entry
+  name as text
+  amount as number
+  done as truth
+
+record Tag
+  label as text
+
+table entries of Entry in "entries.csv"
+table tags of Tag in "tags.csv"
+
+feature start
+  load entries
+  load tags
+  show 1
+
+test "empty text, commas, quotes and decimals survive"
+  append Entry with name "", amount 0.5, done yes to entries
+  append Entry with name "a, b", amount -3.25, done no to entries
+  append Entry with name "say ""hi"", then, ""bye""", amount 0.0001, done yes to entries
+  append Entry with name """", amount -120, done no to entries
+  save entries
+  clear entries
+  load entries
+  expect count of entries is 4
+  expect name of item 1 of entries is ""
+  expect amount of item 1 of entries is 0.5
+  expect done of item 1 of entries
+  expect name of item 2 of entries is "a, b"
+  expect amount of item 2 of entries is -3.25
+  expect not done of item 2 of entries
+  expect name of item 3 of entries is "say ""hi"", then, ""bye"""
+  expect amount of item 3 of entries is 0.0001
+  expect done of item 3 of entries
+  expect name of item 4 of entries is """"
+  expect amount of item 4 of entries is -120
+  expect not done of item 4 of entries
+
+test "a one-column table survives"
+  append Tag with label "x, y" to tags
+  append Tag with label "" to tags
+  save tags
+  clear tags
+  load tags
+  expect count of tags is 2
+  expect label of item 1 of tags is "x, y"
+  expect label of item 2 of tags is ""
+
+test "spaces, a leading quote, non-ASCII text and large numbers survive"
+  append Entry with name "   ", amount 1000000, done yes to entries
+  append Entry with name " x ", amount 123456789012, done no to entries
+  append Entry with name """a", amount -123456789012, done yes to entries
+  append Entry with name "café Zoë 日本", amount 0, done no to entries
+  save entries
+  clear entries
+  load entries
+  expect count of entries is 4
+  expect name of item 1 of entries is "   "
+  expect amount of item 1 of entries is 1000000
+  expect name of item 2 of entries is " x "
+  expect amount of item 2 of entries is 123456789012
+  expect name of item 3 of entries is """a"
+  expect amount of item 3 of entries is -123456789012
+  expect name of item 4 of entries is "café Zoë 日本"
+  expect not done of item 4 of entries

@@ -3,7 +3,7 @@
 // `sweep` of tests/run_sweep.inc rather than sharing it: the extension sets differ.
 
 /// Raised by every task that adds cases.
-const MIN_TEST_CASES: usize = 14;
+const MIN_TEST_CASES: usize = 16;
 
 /// The `.gloss` programs in `dir`, sorted; an error naming every file that is not part of a
 /// case: an extension other than gloss, out, err, status, or no `<stem>.gloss`, or a folder
