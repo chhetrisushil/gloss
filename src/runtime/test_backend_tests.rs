@@ -1,5 +1,6 @@
 //! Tests of the test backend, run on hand-made modules under `irsim`.
 
+use super::test_state::CURRENT_LINE;
 use super::tests::{program_for, run};
 use super::{Backend, routines_for, test_backend};
 use crate::ir::Reg::{A, B};
@@ -222,5 +223,30 @@ fn running_out_of_memory_inside_a_test_is_a_failure_of_the_test() {
     let alloc = call("alloc", &[number(-1), number(7)]);
     let (out, err, status) = run_test(&[show, alloc], &[b"hi\n"]);
     let want = "fail  t\n      line 7: failure 10: out of memory\n      shown:\n        hi\n";
+    assert_eq!((out.as_str(), err.as_str(), status), (want, "", 1));
+}
+
+#[test]
+fn a_show_too_big_to_grow_shown_is_out_of_memory_at_its_line_and_its_bytes_are_lost() {
+    let at = |text: u32, len: i64| {
+        let bytes = vec![AddressOf(A, Data::Text(text)), AddImm(A, 8), Push(A)];
+        call("out_bytes", &[bytes, number(len)])
+    };
+    let line = [
+        AddressOf(A, Data::Global(Global::TestState)),
+        Const(B, 9),
+        Store {
+            base: A,
+            offset: CURRENT_LINE as i32 * 8,
+            from: B,
+        },
+    ];
+    // "abc" waits in the output buffer; the next show is far larger than the buffer, so it is
+    // flushed first (reaching shown) and then the big one is written straight to `write_all`.
+    // Growing the shown bytes for it fails before any of its bytes are copied: they are lost,
+    // and what was shown before them is kept.
+    let body = [line.to_vec(), at(1, 3), at(1, 1 << 41)];
+    let (out, err, status) = run_test(&body, &[b"abcdef"]);
+    let want = "fail  t\n      line 9: failure 10: out of memory\n      shown:\n        abc\n";
     assert_eq!((out.as_str(), err.as_str(), status), (want, "", 1));
 }

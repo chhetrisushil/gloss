@@ -2,7 +2,8 @@
 //! index (8 bytes a word) except `FAIL_CAP`. The words, from 0: the title, the shown buffer
 //! (address, length, room), the answers (a list of text, or 0, and the index of the next),
 //! `FAILING` (1 once the test is failing: reporting a failure must not allocate), the
-//! failure text's length, and from word 8 its `FAIL_CAP` bytes. It is zero at the start.
+//! failure text's length, `CURRENT_LINE`, and from word 9 its `FAIL_CAP` bytes. It is zero at
+//! the start.
 
 use super::asm::Asm;
 use crate::ir::Cond::{Ge, Gt, Le, Ne};
@@ -18,8 +19,11 @@ pub const SHOWN_LEN: u32 = 2;
 pub const SHOWN_ROOM: u32 = 3;
 pub const FAILING: u32 = 6;
 pub const FAIL_LEN: u32 = 7;
+/// The source line of the statement a test is running; test-mode lowering stores it before
+/// each statement, and the shown buffer's allocations report it if memory runs out.
+pub const CURRENT_LINE: u32 = 8;
 /// The first of `FAIL_CAP` bytes of failure text.
-pub const FAIL_BYTES: u32 = 8;
+pub const FAIL_BYTES: u32 = 9;
 pub const FAIL_CAP: i64 = 1792;
 /// The room `shown_init` reserves, and the free room every non-failing `shown_add` leaves: a
 /// failing flush (at most the output buffer) then always fits and never allocates.
@@ -112,12 +116,13 @@ fn fail_add() -> Function {
     s.finish("fail_add", 2, 1)
 }
 
-/// `shown_init()`: allocates the shown buffer, empty, with `SHOWN_FIRST` bytes of room. The
-/// runtime has no current source line to name, so an out of memory here says line 0.
+/// `shown_init()`: allocates the shown buffer, empty, with `SHOWN_FIRST` bytes of room. An out
+/// of memory names `CURRENT_LINE`: line 0 from `test_begin`, which runs before any statement.
 fn shown_init() -> Function {
     let mut s = Asm::default();
     s.push_const(8 + SHOWN_FIRST);
-    s.push_const(0);
+    get(&mut s, A, CURRENT_LINE);
+    s.i(Push(A));
     s.call("alloc");
     set(&mut s, SHOWN, A, B);
     s.i(Const(A, SHOWN_FIRST));
@@ -127,9 +132,9 @@ fn shown_init() -> Function {
 
 /// `shown_add(addr, len)`: appends to the shown bytes; nothing for no bytes. The first one
 /// allocates the buffer (`shown_init`) unless `FAILING`. A non-failing one grows the buffer
-/// until `SHOWN_FIRST` bytes of room are free after it (line 0 as in `shown_init`). A failing
-/// one never allocates or grows: bytes that do not fit are dropped, which the room kept free
-/// makes unreachable for a flush; it guards the case of no buffer.
+/// until `SHOWN_FIRST` bytes of room are free after it; running out of memory names
+/// `CURRENT_LINE`. A failing one never allocates or grows: bytes that do not fit are dropped,
+/// which the room kept free makes unreachable for a flush; it guards the case of no buffer.
 /// Slots: 1 the buffer, 2 the length it will have, 3 the room `grow_text` doubles, 4 the
 /// length it needs room for.
 fn shown_add() -> Function {
@@ -174,7 +179,8 @@ fn shown_add() -> Function {
     get(&mut s, A, SHOWN_LEN);
     s.i(Push(A));
     s.push_slot(3);
-    s.push_const(0);
+    get(&mut s, A, CURRENT_LINE);
+    s.i(Push(A));
     s.call("grow_text");
     s.i(StoreSlot(1, A));
     set(&mut s, SHOWN, A, B);
