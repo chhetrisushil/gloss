@@ -9,7 +9,7 @@ use crate::ir::Reg::{A, B};
 use crate::ir::{Function, Inst::*, IntOp, Shift};
 
 /// Writes the runtime text `n` to standard output.
-fn out_const(s: &mut Asm, n: u32) {
+pub(super) fn out_const(s: &mut Asm, n: u32) {
     s.push_text(n);
     s.call("out_text");
 }

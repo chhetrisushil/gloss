@@ -2,7 +2,9 @@
 
 use super::asm::Asm;
 use super::shown::{AT, CP, END, LEN, TMP, decode};
-use crate::ir::Cond::{Ge, Gt, Lt, Ne};
+use super::values::out_const;
+use super::{JSON_BRACE, JSON_NO, JSON_NUMBER, JSON_NUMBER_END, JSON_TEXT, JSON_YES, QUOTE};
+use crate::ir::Cond::{Eq, Ge, Gt, Lt, Ne};
 use crate::ir::Reg::{A, B};
 use crate::ir::{Function, Inst::*, IntOp, Shift};
 
@@ -117,6 +119,68 @@ fn json_bytes() -> Function {
     s.finish("json_bytes", 2, 9)
 }
 
+/// `json_int(n)`: the whole number `n` in decimal. It is `number_format` of `n` in
+/// ten-thousandths, so it holds for the 15 whole digits `number_format` shows; lines, items,
+/// turns, row counts and failure codes are far below that.
+fn json_int() -> Function {
+    let mut s = Asm::default();
+    s.i(LoadArg(A, 1));
+    s.i(Const(B, 10_000));
+    s.i(Int(IntOp::Mul));
+    s.i(Push(A));
+    s.call("number_format");
+    s.i(Push(A));
+    s.call("out_text");
+    s.finish("json_int", 1, 0)
+}
+
+/// `json_text(text)`: the text as a JSON string, in double quotes.
+fn json_text() -> Function {
+    let mut s = Asm::default();
+    out_const(&mut s, QUOTE);
+    s.push_text_arg(1);
+    s.call("json_bytes");
+    out_const(&mut s, QUOTE);
+    s.finish("json_text", 1, 0)
+}
+
+/// `json_value(value, desc)`: the typed JSON value of a number, text or truth by the kind of
+/// the descriptor (see `ir::Desc`), as `show_value` walks it.
+fn json_value() -> Function {
+    let mut s = Asm::default();
+    let (text, truth, no) = (s.label(), s.label(), s.label());
+    s.i(LoadArg(A, 2));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(Const(B, 1));
+    s.jump_if(Eq, text);
+    s.i(Const(B, 2));
+    s.jump_if(Eq, truth);
+    out_const(&mut s, JSON_NUMBER);
+    s.push_arg(1);
+    s.call("out_number");
+    out_const(&mut s, JSON_NUMBER_END);
+    s.i(Return);
+    s.i(Mark(text));
+    out_const(&mut s, JSON_TEXT);
+    s.push_arg(1);
+    s.call("json_text");
+    out_const(&mut s, JSON_BRACE);
+    s.i(Return);
+    s.i(Mark(truth));
+    s.i(LoadArg(A, 1));
+    s.i(Const(B, 0));
+    s.jump_if(Eq, no);
+    out_const(&mut s, JSON_YES);
+    s.i(Return);
+    s.i(Mark(no));
+    out_const(&mut s, JSON_NO);
+    s.finish("json_value", 2, 0)
+}
+
 pub fn routines() -> Vec<Function> {
-    vec![json_bytes()]
+    vec![json_bytes(), json_int(), json_text(), json_value()]
 }
