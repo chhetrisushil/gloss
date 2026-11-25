@@ -1,0 +1,5 @@
+{"line":6,"event":"show","text":"42"}
+{"line":7,"event":"show","text":"say \"hi\""}
+{"line":8,"event":"show","text":"yes"}
+{"line":9,"event":"show","text":"P with name \"Asha\", age 9"}
+{"line":11,"event":"show","text":"list of 4, 9, 2"}

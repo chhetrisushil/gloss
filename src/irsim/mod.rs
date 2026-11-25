@@ -6,6 +6,7 @@ mod cases;
 mod exec;
 mod files;
 mod test_cases;
+mod trace_cases;
 pub use files::Files;
 mod machine;
 pub use machine::INITIAL_STACK_TOP;

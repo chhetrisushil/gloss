@@ -14,6 +14,17 @@ fn link_name(line: &str) -> &str {
     line.split_once(" -> ").expect("a `link -> target` line").0
 }
 
+/// Seeds `files` with the regular files under `seeded`, and the folders between them, like
+/// copying a case's `.files` folder into the working folder.
+pub(super) fn seed_files(files: &mut Files, seeded: &Path) {
+    for (path, bytes) in read_tree(seeded) {
+        for (i, _) in path.match_indices('/') {
+            files.folders.insert(path[..i].to_string());
+        }
+        files.files.insert(path, bytes);
+    }
+}
+
 /// What the program left behind, listed like `read_tree` lists a real folder: the files, and
 /// each link as its `.links` line; a link the `.links` file does not give is `name -> ?`.
 /// `Files` keeps link names, not targets, so a link renamed over another listed link would
@@ -100,12 +111,7 @@ fn every_run_case_gives_the_expected_output_in_irsim() {
         let mut files = Files::default();
         let seeded = case.with_extension("files");
         if seeded.is_dir() {
-            for (path, bytes) in read_tree(&seeded) {
-                for (i, _) in path.match_indices('/') {
-                    files.folders.insert(path[..i].to_string());
-                }
-                files.files.insert(path, bytes);
-            }
+            seed_files(&mut files, &seeded);
         }
         let targets: Vec<String> = case_lines(&case, "links");
         files.links = targets.iter().map(|l| link_name(l).to_string()).collect();
