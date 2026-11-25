@@ -4,13 +4,15 @@
 
 use super::asm::Asm;
 use super::report::report_title;
-use super::test_state::{ANSWERS, FAIL_BYTES, FAIL_LEN, FAILING, SHOWN, SHOWN_LEN, get, set};
-use crate::ir::Cond::{Eq, Gt, Le, Ne};
+use super::test_state::{
+    ANSWERS, FAIL_BYTES, FAIL_LEN, FAILING, NEXT_ANSWER, SHOWN, SHOWN_LEN, get, set,
+};
+use crate::ir::Cond::{Eq, Ge, Gt, Le, Ne};
 use crate::ir::Reg::{A, B};
-use crate::ir::{Data, Function, Global, Inst::*, Prim};
+use crate::ir::{Data, Function, Global, Inst::*, IntOp, Prim, Shift};
 
 /// Names of the real routines a test build replaces.
-pub const REPLACED: [&str; 3] = ["write_all", "fail_begin", "fail_end"];
+pub const REPLACED: [&str; 4] = ["write_all", "fail_begin", "fail_end", "ask"];
 
 /// `write_all(fd, addr, len)`: descriptor 1 is shown, 2 is the failure text, any other is
 /// ignored. It never fails and never exits.
@@ -191,6 +193,60 @@ fn test_ask_fail() -> Function {
     s.finish("test_ask_fail", 3, 0)
 }
 
+/// `ask(question, line)`: the next queued answer. It prints nothing (the question is not part
+/// of `shown`) and never touches standard input; with no answer left the test fails with
+/// `test_ask_fail`. Slots: 1 the answers, 2 how many there are, 3 the address of the answer.
+fn ask() -> Function {
+    let mut s = Asm::default();
+    let (none, fail) = (s.label(), s.label());
+    get(&mut s, A, ANSWERS);
+    s.i(Const(B, 0));
+    s.jump_if(Eq, none);
+    s.i(StoreSlot(1, A));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(StoreSlot(2, A));
+    get(&mut s, A, NEXT_ANSWER);
+    s.i(LoadSlot(B, 2));
+    s.jump_if(Ge, fail);
+    s.i(Shift(Shift::Left, 3));
+    s.i(StoreSlot(3, A));
+    s.i(LoadSlot(A, 1));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 16,
+    });
+    s.i(LoadSlot(B, 3));
+    s.i(Int(IntOp::Add));
+    s.i(Load {
+        to: A,
+        base: A,
+        offset: 0,
+    });
+    s.i(StoreSlot(3, A));
+    get(&mut s, A, NEXT_ANSWER);
+    s.i(AddImm(A, 1));
+    set(&mut s, NEXT_ANSWER, A, B);
+    s.i(LoadSlot(A, 3));
+    s.i(Return);
+    s.i(Mark(none));
+    s.i(Const(A, 0));
+    s.i(StoreSlot(2, A));
+    s.i(Mark(fail));
+    s.push_arg(2);
+    s.push_slot(2);
+    get(&mut s, A, NEXT_ANSWER);
+    s.i(AddImm(A, 1));
+    s.i(Push(A));
+    s.call("test_ask_fail");
+    s.i(Return);
+    s.finish("ask", 2, 3)
+}
+
 /// The test versions, appended after the real routines that are kept.
 pub fn routines() -> Vec<Function> {
     vec![
@@ -201,5 +257,6 @@ pub fn routines() -> Vec<Function> {
         test_expect(),
         test_input(),
         test_ask_fail(),
+        ask(),
     ]
 }

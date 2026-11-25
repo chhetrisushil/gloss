@@ -19,6 +19,8 @@ pub const SHOWN_LEN: u32 = 2;
 pub const SHOWN_ROOM: u32 = 3;
 /// The answers `input` queued: a list of text, or 0 before the first.
 pub const ANSWERS: u32 = 4;
+/// The index of the answer the next `ask` takes.
+pub const NEXT_ANSWER: u32 = 5;
 pub const FAILING: u32 = 6;
 pub const FAIL_LEN: u32 = 7;
 /// The source line of the statement a test is running; test-mode lowering stores it before
