@@ -1358,7 +1358,8 @@ fn the_items_of_a_show_join_in_one_text() {
 fn a_quote_in_shown_text_is_escaped() {
     assert_eq!(
         traced("  set t to \"say \"\"x\"\"\"\n  show t\n"),
-        "{\"line\":3,\"event\":\"show\",\"text\":\"say \\\"x\\\"\"}\n"
+        "{\"line\":2,\"event\":\"set\",\"name\":\"t\",\"to\":{\"text\":\"say \\\"x\\\"\"}}\n\
+         {\"line\":3,\"event\":\"show\",\"text\":\"say \\\"x\\\"\"}\n"
     );
 }
 
@@ -1396,7 +1397,8 @@ fn an_empty_text_shows_an_empty_event_text() {
 fn an_item_computed_from_a_variable_is_written_after_the_text_before_it() {
     assert_eq!(
         traced("  set x to 2\n  show \"a\", x + 1\n"),
-        "{\"line\":3,\"event\":\"show\",\"text\":\"a3\"}\n"
+        "{\"line\":2,\"event\":\"set\",\"name\":\"x\",\"to\":{\"number\":\"2\"}}\n\
+         {\"line\":3,\"event\":\"show\",\"text\":\"a3\"}\n"
     );
 }
 
@@ -1456,8 +1458,8 @@ fn a_trace_build_gives_each_made_variable_a_flag_slot_and_an_ask_sets_it() {
     assert_eq!(slots(&lowered(text).unwrap()), 2);
     let m = lowered_trace(text);
     let f = m.functions.iter().find(|f| f.name == "f_start").unwrap();
-    // x and y, their two flags, and the ask's question temp.
-    assert_eq!(f.slots, 5);
+    // x and y, their two flags, the set's new value and the ask's question.
+    assert_eq!(f.slots, 6);
     let code = function_text(f);
     assert!(code.contains("a = 1\n  slot 4 = a"), "{code}");
 }

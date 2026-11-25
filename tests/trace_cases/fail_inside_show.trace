@@ -1,1 +1,2 @@
+{"line":2,"event":"set","name":"n","to":{"number":"0"}}
 {"line":3,"event":"fail","failure":1,"message":"dividing by zero (n is 0)"}

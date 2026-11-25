@@ -2,4 +2,5 @@
 {"line":7,"event":"show","text":"say \"hi\""}
 {"line":8,"event":"show","text":"yes"}
 {"line":9,"event":"show","text":"P with name \"Asha\", age 9"}
+{"line":10,"event":"set","name":"xs","to":{"list":[{"number":"4"},{"number":"9"},{"number":"2"}]}}
 {"line":11,"event":"show","text":"list of 4, 9, 2"}

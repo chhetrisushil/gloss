@@ -146,7 +146,7 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    fn jump_if_a_is(&mut self, value: i64, to: Label) {
+    pub(super) fn jump_if_a_is(&mut self, value: i64, to: Label) {
         self.emit(Inst::Const(Reg::B, value));
         self.emit(Inst::Compare);
         self.emit(Inst::JumpIf(Cond::Eq, to));
