@@ -1,11 +1,13 @@
 //! Running a test executable on the host: a private folder, streamed output, one exit status.
 //! This is host code, not generated code, so it may decode an `ExitStatus`.
 
-use std::os::unix::fs::DirBuilderExt;
+use std::io::{Read, Write};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::ExitStatus;
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc;
 
 /// Whether this host can run the executables the compiler builds.
 pub fn host_runs_tests() -> bool {
@@ -75,6 +77,87 @@ impl Drop for PrivateDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.path);
     }
+}
+
+/// Writes `executable` into a private folder (mode 0700), runs it with standard input closed,
+/// streams its output as it arrives, and gives the exit status for `gloss test`.
+pub fn run_test_executable(executable: &[u8], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let dir = match PrivateDir::new() {
+        Ok(dir) => dir,
+        Err(e) => {
+            let _ = writeln!(err, "cannot make a private folder for the test run: {e}");
+            return 3;
+        }
+    };
+    let path = dir.path().join("tests");
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o700)
+        .open(&path)
+        .and_then(|mut f| f.write_all(executable));
+    if let Err(e) = written {
+        let _ = writeln!(err, "cannot write the test executable: {e}");
+        return 3;
+    }
+    run_program(&path, out, err)
+}
+
+/// Runs the program at `path`, copying its output to `out` and `err` as bytes arrive.
+fn run_program(path: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let spawned = Command::new(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(e) => {
+            let _ = writeln!(err, "cannot run the test executable: {e}");
+            return 3;
+        }
+    };
+    let (tx, rx) = mpsc::channel::<(bool, Vec<u8>)>();
+    let mut readers = Vec::new();
+    if let Some(stdout) = child.stdout.take() {
+        readers.push(pump(stdout, false, tx.clone()));
+    }
+    if let Some(stderr) = child.stderr.take() {
+        readers.push(pump(stderr, true, tx.clone()));
+    }
+    drop(tx);
+    for (is_err, chunk) in rx {
+        let sink: &mut dyn Write = if is_err { &mut *err } else { &mut *out };
+        let _ = sink.write_all(&chunk);
+        let _ = sink.flush();
+    }
+    for r in readers {
+        let _ = r.join();
+    }
+    let (status, message) = match child.wait() {
+        Ok(ended) => status_for(ended),
+        Err(e) => (3, Some(format!("cannot wait for the test run: {e}"))),
+    };
+    if let Some(message) = message {
+        let _ = writeln!(err, "{message}");
+    }
+    status
+}
+
+/// Reads `from` on its own thread, sending each chunk as it arrives.
+fn pump(
+    mut from: impl Read + Send + 'static,
+    is_err: bool,
+    to: mpsc::Sender<(bool, Vec<u8>)>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = from.read(&mut buf) {
+            if n == 0 || to.send((is_err, buf[..n].to_vec())).is_err() {
+                break;
+            }
+        }
+    })
 }
 
 /// 0 and 1 are the test run's own; any other end is 1 with a message.
