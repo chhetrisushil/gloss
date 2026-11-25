@@ -33,6 +33,15 @@ pub(super) fn lower_start(
     }
 }
 
+/// A field or an item a `set` event names: the list or variable `name`, the slot holding the
+/// whole item number, the field, and the slot holding the cell's address.
+pub(super) struct Cell<'a> {
+    pub name: &'a str,
+    pub item: Option<u32>,
+    pub field: Option<&'a str>,
+    pub at: u32,
+}
+
 /// The helpers that frame a trace event: `{"line":L,"event":"K"`, then `,"key":value` pieces,
 /// then `}` and a newline. Each emits nothing outside a trace build, and clobbers `a` and `b`:
 /// a caller keeps its values in hidden slots (`new_temp`). Every helper needs `ESCAPING` at 0
@@ -84,8 +93,6 @@ impl Lowerer<'_> {
     }
 
     /// Writes the whole number in `slot` in decimal (`json_int`).
-    // First used by the events of later tasks.
-    #[allow(dead_code)]
     pub fn ev_int_from_slot(&mut self, slot: u32) {
         if self.mode == Mode::Trace {
             self.emit(Inst::LoadSlot(Reg::A, slot));
@@ -124,6 +131,38 @@ impl Lowerer<'_> {
         self.ev_value_from_slot(new, &ty);
         self.ev_close();
         self.set_made(name);
+        self.emit(Inst::LoadSlot(Reg::A, new));
+    }
+
+    /// Writes the `set` event of `cell`, a field or an item that exists, whose new value of
+    /// type `ty` is in `a`, before the caller stores it: `from` is read from the cell's
+    /// address, which still holds the old value. Leaves the value in `a`.
+    pub(super) fn cell_set_event(&mut self, cell: &Cell, ty: &Ty) {
+        let (new, old) = (self.new_temp(), self.new_temp());
+        self.emit(Inst::StoreSlot(new, Reg::A));
+        self.emit(Inst::LoadSlot(Reg::A, cell.at));
+        self.emit(Inst::Load {
+            to: Reg::A,
+            base: Reg::A,
+            offset: 0,
+        });
+        self.emit(Inst::StoreSlot(old, Reg::A));
+        self.ev_open(self.line, "set");
+        self.ev_key("name");
+        self.ev_fixed_text(cell.name);
+        if let Some(index) = cell.item {
+            self.ev_key("item");
+            self.ev_int_from_slot(index);
+        }
+        if let Some(field) = cell.field {
+            self.ev_key("field");
+            self.ev_fixed_text(field);
+        }
+        self.ev_key("from");
+        self.ev_value_from_slot(old, ty);
+        self.ev_key("to");
+        self.ev_value_from_slot(new, ty);
+        self.ev_close();
         self.emit(Inst::LoadSlot(Reg::A, new));
     }
 

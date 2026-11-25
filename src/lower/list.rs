@@ -1,6 +1,7 @@
 //! Lowering lists. A list is the address of a header `[count, capacity, items]`; `items` is
 //! the address of `capacity` 8-byte slots (see `ir::Desc`).
-use super::Lowerer;
+use super::trace::Cell;
+use super::{Lowerer, Mode};
 use crate::ast::print;
 use crate::ast::stmt::{Stmt, Target};
 use crate::ast::{Expr, Fact};
@@ -43,6 +44,14 @@ impl Lowerer<'_> {
             _ => return None,
         };
         Some((position, list, self.field_offset(&record, field)))
+    }
+
+    /// The type of `e`, which the checker found.
+    pub fn expr_ty(&self, e: &Expr) -> Ty {
+        match self.types.expr_types.get(e.id.0 as usize) {
+            Some(Some(ty)) => ty.clone(),
+            _ => Ty::Number,
+        }
     }
 
     /// The item type of `e`, when it is a list.
@@ -166,13 +175,14 @@ impl Lowerer<'_> {
     }
 
     /// The address of item `position` of the list in slot `list`, whose source is `source`,
-    /// in `a`. The position must be whole (failure 3) and in 1 to the count (failure 2).
+    /// in `a`; the slot returned holds the whole position. The position must be whole
+    /// (failure 3) and in 1 to the count (failure 2).
     pub fn item_address(
         &mut self,
         list: u32,
         source: &str,
         position: &Expr,
-    ) -> Result<(), Diagnostic> {
+    ) -> Result<u32, Diagnostic> {
         let (pos, index) = (self.new_temp(), self.new_temp());
         self.expr(position)?;
         self.emit(Inst::StoreSlot(pos, Reg::A));
@@ -203,7 +213,7 @@ impl Lowerer<'_> {
         self.emit(Inst::LoadSlot(Reg::A, index));
         self.emit(Inst::AddImm(Reg::A, -1));
         self.slot_address(list);
-        Ok(())
+        Ok(index)
     }
 
     /// With the zero-based index in `a`: the address of that slot of the list in `list`.
@@ -244,18 +254,19 @@ impl Lowerer<'_> {
     }
 
     /// With a new value in `a`: finds item `position` of list `list`, remembers its address
-    /// in the slot returned, and leaves its value in `a` and the new value in `b`.
-    /// With a `field`, the address is that field's of the item's record.
+    /// in the first slot returned (the second holds the whole position), and leaves its value
+    /// in `a` and the new value in `b`. With a `field`, the address is that field's of the
+    /// item's record.
     pub fn load_item(
         &mut self,
         position: &Expr,
         list: &str,
         field: Option<i32>,
-    ) -> Result<u32, Diagnostic> {
+    ) -> Result<(u32, u32), Diagnostic> {
         let (value, at) = (self.new_temp(), self.new_temp());
         self.emit(Inst::StoreSlot(value, Reg::A));
         let slot = self.list_slot(list);
-        self.item_address(slot, list, position)?;
+        let index = self.item_address(slot, list, position)?;
         if let Some(offset) = field {
             self.load_a();
             self.emit(Inst::AddImm(Reg::A, offset));
@@ -263,7 +274,7 @@ impl Lowerer<'_> {
         self.emit(Inst::StoreSlot(at, Reg::A));
         self.load_a();
         self.emit(Inst::LoadSlot(Reg::B, value));
-        Ok(at)
+        Ok((at, index))
     }
 
     /// Stores the value in `a` into the item whose address is in slot `at`.
@@ -285,14 +296,35 @@ impl Lowerer<'_> {
         &mut self,
         position: &Expr,
         list: &str,
-        field: Option<i32>,
+        field: Option<(i32, &str)>,
         value: &Expr,
     ) -> Result<(), Diagnostic> {
         let held = self.new_temp();
         self.store_value(value)?;
         self.emit(Inst::StoreSlot(held, Reg::A));
         let slot = self.list_slot(list);
-        self.item_address(slot, list, position)?;
+        let index = self.item_address(slot, list, position)?;
+        let field_offset = field.map(|(offset, _)| offset);
+        if self.mode == Mode::Trace {
+            // The event comes after the position checks, before the store.
+            if let Some(offset) = field_offset {
+                self.load_a();
+                self.emit(Inst::AddImm(Reg::A, offset));
+            }
+            let at = self.new_temp();
+            self.emit(Inst::StoreSlot(at, Reg::A));
+            self.emit(Inst::LoadSlot(Reg::A, held));
+            let cell = Cell {
+                name: list,
+                item: Some(index),
+                field: field.map(|(_, name)| name),
+                at,
+            };
+            self.cell_set_event(&cell, &self.expr_ty(value));
+            self.store_item(at);
+            return Ok(());
+        }
+        let field = field_offset;
         self.emit(Inst::Move {
             to: Reg::B,
             from: Reg::A,

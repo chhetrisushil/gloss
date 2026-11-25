@@ -1,0 +1,4 @@
+{"line":6,"event":"set","name":"expense","to":{"record":"Expense","fields":{"name":{"text":"Rent"},"amount":{"number":"10"}}}}
+{"line":7,"event":"set","name":"expense","field":"amount","from":{"number":"10"},"to":{"number":"12"}}
+{"line":8,"event":"set","name":"expense","field":"name","from":{"text":"Rent"},"to":{"text":"Flat"}}
+{"line":9,"event":"show","text":"12"}
