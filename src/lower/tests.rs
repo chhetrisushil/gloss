@@ -1306,3 +1306,53 @@ fn a_table_path_the_runtime_could_not_use_is_refused_by_load_and_save_in_both_mo
         assert_eq!(real, test, "{stmt}");
     }
 }
+
+fn lowered_trace(text: &str) -> Module {
+    let src = Source::new(text);
+    let program = crate::parse_source(&src).expect("parses");
+    let types = check(&program, &src).types.expect("checks clean");
+    super::lower_trace(&program, &types, &src).expect("lowers")
+}
+
+const EXPENSE_TRACKER: &str = include_str!("../../tests/test_cases/expense_tracker.gloss");
+
+fn uses_global(m: &Module, g: crate::ir::Global) -> bool {
+    let takes = |i: &crate::ir::Inst| matches!(i, crate::ir::Inst::AddressOf(_, crate::ir::Data::Global(x)) if *x == g);
+    m.functions.iter().flat_map(|f| &f.body).any(takes)
+}
+
+#[test]
+fn a_trace_build_runs_start() {
+    let m = lowered_trace("feature start\n  show \"hi\"\n");
+    let o = crate::irsim::run(&m, "_start", b"");
+    assert_eq!((o.stdout, o.status), (b"hi\n".to_vec(), 0));
+}
+
+#[test]
+fn a_trace_module_has_no_permissions_text_or_args_check() {
+    let m = lowered_trace(EXPENSE_TRACKER);
+    for name in ["permissions_text", "args_check"] {
+        assert!(!m.functions.iter().any(|f| f.name == name), "{name}");
+    }
+}
+
+#[test]
+fn a_trace_module_has_no_test_state() {
+    let m = lowered_trace(EXPENSE_TRACKER);
+    assert!(!uses_global(&m, crate::ir::Global::TestState));
+}
+
+#[test]
+fn real_and_test_builds_have_no_trace_code() {
+    let src = Source::new(EXPENSE_TRACKER);
+    let program = crate::parse_source(&src).expect("parses");
+    let types = check(&program, &src).types.expect("checks clean");
+    let real = lower(&program, &types, &src).unwrap();
+    let test = super::lower_tests(&program, &types, &src).unwrap();
+    let trace_routines = crate::runtime::trace_backend::routines();
+    for m in [&real, &test] {
+        assert!(!uses_global(m, crate::ir::Global::TraceState));
+        let named = |f: &crate::ir::Function| trace_routines.iter().any(|r| r.name == f.name);
+        assert!(!m.functions.iter().any(named));
+    }
+}

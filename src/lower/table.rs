@@ -6,11 +6,11 @@ use crate::ast::program::Program;
 use crate::diag::Diagnostic;
 use crate::ir::{Cond, Data, Function, Global, Inst, Reg};
 
-/// The size in bytes of one table's entry in the block: 16 in a real build; a test build
+/// The size in bytes of one table's entry in the block: 16 in a real or trace build; a test build
 /// adds the pretend file (`runtime::ENTRY_BYTES`).
 pub fn entry_bytes(mode: Mode) -> i32 {
     match mode {
-        Mode::Real => 16,
+        Mode::Real | Mode::Trace => 16,
         Mode::Test => crate::runtime::ENTRY_BYTES,
     }
 }
