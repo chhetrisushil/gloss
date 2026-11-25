@@ -1,0 +1,6 @@
+feature start
+  set total to 0
+
+  for each price from 150 to 150
+    if price is greater than 100
+      set total to price

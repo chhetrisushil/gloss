@@ -649,3 +649,41 @@ fn the_section_9_report_sample_is_the_real_report() {
     assert_eq!(out, sample, "the spec's report sample");
     assert_eq!(status, 1);
 }
+
+/// The text of the first fenced block opened with `fence` after the line `heading`.
+fn block_after(heading: &str, fence: &str) -> String {
+    let rest = SPEC
+        .split_once(heading)
+        .expect("the heading is in the spec")
+        .1;
+    let rest = rest.split_once(&format!("\n{fence}\n")).expect("a block").1;
+    format!("{}\n", rest.split_once("\n```").expect("a closed block").0)
+}
+
+/// Section 10's trace example is a real trace case: its sentences are the case's narration
+/// (after the first line, which the case's first statement adds), and its events are the
+/// case's events.
+#[test]
+fn the_spec_trace_example_is_a_trace_case() {
+    let case = |ext: &str| {
+        let path = format!(
+            "{}/tests/trace_cases/spec_trace.{ext}",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        std::fs::read_to_string(path).unwrap()
+    };
+    let sentences = block_after("\n### Trace\n", "```");
+    assert!(
+        sentences.starts_with("line 4: price is 150\n"),
+        "{sentences}"
+    );
+    assert!(
+        case("out").ends_with(&sentences),
+        "the narration lacks the spec's sentences"
+    );
+    let events = block_after("\n### Trace\n", "```json");
+    assert!(
+        case("trace").ends_with(&events),
+        "the events differ from the spec's"
+    );
+}

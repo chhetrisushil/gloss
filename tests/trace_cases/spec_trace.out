@@ -1,0 +1,4 @@
+line 2: total is 0
+line 4: price is 150
+line 5: 150 is greater than 100, so the block runs
+line 6: total becomes 150

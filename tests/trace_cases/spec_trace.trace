@@ -1,0 +1,4 @@
+{"line":2,"event":"set","name":"total","to":{"number":"0"}}
+{"line":4,"event":"loop","name":"price","turn":1,"value":{"number":"150"}}
+{"line":5,"event":"check","condition":"price is greater than 100","values":{"price":{"number":"150"}},"result":"yes"}
+{"line":6,"event":"set","name":"total","from":{"number":"0"},"to":{"number":"150"}}
