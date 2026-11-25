@@ -251,3 +251,109 @@ fn a_failing_writer_ends_the_run_with_status_3() {
     let text = String::from_utf8(err).unwrap();
     assert_eq!(text, "cannot write the test output: gone\n");
 }
+
+/// Runs a script as a traced program on this process's standard input; gives the lines, the
+/// standard error text and how it ended.
+fn traced(body: &str) -> (Vec<String>, String, TraceEnd) {
+    let dir = PrivateDir::new().unwrap();
+    let path = script(&dir, body);
+    let (mut lines, mut err) = (Vec::new(), Vec::new());
+    let mut on_line = |l: &str| {
+        lines.push(l.to_string());
+        Ok(())
+    };
+    let end = run_traced_with(&path, &mut on_line, &mut err, &mut spawn_inheriting).unwrap();
+    (lines, String::from_utf8(err).unwrap(), end)
+}
+
+#[test]
+fn two_events_and_exit_0() {
+    let (lines, err, end) = traced("echo '{\"a\":1}'; echo '{\"b\":2}'; echo oops >&2");
+    assert_eq!(lines, ["{\"a\":1}", "{\"b\":2}"]);
+    assert_eq!(err, "oops\n");
+    assert_eq!(end, TraceEnd::Exited(0));
+}
+
+#[test]
+fn a_line_split_across_two_writes_arrives_whole() {
+    let (lines, _, end) =
+        traced("printf '{\"a\":'; sleep 0.2; printf '1}\\n{\"b\"'; sleep 0.2; echo ':2}'");
+    assert_eq!(lines, ["{\"a\":1}", "{\"b\":2}"]);
+    assert_eq!(end, TraceEnd::Exited(0));
+}
+
+#[test]
+fn status_2_is_exited_and_others_are_unfinished() {
+    assert_eq!(traced("echo x; exit 2").2, TraceEnd::Exited(2));
+    assert_eq!(traced("echo x; exit 1").2, TraceEnd::Unfinished(1));
+}
+
+#[test]
+fn a_last_fragment_without_a_newline_is_unfinished() {
+    let (lines, _, end) = traced("echo x; printf '{\"a\"'");
+    assert_eq!(lines, ["x"]);
+    assert_eq!(end, TraceEnd::Unfinished(0));
+}
+
+#[test]
+fn a_signal_is_unfinished_with_256_plus_the_signal() {
+    assert_eq!(traced("kill -9 $$").2, TraceEnd::Unfinished(265));
+}
+
+#[test]
+fn a_failing_line_handler_ends_the_run() {
+    let dir = PrivateDir::new().unwrap();
+    let path = script(&dir, "echo x; exec sleep 5");
+    let mut on_line = |_: &str| Err(std::io::Error::other("no room"));
+    let started = std::time::Instant::now();
+    let e =
+        run_traced_with(&path, &mut on_line, &mut Vec::new(), &mut spawn_inheriting).unwrap_err();
+    assert!(e.to_string().contains("no room"), "{e}");
+    assert!(started.elapsed().as_secs() < 4);
+}
+
+#[test]
+fn standard_input_reaches_the_program_and_it_runs_in_the_current_folder() {
+    use std::process::Stdio;
+    let mut me = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "testrun::tests::stdin_reaches_probe",
+            "--ignored",
+            "--nocapture",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    me.stdin.take().unwrap().write_all(b"hello\n").unwrap();
+    let done = me.wait_with_output().unwrap();
+    let text = String::from_utf8(done.stdout).unwrap();
+    let here = std::env::current_dir().unwrap().canonicalize().unwrap();
+    let want = format!("probe:got hello in {}", here.display());
+    assert!(text.contains(&want), "{text}");
+}
+
+/// Run by the test above with a standard input that has bytes waiting.
+#[test]
+#[ignore = "run by the test above with an input; alone it would wait for this process's input"]
+fn stdin_reaches_probe() {
+    let (lines, _, _) = traced("read l; echo \"got $l in $(pwd -P)\"");
+    println!("probe:{}", lines.join(""));
+}
+
+#[test]
+fn run_traced_runs_a_written_executable() {
+    let mut lines = Vec::new();
+    let mut on_line = |l: &str| {
+        lines.push(l.to_string());
+        Ok(())
+    };
+    let end = run_traced(
+        b"#!/bin/sh\necho '{\"k\":1}'\n",
+        &mut on_line,
+        &mut Vec::new(),
+    );
+    assert_eq!(end.unwrap(), TraceEnd::Exited(0));
+    assert_eq!(lines, ["{\"k\":1}"]);
+}
