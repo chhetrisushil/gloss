@@ -39,7 +39,7 @@ pub(super) fn lower_start(
 /// (the fixed pieces and quotes would be escaped otherwise).
 impl Lowerer<'_> {
     /// Writes a fixed piece, escaped by the compiler, through `out_text`.
-    pub fn ev_raw(&mut self, piece: &str) {
+    pub(super) fn ev_raw(&mut self, piece: &str) {
         if self.mode == Mode::Trace {
             self.push_text(piece.as_bytes());
             self.call("out_text");
@@ -95,12 +95,12 @@ impl Lowerer<'_> {
     }
 
     /// Sets the `ESCAPING` word: text entering the output buffer is escaped while it is 1.
-    pub fn set_escaping(&mut self, on: bool) {
+    pub(super) fn set_escaping(&mut self, on: bool) {
         self.set_trace_word(ESCAPING, on);
     }
 
     /// Sets the `OPEN` word: a `show` event is open while it is 1.
-    pub fn set_open(&mut self, on: bool) {
+    pub(super) fn set_open(&mut self, on: bool) {
         self.set_trace_word(OPEN, on);
     }
 

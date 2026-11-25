@@ -1371,6 +1371,35 @@ fn two_shows_are_two_lines() {
 }
 
 #[test]
+fn a_show_inside_a_show_item_is_a_complete_event_before_the_outer_one() {
+    let m = lowered_trace(
+        "feature f\n  show \"inner\"\n  give \"x\"\n\nfeature start\n  show \"a\", f\n",
+    );
+    let o = crate::irsim::run(&m, "_start", b"");
+    assert_eq!(
+        String::from_utf8(o.stdout).unwrap(),
+        "{\"line\":2,\"event\":\"show\",\"text\":\"inner\"}\n\
+         {\"line\":6,\"event\":\"show\",\"text\":\"ax\"}\n"
+    );
+}
+
+#[test]
+fn an_empty_text_shows_an_empty_event_text() {
+    assert_eq!(
+        traced("  show \"\"\n"),
+        "{\"line\":2,\"event\":\"show\",\"text\":\"\"}\n"
+    );
+}
+
+#[test]
+fn an_item_computed_from_a_variable_is_written_after_the_text_before_it() {
+    assert_eq!(
+        traced("  set x to 2\n  show \"a\", x + 1\n"),
+        "{\"line\":3,\"event\":\"show\",\"text\":\"a3\"}\n"
+    );
+}
+
+#[test]
 fn a_shown_record_is_its_source_form_escaped() {
     let m = lowered_trace(
         "record Row\n  name as text\n\nfeature start\n  show (Row with name \"a\"\"b\")\n",
