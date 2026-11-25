@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc;
 
@@ -105,11 +105,39 @@ pub fn run_test_executable(executable: &[u8], out: &mut dyn Write, err: &mut dyn
 
 /// Runs the program at `path`, copying its output to `out` and `err` as bytes arrive.
 fn run_program(path: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let spawned = Command::new(path)
+    run_program_with(path, out, err, &mut spawn)
+}
+
+/// Starts the program with standard input null and standard output and error piped.
+fn spawn(path: &Path) -> std::io::Result<Child> {
+    Command::new(path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn();
+        .spawn()
+}
+
+/// `ETXTBSY`: the file is still open for writing somewhere. Another thread that forks while
+/// we write the executable can hold the write end for a moment, so the spawn is retried.
+const ETXTBSY: i32 = 26;
+
+/// `run_program` with the way the child is started given, so a test can make a spawn fail.
+fn run_program_with(
+    path: &Path,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+    start: &mut dyn FnMut(&Path) -> std::io::Result<Child>,
+) -> i32 {
+    let mut tries = 0;
+    let spawned = loop {
+        match start(path) {
+            Err(e) if e.raw_os_error() == Some(ETXTBSY) && tries < 5 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(10 << tries));
+            }
+            other => break other,
+        }
+    };
     let mut child = match spawned {
         Ok(child) => child,
         Err(e) => {
@@ -126,10 +154,24 @@ fn run_program(path: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
         readers.push(pump(stderr, true, tx.clone()));
     }
     drop(tx);
-    for (is_err, chunk) in rx {
+    let mut failed = None;
+    for (is_err, chunk) in &rx {
         let sink: &mut dyn Write = if is_err { &mut *err } else { &mut *out };
-        let _ = sink.write_all(&chunk);
-        let _ = sink.flush();
+        if let Err(e) = sink.write_all(&chunk).and_then(|()| sink.flush()) {
+            failed = Some(e);
+            break;
+        }
+    }
+    if let Some(e) = failed {
+        // Nobody is reading the output any more: end the run and reap the child.
+        let _ = child.kill();
+        drop(rx);
+        let _ = child.wait();
+        for r in readers {
+            let _ = r.join();
+        }
+        let _ = writeln!(err, "cannot write the test output: {e}");
+        return 3;
     }
     for r in readers {
         let _ = r.join();

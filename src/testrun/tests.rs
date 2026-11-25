@@ -162,3 +162,68 @@ fn output_is_streamed_before_the_run_ends() {
     assert_eq!(runner.join().unwrap(), 0);
     assert_eq!(rx.recv_timeout(wait).unwrap(), b"z\n");
 }
+
+#[test]
+fn a_busy_executable_is_retried() {
+    let dir = PrivateDir::new().unwrap();
+    let path = script(&dir, "echo x");
+    let mut calls = 0;
+    let mut start = |p: &Path| {
+        calls += 1;
+        if calls == 1 {
+            return Err(std::io::Error::from_raw_os_error(ETXTBSY));
+        }
+        spawn(p)
+    };
+    let mut out = Vec::new();
+    assert_eq!(
+        run_program_with(&path, &mut out, &mut Vec::new(), &mut start),
+        0
+    );
+    assert_eq!((calls, out.as_slice()), (2, b"x\n".as_slice()));
+}
+
+#[test]
+fn another_spawn_error_is_not_retried() {
+    let dir = PrivateDir::new().unwrap();
+    let path = script(&dir, "echo x");
+    let mut calls = 0;
+    let mut start = |_: &Path| {
+        calls += 1;
+        Err(std::io::Error::from_raw_os_error(2))
+    };
+    let mut err = Vec::new();
+    assert_eq!(
+        run_program_with(&path, &mut Vec::new(), &mut err, &mut start),
+        3
+    );
+    assert_eq!(calls, 1);
+    assert!(
+        String::from_utf8(err)
+            .unwrap()
+            .starts_with("cannot run the test executable: ")
+    );
+}
+
+struct Broken;
+impl Write for Broken {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::other("gone"))
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_failing_writer_ends_the_run_with_status_3() {
+    let dir = PrivateDir::new().unwrap();
+    // `exec` makes the sleep the child itself, so killing the child ends it.
+    let path = script(&dir, "echo x; exec sleep 30");
+    let started = std::time::Instant::now();
+    let mut err = Vec::new();
+    assert_eq!(run_program(&path, &mut Broken, &mut err), 3);
+    assert!(started.elapsed().as_secs() < 20, "the child was not killed");
+    let text = String::from_utf8(err).unwrap();
+    assert_eq!(text, "cannot write the test output: gone\n");
+}
