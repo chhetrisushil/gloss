@@ -20,6 +20,9 @@ mod heap_tests;
 mod input;
 #[cfg(test)]
 mod input_tests;
+mod json;
+#[cfg(test)]
+mod json_tests;
 mod lists;
 mod numbers;
 mod output;
@@ -257,6 +260,7 @@ pub fn routines() -> Vec<Function> {
     all.extend(file_read::routines());
     all.extend(output::routines());
     all.extend(input::routines());
+    all.extend(json::routines());
     all.extend(lists::routines());
     all.extend(numbers::routines());
     all.extend(parse::routines());

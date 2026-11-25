@@ -2,7 +2,8 @@
 //! and the replaced input and failure routines.
 //!
 //! Text enters the output buffer through `out_bytes`; a trace build's one decides, by the
-//! trace state's `ESCAPING` word, whether it is JSON-escaped on the way (`json_bytes`).
+//! trace state's `ESCAPING` word, whether it is JSON-escaped on the way (`json_bytes`, in
+//! `json.rs`).
 
 use super::asm::Asm;
 use super::trace_state::{ESCAPING, get};
@@ -31,16 +32,7 @@ fn out_bytes() -> Function {
     s.finish("out_bytes", 2, 0)
 }
 
-/// `json_bytes(addr, len)`: for now it writes the bytes unescaped; the escaping replaces it.
-fn json_bytes() -> Function {
-    let mut s = Asm::default();
-    s.push_arg(1);
-    s.push_arg(2);
-    s.call("buf_bytes");
-    s.finish("json_bytes", 2, 0)
-}
-
 /// The routines a trace build adds.
 pub fn routines() -> Vec<Function> {
-    vec![out_bytes(), json_bytes()]
+    vec![out_bytes()]
 }
