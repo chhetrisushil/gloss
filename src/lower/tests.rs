@@ -1518,3 +1518,19 @@ fn failure_4_writes_no_set_event() {
         "{out}"
     );
 }
+
+#[test]
+fn append_writes_only_the_new_item() {
+    let m = lowered_trace(
+        "record R\n  n as number\n\nfeature start\n  \
+         set rs to list of (R with n 1), (R with n 2), (R with n 3)\n  append R with n 4 to rs\n",
+    );
+    let o = crate::irsim::run(&m, "_start", b"");
+    let out = String::from_utf8(o.stdout).unwrap();
+    let append = out.lines().nth(1).expect("the append event");
+    assert_eq!(
+        append,
+        "{\"line\":6,\"event\":\"set\",\"name\":\"rs\",\"item\":4,\"to\":{\"record\":\"R\",\
+         \"fields\":{\"n\":{\"number\":\"4\"}}}}"
+    );
+}

@@ -1,0 +1,5 @@
+feature start
+  set prices to list of 4, 9
+  append 3 to prices
+  append 7.5 to prices
+  show prices

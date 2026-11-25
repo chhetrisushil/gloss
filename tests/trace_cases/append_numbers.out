@@ -1,0 +1,4 @@
+line 2: prices is list of 4, 9
+line 3: 3 is appended to prices (now 3 items)
+line 4: 7.5 is appended to prices (now 4 items)
+list of 4, 9, 3, 7.5

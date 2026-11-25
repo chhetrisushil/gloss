@@ -1,0 +1,9 @@
+record Row
+  name as text
+  n as number
+
+table rows of Row in "rows.csv"
+
+feature start
+  append Row with name "a", n 1 to rows
+  show count of rows
