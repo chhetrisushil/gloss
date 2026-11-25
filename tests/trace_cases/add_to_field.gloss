@@ -1,0 +1,8 @@
+record Expense
+  name as text
+  amount as number
+
+feature start
+  set expense to Expense with name "Rent", amount 10
+  add 5 to amount of expense
+  multiply amount of expense by 2

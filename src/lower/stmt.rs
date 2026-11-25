@@ -201,7 +201,7 @@ impl Lowerer<'_> {
         self.mark_line(s.line);
         self.expr(operand)?;
         let at = match (&place, item) {
-            (_, Some((position, list, field))) => Some(self.load_item(position, list, field)?.0),
+            (_, Some((position, list, field))) => Some(self.load_item(position, list, field)?),
             (Some(place), None) => {
                 self.emit(Inst::Move {
                     to: Reg::B,
@@ -233,11 +233,28 @@ impl Lowerer<'_> {
             },
         };
         self.emit(inst);
-        if let (Mode::Trace, Target::Var(name)) = (self.mode, target) {
-            self.set_event(s.line, name, true);
+        if self.mode == Mode::Trace {
+            match (target, at, &place) {
+                (Target::Var(name), ..) => self.set_event(s.line, name, true),
+                (_, Some((at, index)), _) => {
+                    let field = match target {
+                        Target::Field { field, .. } => Some(field.as_str()),
+                        _ => None,
+                    };
+                    let cell = Cell {
+                        name: target.root(),
+                        item: Some(index),
+                        field,
+                        at,
+                    };
+                    self.cell_set_event(&cell, &Ty::Number);
+                }
+                (_, None, Some(place)) => self.field_set_event(target, place, &Ty::Number),
+                (_, None, None) => unreachable!("checked above"),
+            }
         }
         match (at, &place) {
-            (Some(at), _) => self.store_item(at),
+            (Some((at, _)), _) => self.store_item(at),
             (None, Some(place)) => self.store_place(place),
             (None, None) => unreachable!("checked above"),
         }

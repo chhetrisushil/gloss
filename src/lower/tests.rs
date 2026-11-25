@@ -1534,3 +1534,22 @@ fn append_writes_only_the_new_item() {
          \"fields\":{\"n\":{\"number\":\"4\"}}}}"
     );
 }
+
+#[test]
+fn a_failing_verb_or_position_on_an_item_writes_no_set_event() {
+    for (body, failure) in [
+        ("multiply item 1 of xs by 1000", 4),
+        ("add 1 to item 5 of xs", 2),
+        ("add 1 to item 1.5 of xs", 3),
+    ] {
+        let m = lowered_trace(&format!(
+            "feature start\n  set xs to list of 900000000000000\n  {body}\n"
+        ));
+        let o = crate::irsim::run(&m, "_start", b"");
+        let out = String::from_utf8(o.stdout).unwrap();
+        assert_eq!(o.status, 2, "{body}");
+        assert_eq!(out.matches("\"event\":\"set\"").count(), 1, "{out}");
+        let want = format!("\"failure\":{failure}");
+        assert!(out.lines().last().unwrap().contains(&want), "{out}");
+    }
+}

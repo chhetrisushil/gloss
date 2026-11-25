@@ -1,0 +1,9 @@
+record Expense
+  name as text
+  amount as number
+
+feature start
+  set prices to list of 4, 9, 2
+  set expenses to list of (Expense with name "Rent", amount 10)
+  subtract 1 from item 2 of prices
+  divide amount of item 1 of expenses by 4
