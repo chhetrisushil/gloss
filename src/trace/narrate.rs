@@ -18,10 +18,21 @@ enum Branch {
     Loop,
 }
 
+/// What `Narrator::line` saw.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Narrated {
+    /// An ordinary event.
+    Event,
+    /// A `fail` event: the run failed and its failure line is on the error stream.
+    Failed,
+}
+
 pub struct Narrator<'p> {
     conditions: HashMap<Line, (&'p Expr, Branch)>,
     /// Open calls below `start`: each sentence is indented 2 spaces per call.
     depth: usize,
+    /// Trace lines read so far, for error messages.
+    events: usize,
 }
 
 impl<'p> Narrator<'p> {
@@ -34,26 +45,33 @@ impl<'p> Narrator<'p> {
         Narrator {
             conditions,
             depth: 0,
+            events: 0,
         }
     }
 
     /// Narrates one trace line: a `show` text on `out`, a `fail` on `err`, anything else as a
-    /// sentence on `out`. The inner error is a line that is not an event.
+    /// sentence on `out`. The outer error is a write failure (the caller's I/O). The inner
+    /// error is a corrupt stream: `event N: <why>` with N the 1-based number of the line in the
+    /// stream, for a line that is not an event or a `check` on a line where no condition
+    /// starts; nothing is written for it. `Narrated::Failed` tells the caller a `fail` event
+    /// was seen, so it need not decode the line again.
     pub fn line(
         &mut self,
         event_line: &str,
         out: &mut dyn Write,
         err: &mut dyn Write,
-    ) -> io::Result<Result<(), String>> {
+    ) -> io::Result<Result<Narrated, String>> {
+        self.events += 1;
+        let n = self.events;
         let event = match decode(event_line) {
             Ok(event) => event,
-            Err(e) => return Ok(Err(e)),
+            Err(e) => return Ok(Err(format!("event {n}: {e}"))),
         };
         let enters = matches!(event, Event::Enter { .. });
         let sentence = match event {
             Event::Show { text, .. } => {
                 writeln!(out, "{text}")?;
-                return Ok(Ok(()));
+                return Ok(Ok(Narrated::Event));
             }
             Event::Fail {
                 line,
@@ -62,7 +80,7 @@ impl<'p> Narrator<'p> {
                 ..
             } => {
                 writeln!(err, "line {line}: failure {failure}: {message}")?;
-                return Ok(Ok(()));
+                return Ok(Ok(Narrated::Failed));
             }
             Event::Set {
                 line,
@@ -77,7 +95,14 @@ impl<'p> Narrator<'p> {
                 values,
                 result,
                 ..
-            } => self.check(line, &values, result),
+            } => match self.check(line, &values, result) {
+                Some(sentence) => Some(sentence),
+                None => {
+                    return Ok(Err(format!(
+                        "event {n}: no condition starts on line {line}"
+                    )));
+                }
+            },
             Event::Loop {
                 line, name, value, ..
             } => Some(format!("line {line}: {name} is {}", say(&value))),
@@ -137,10 +162,11 @@ impl<'p> Narrator<'p> {
         if let Some(sentence) = sentence {
             writeln!(out, "{}{sentence}", "  ".repeat(self.depth))?;
         }
+        // An enter opens a level for the callee's sentences, after its own is written.
         if enters {
             self.depth += 1;
         }
-        Ok(Ok(()))
+        Ok(Ok(Narrated::Event))
     }
 
     /// The sentence for a `check` event on `line`, or none when no condition starts there.
@@ -179,7 +205,8 @@ fn set_sentence(
     let value = say(to);
     let target = match (item, field) {
         (None, None) if !had_old => return Some(format!("line {line}: {name} is {value}")),
-        (None, _) => name.to_string(),
+        (None, None) => name.to_string(),
+        (None, Some(f)) => format!("{f} of {name}"),
         (Some(n), None) if !had_old => {
             let s = if n == 1 { "" } else { "s" };
             return Some(format!(
@@ -188,10 +215,6 @@ fn set_sentence(
         }
         (Some(n), None) => format!("item {n} of {name}"),
         (Some(n), Some(f)) => format!("{f} of item {n} of {name}"),
-    };
-    let target = match (item, field) {
-        (None, Some(f)) => format!("{f} of {target}"),
-        _ => target,
     };
     Some(format!("line {line}: {target} becomes {value}"))
 }
@@ -334,6 +357,54 @@ mod tests {
              line 4: cleared expenses\n"
         );
         assert_eq!(err, "");
+    }
+
+    const FAIL: &str =
+        r#"{"line":6,"event":"fail","failure":1,"message":"dividing by zero (n is 0)"}"#;
+
+    #[test]
+    fn a_fail_and_a_show_at_depth_two_are_never_indented() {
+        let enter =
+            |f: &str| format!(r#"{{"line":3,"event":"enter","feature":"{f}","inputs":{{}}}}"#);
+        let (a, b) = (enter("a"), enter("b"));
+        let show = r#"{"line":4,"event":"show","text":"deep"}"#;
+        let (out, err) = narrate("  show 1\n", &[&a, &b, show, FAIL]);
+        assert_eq!(out, "line 3: calling a\n  line 3: calling b\ndeep\n");
+        assert_eq!(err, "line 6: failure 1: dividing by zero (n is 0)\n");
+    }
+
+    #[test]
+    fn line_reports_a_fail_and_numbers_a_bad_line() {
+        let src = Source::new("feature start\n  if 1 is 1\n    show 1\n");
+        let program = crate::parse_source(&src).unwrap();
+        let mut n = Narrator::new(&program);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let show = r#"{"line":3,"event":"show","text":"x"}"#;
+        let mut run = |l: &str| n.line(l, &mut out, &mut err).unwrap();
+        assert_eq!(run(show), Ok(Narrated::Event));
+        assert_eq!(run(FAIL), Ok(Narrated::Failed));
+        let e = run("nope").unwrap_err();
+        assert!(e.starts_with("event 3: "), "{e}");
+        assert!(!e.contains("nope"), "{e}");
+        // A check where no condition starts is a corrupt stream too.
+        let check = r#"{"line":9,"event":"check","condition":"c","values":{},"result":"yes"}"#;
+        assert_eq!(
+            run(check),
+            Err("event 4: no condition starts on line 9".to_string())
+        );
+    }
+
+    #[test]
+    fn long_text_in_an_enter_is_cut() {
+        let long = "x".repeat(70);
+        let l = format!(
+            r#"{{"line":3,"event":"enter","feature":"f","inputs":{{"t":{{"text":"{long}"}}}}}}"#
+        );
+        let (out, _) = narrate("  show 1\n", &[&l]);
+        assert_eq!(
+            out,
+            format!("line 3: calling f with t = \"{}…\"\n", "x".repeat(60))
+        );
     }
 
     #[test]
