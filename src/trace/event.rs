@@ -244,10 +244,6 @@ mod tests {
         decode_value(&parse(text).unwrap())
     }
 
-    fn num(s: &str) -> Value {
-        Value::Number(s.to_string())
-    }
-
     #[test]
     fn decodes_every_kind_of_value() {
         assert_eq!(value(r#"{"number":"7.5"}"#), Ok(num("7.5")));
@@ -291,6 +287,147 @@ mod tests {
         );
         assert_eq!(err("{}"), "a value has no type key");
         assert_eq!(err("3"), "a value must be an object");
+    }
+
+    fn num(s: &str) -> Value {
+        Value::Number(s.to_string())
+    }
+
+    #[test]
+    fn decodes_each_kind_of_event() {
+        let n = |s: &str| s.to_string();
+        let set = r#"{"line":3,"event":"set","name":"rows","item":2,"field":"n","from":{"number":"1"},"to":{"number":"2"}}"#;
+        assert_eq!(
+            decode(set),
+            Ok(Event::Set {
+                line: 3,
+                name: n("rows"),
+                item: Some(2),
+                field: Some(n("n")),
+                from: Some(num("1")),
+                to: num("2"),
+            })
+        );
+        let first = r#"{"line":1,"event":"set","name":"t","to":{"truth":"yes"}}"#;
+        assert_eq!(
+            decode(first),
+            Ok(Event::Set {
+                line: 1,
+                name: n("t"),
+                item: None,
+                field: None,
+                from: None,
+                to: Value::Truth(true)
+            })
+        );
+        let check = r#"{"line":4,"event":"check","condition":"a > 1","values":{"a":{"number":"2"}},"result":"no"}"#;
+        assert_eq!(
+            decode(check),
+            Ok(Event::Check {
+                line: 4,
+                condition: n("a > 1"),
+                values: vec![(n("a"), num("2"))],
+                result: false
+            })
+        );
+        let l = r#"{"line":5,"event":"loop","name":"p","turn":1,"value":{"number":"9"}}"#;
+        assert_eq!(
+            decode(l),
+            Ok(Event::Loop {
+                line: 5,
+                name: n("p"),
+                turn: 1,
+                value: num("9")
+            })
+        );
+        let enter = r#"{"line":6,"event":"enter","feature":"f","inputs":{}}"#;
+        assert_eq!(
+            decode(enter),
+            Ok(Event::Enter {
+                line: 6,
+                feature: n("f"),
+                inputs: vec![]
+            })
+        );
+        let leave = r#"{"line":6,"event":"leave","feature":"f","result":{"number":"1"}}"#;
+        assert_eq!(
+            decode(leave),
+            Ok(Event::Leave {
+                line: 6,
+                feature: n("f"),
+                result: Some(num("1"))
+            })
+        );
+        let bare = r#"{"line":6,"event":"leave","feature":"f"}"#;
+        assert_eq!(
+            decode(bare),
+            Ok(Event::Leave {
+                line: 6,
+                feature: n("f"),
+                result: None
+            })
+        );
+        assert_eq!(
+            decode(r#"{"line":7,"event":"show","text":"hi"}"#),
+            Ok(Event::Show {
+                line: 7,
+                text: n("hi")
+            })
+        );
+        let ask = r#"{"line":8,"event":"ask","name":"i","question":"q?","answer":"a"}"#;
+        assert_eq!(
+            decode(ask),
+            Ok(Event::Ask {
+                line: 8,
+                name: n("i"),
+                question: n("q?"),
+                answer: n("a")
+            })
+        );
+        let file =
+            r#"{"line":9,"event":"file","table":"t","file":"t.csv","action":"clear","rows":0}"#;
+        assert_eq!(
+            decode(file),
+            Ok(Event::File {
+                line: 9,
+                table: n("t"),
+                file: n("t.csv"),
+                action: FileAction::Clear,
+                rows: 0
+            })
+        );
+        let fail = r#"{"line":2,"event":"fail","failure":4,"message":"no"}"#;
+        assert_eq!(
+            decode(fail),
+            Ok(Event::Fail {
+                line: 2,
+                failure: 4,
+                message: n("no")
+            })
+        );
+    }
+
+    #[test]
+    fn a_bad_event_is_an_error_that_names_the_key() {
+        let err = |text| decode(text).unwrap_err();
+        assert_eq!(
+            err(r#"{"line":1,"event":"jump"}"#),
+            "unknown event \"jump\""
+        );
+        assert_eq!(err(r#"{"line":1,"event":"show"}"#), "missing key \"text\"");
+        assert_eq!(
+            err(r#"{"line":"1","event":"show","text":""}"#),
+            "key \"line\" must be an integer"
+        );
+        assert_eq!(
+            err(r#"{"line":1,"event":"loop","name":"p","turn":"1","value":{"number":"1"}}"#),
+            "key \"turn\" must be an integer"
+        );
+        assert_eq!(
+            err(r#"{"line":1,"event":"set","name":"p","to":{"number":"1"},"item":"x"}"#),
+            "key \"item\" must be an integer"
+        );
+        assert_eq!(err(r#"{"event":"show","text":""}"#), "missing key \"line\"");
     }
 
     #[test]
