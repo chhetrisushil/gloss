@@ -98,7 +98,32 @@ fn test_fail() -> Function {
     s.finish("test_fail", 0, 0)
 }
 
+/// `test_expect(line, source)`: fails with `line <line>: expect <source>`.
+fn test_expect() -> Function {
+    let mut s = Asm::default();
+    // Flush first (R3), so what `show` left pending is shown before anything fails.
+    s.call("flush");
+    s.push_text(super::LINE);
+    s.call("err_text");
+    s.push_arg(1);
+    s.call("err_int");
+    s.push_text(super::COLON);
+    s.call("err_text");
+    s.push_text(super::EXPECT);
+    s.call("err_text");
+    s.push_arg(2);
+    s.call("err_text");
+    s.call("test_fail");
+    s.finish("test_expect", 2, 0)
+}
+
 /// The test versions, appended after the real routines that are kept.
 pub fn routines() -> Vec<Function> {
-    vec![write_all(), fail_begin(), fail_end(), test_fail()]
+    vec![
+        write_all(),
+        fail_begin(),
+        fail_end(),
+        test_fail(),
+        test_expect(),
+    ]
 }

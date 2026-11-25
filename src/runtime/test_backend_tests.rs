@@ -122,6 +122,27 @@ fn write_all_to_other_descriptors_is_ignored() {
 }
 
 #[test]
+fn test_expect_formats_the_line() {
+    let source: &[u8] = b"name of largest_expense is \"Dinner\"";
+    let expect = call("test_expect", &[number(23), text(1)]);
+    let (out, err, status) = run_test(&[expect], &[source]);
+    let want = "fail  t\n      line 23: expect name of largest_expense is \"Dinner\"\n";
+    assert_eq!((out.as_str(), err.as_str(), status), (want, "", 1));
+}
+
+#[test]
+fn test_expect_keeps_pending_output() {
+    let show = call("out_text", &[text(1)]);
+    let expect = call("test_expect", &[number(4), text(2)]);
+    let (out, _, status) = run_test(&[show, expect], &[&[b'x'; 3000], b"a is 1"]);
+    let want = format!(
+        "      line 4: expect a is 1\n      shown:\n        {}\n",
+        "x".repeat(3000)
+    );
+    assert_eq!((out, status), (format!("fail  t\n{want}"), 1));
+}
+
+#[test]
 fn replaced_routines_keep_their_parameters() {
     let real = routines_for(Backend::Real);
     let test = routines_for(Backend::Test);

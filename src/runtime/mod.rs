@@ -90,12 +90,13 @@ const LOST: u32 = 43;
 const PASSED: u32 = 44;
 const FAILED: u32 = 45;
 const SHOWN_HEAD: u32 = 46;
+const EXPECT: u32 = 47;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 47] = [
+const TEXTS: [&[u8]; 48] = [
     b"line ",
     b": failure ",
     b": ",
@@ -143,6 +144,7 @@ const TEXTS: [&[u8]; 47] = [
     b" passed, ",
     b" failed\n",
     b"      shown:\n",
+    b"expect ",
 ];
 
 /// The bytes of the runtime text `i`.
