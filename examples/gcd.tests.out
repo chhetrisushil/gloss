@@ -1,0 +1,5 @@
+pass  gcd finds the greatest common divisor
+pass  gcd of two numbers with nothing in common is 1
+pass  lcm is the smallest number both divide
+
+3 passed, 0 failed

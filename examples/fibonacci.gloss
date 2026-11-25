@@ -12,3 +12,15 @@ feature start
     set next to a + b
     set a to b
     set b to next
+
+test "recursion gives the tenth Fibonacci number"
+  expect fib with 10 is 55
+
+test "the loop and the recursion agree for 10"
+  set a to 0
+  set b to 1
+  for each i from 1 to 10
+    set next to a + b
+    set a to b
+    set b to next
+  expect a is fib with 10

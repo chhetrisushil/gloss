@@ -16,3 +16,9 @@ feature start
       show n
       add 1 to found
   show found, " primes up to 50"
+
+test "7 is prime"
+  expect is_prime with 7
+
+test "9 is not prime"
+  expect not is_prime with 9
