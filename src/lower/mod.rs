@@ -12,6 +12,7 @@ mod table;
 mod test;
 #[cfg(test)]
 mod tests;
+mod trace;
 
 use std::collections::BTreeMap;
 
@@ -22,13 +23,14 @@ use crate::ir::{Data, Function, Global, Inst, Label, Module, Reg};
 use crate::runtime;
 use crate::source::Source;
 
-/// What a lowering is for: the program as it runs, or the test executable `gloss test`
-/// builds: line stores, the driver, pretend files and the test statements (`expect`, `input`,
-/// `shown`).
+/// What a lowering is for: the program as it runs, the test executable `gloss test` builds
+/// (line stores, the driver, pretend files and the test statements `expect`, `input`,
+/// `shown`), or the executable `gloss trace` runs (the real program with its own `_start`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
     Real,
     Test,
+    Trace,
 }
 
 /// What lowering one feature needs: the module for its texts, the routines it calls, and
@@ -73,24 +75,30 @@ impl Lowerer<'_> {
 
     /// In a test build, stores the line being lowered in the test state (see `mark_line`).
     fn store_line(&mut self) {
-        if self.mode == Mode::Test {
-            self.emit(Inst::Const(Reg::A, i64::from(self.line)));
-            self.emit(Inst::AddressOf(Reg::B, Data::Global(Global::TestState)));
-            self.emit(Inst::Store {
-                base: Reg::B,
-                offset: runtime::CURRENT_LINE as i32 * 8,
-                from: Reg::A,
-            });
+        match self.mode {
+            Mode::Test => {
+                self.emit(Inst::Const(Reg::A, i64::from(self.line)));
+                self.emit(Inst::AddressOf(Reg::B, Data::Global(Global::TestState)));
+                self.emit(Inst::Store {
+                    base: Reg::B,
+                    offset: runtime::CURRENT_LINE as i32 * 8,
+                    from: Reg::A,
+                });
+            }
+            Mode::Real | Mode::Trace => {}
         }
     }
 
     /// After a call returns, a test build takes back the line word the callee moved, keeping
     /// the result in `a` (`b` is the callee's to clobber).
     pub fn restore_line(&mut self) {
-        if self.mode == Mode::Test {
-            self.emit(Inst::Push(Reg::A));
-            self.store_line();
-            self.emit(Inst::Pop(Reg::A));
+        match self.mode {
+            Mode::Test => {
+                self.emit(Inst::Push(Reg::A));
+                self.store_line();
+                self.emit(Inst::Pop(Reg::A));
+            }
+            Mode::Real | Mode::Trace => {}
         }
     }
 
@@ -266,6 +274,15 @@ pub fn lower_tests(
     lower_program(program, types, src, Mode::Test)
 }
 
+/// Lowers a checked program for `gloss trace`: the real program, with a `_start` of its own.
+pub fn lower_trace(
+    program: &Program,
+    types: &TypeInfo,
+    src: &Source,
+) -> Result<Module, Diagnostic> {
+    lower_program(program, types, src, Mode::Trace)
+}
+
 fn lower_program(
     program: &Program,
     types: &TypeInfo,
@@ -273,29 +290,40 @@ fn lower_program(
     mode: Mode,
 ) -> Result<Module, Diagnostic> {
     let mut module = Module::default();
-    let mut called = vec!["_start".to_string()];
-    // A test build has its own `_start`, put in before the runtime's would be.
-    if mode == Mode::Test {
-        called.clear();
-    }
+    // A test or trace build has its own `_start`, put in before the runtime's would be.
+    let mut called = match mode {
+        Mode::Real => vec!["_start".to_string()],
+        Mode::Test | Mode::Trace => Vec::new(),
+    };
     let context = (src, program, types);
     for feature in program.features() {
         let f = lower_feature((&mut module, mode), context, feature, &mut called)?;
         module.functions.push(f);
     }
-    if mode == Mode::Test {
-        for (i, test) in program.tests().enumerate() {
-            let f = test::lower_test((&mut module, mode), context, i, test, &mut called)?;
-            module.functions.push(f);
+    match mode {
+        Mode::Real => {}
+        Mode::Test => {
+            for (i, test) in program.tests().enumerate() {
+                let f = test::lower_test((&mut module, mode), context, i, test, &mut called)?;
+                module.functions.push(f);
+            }
+            let driver = test::lower_driver((&mut module, mode), context, &mut called);
+            module.functions.extend(driver);
         }
-        let driver = test::lower_driver((&mut module, mode), context, &mut called);
-        module.functions.extend(driver);
+        Mode::Trace => {
+            let start = trace::lower_start((&mut module, mode), context, &mut called);
+            module.functions.push(start);
+        }
     }
-    // The runtime's `args_check` is the only caller, and a test executable takes no flags.
-    if mode == Mode::Real {
-        let list = crate::permissions::render(&crate::permissions::list(program));
-        let text = module.text(list.as_bytes());
-        module.functions.push(permissions_text(text));
+    // The runtime's `args_check` is the only caller, and a test or trace executable takes no
+    // flags.
+    match mode {
+        Mode::Real => {
+            let list = crate::permissions::render(&crate::permissions::list(program));
+            let text = module.text(list.as_bytes());
+            module.functions.push(permissions_text(text));
+        }
+        Mode::Test | Mode::Trace => {}
     }
     module
         .functions
@@ -304,6 +332,7 @@ fn lower_program(
     let backend = match mode {
         Mode::Real => runtime::Backend::Real,
         Mode::Test => runtime::Backend::Test,
+        Mode::Trace => runtime::Backend::Trace,
     };
     runtime::add_reachable_for(&mut module, &called, backend);
     Ok(module)
