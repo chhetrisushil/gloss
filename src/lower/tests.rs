@@ -571,10 +571,6 @@ fn test_mode_refuses_what_is_not_built_yet() {
         format!("line 10: input \"x\". {stmt}")
     );
     assert_eq!(
-        refusal("expect 1 is 1"),
-        format!("line 10: expect 1 is 1. {stmt}")
-    );
-    assert_eq!(
         refusal("show shown"),
         "line 10: show shown. this compiler cannot build this expression yet."
     );
@@ -610,7 +606,6 @@ fn test_mode_refuses_what_is_not_built_yet() {
             "ask \"q\" into a",
         ),
         ("if 1 is 1\n    input \"x\"", "input \"x\""),
-        ("if 1 is 1\n    expect 1 is 1", "expect 1 is 1"),
     ] {
         assert_eq!(refusal(body), format!("line 11: {shown}. {stmt}"), "{body}");
     }
@@ -964,4 +959,105 @@ fn the_test_start_resets_sigchld_before_anything_else() {
     let want = "enter 1\n  system default_child_signal\n  call heap_init\n  call stack_init\n  \
                 call tables_init\n  call test_main\n";
     assert!(start.contains(want), "{start}");
+}
+
+const EXPECT_N: &str = "feature start\n  show 1\n\ntest \"t\"\n  set n to 3\n  expect n is 3\n";
+
+#[test]
+fn expect_lowers_a_condition_and_a_failure_block() {
+    let m = lowered_tests(EXPECT_N).unwrap();
+    let t = function_text(function(&m, "t_0"));
+    // The condition's `jump` goes to the label that the failure block marks.
+    let jump = t
+        .split("jump if eq L")
+        .nth(1)
+        .unwrap_or_else(|| panic!("{t}"));
+    let label: String = jump.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let block = t
+        .split(&format!("L{label}:\n"))
+        .nth(1)
+        .unwrap_or_else(|| panic!("{t}"));
+    let k = m.texts.iter().position(|x| x == b"n is 3").unwrap();
+    let want =
+        format!("  a = 6\n  push a\n  a = address of text {k}\n  push a\n  call test_expect\n");
+    assert_eq!(block, want, "{t}");
+    assert!(m.texts.iter().any(|x| x == b"n is 3"));
+    assert!(m.functions.iter().any(|f| f.name == "test_expect"));
+}
+
+#[test]
+fn expect_with_a_formatted_source() {
+    let text =
+        "feature start\n  show 1\n\ntest \"t\"\n  set a to 2\n  set b to 3\n  expect a*b is 6\n";
+    let m = lowered_tests(text).unwrap();
+    assert!(m.texts.iter().any(|x| x == b"a * b is 6"));
+    assert!(!m.texts.iter().any(|x| x == b"a*b is 6"));
+    // Invisible characters are spelled out.
+    let text =
+        "feature start\n  show 1\n\ntest \"t\"\n  set n to 3\n  expect \"a\u{202E}b\" is \"x\"\n";
+    let m = lowered_tests(text).unwrap();
+    assert!(m.texts.iter().any(|x| x == b"\"a\\u{202E}b\" is \"x\""));
+}
+
+#[test]
+fn a_passing_and_a_failing_expect_report_through_the_driver() {
+    let text = "feature start\n  show 1\n\ntest \"good\"\n  set n to 3\n  expect n is 3\n\n\
+                test \"bad\"\n  set n to 4\n  expect n is 3\n";
+    let (out, status) = run_tests(text);
+    let want = "pass  good\nfail  bad\n      line 10: expect n is 3\n\n1 passed, 1 failed\n";
+    assert_eq!((out.as_str(), status), (want, 1));
+}
+
+const START: &str = "feature start\n  show 1\n\n";
+
+#[test]
+fn expect_keeps_the_parentheses_of_its_source() {
+    let text = format!("{START}test \"t\"\n  set a to 2\n  set b to 4\n  expect (a + b) is 6\n");
+    let m = lowered_tests(&text).unwrap();
+    assert!(m.texts.iter().any(|x| x == b"(a + b) is 6"));
+    let bad = text.replace("is 6", "is 7");
+    let (out, status) = run_tests(&bad);
+    assert_eq!(
+        (out.as_str(), status),
+        (
+            "fail  t\n      line 7: expect (a + b) is 7\n\n0 passed, 1 failed\n",
+            1
+        )
+    );
+}
+
+#[test]
+fn expect_short_circuits_and_and_or() {
+    // `1 / n` would fail with failure 1 if it ran: it must not when the left side decides.
+    let body = |cond: &str| format!("{START}test \"t\"\n  set n to 0\n  expect {cond}\n");
+    let (out, status) = run_tests(&body("n is 1 or n is 0 or 1 / n is 1"));
+    assert_eq!(
+        (out.as_str(), status),
+        ("pass  t\n\n1 passed, 0 failed\n", 0)
+    );
+    let (out, status) = run_tests(&body("n is 1 and 1 / n is 1"));
+    let want = "fail  t\n      line 6: expect n is 1 and 1 / n is 1\n\n0 passed, 1 failed\n";
+    assert_eq!((out.as_str(), status), (want, 1));
+}
+
+#[test]
+fn a_failure_inside_an_expect_condition_is_that_failure_not_an_expect_failure() {
+    let text = format!("{START}test \"t\"\n  set n to 0\n  expect 1 / n is 1\n");
+    let (out, status) = run_tests(&text);
+    let want =
+        "fail  t\n      line 6: failure 1: dividing by zero (n is 0)\n\n0 passed, 1 failed\n";
+    assert_eq!((out.as_str(), status), (want, 1));
+}
+
+#[test]
+fn an_expect_condition_is_evaluated_once() {
+    let text = "feature noisy\n  show \"hit\"\n  give yes\n\nfeature start\n  show 1\n\n\
+                test \"t\"\n  expect not (noisy)\n";
+    let (out, status) = run_tests(text);
+    assert_eq!(out.matches("hit").count(), 1, "{out}");
+    assert_eq!(status, 1);
+    // A passing condition is also evaluated once (its output is not shown, so count calls).
+    let passing = text.replace("not (noisy)", "(noisy)");
+    let t = function_text(function(&lowered_tests(&passing).unwrap(), "t_0"));
+    assert_eq!(t.matches("call f_noisy").count(), 1, "{t}");
 }

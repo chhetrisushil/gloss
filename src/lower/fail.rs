@@ -16,6 +16,9 @@ pub(crate) struct Fail {
     /// For failure 2 on a position: the slots holding the position and the list. The message
     /// is `parts[0]`, the position, ` in `, `parts[1]`, `; it has `, the count and `item(s)`.
     item: Option<(u32, u32)>,
+    /// An `expect` that did not hold: its block pushes the line and `parts[1]` (the source)
+    /// and calls `test_expect`, which writes the message and ends the test.
+    expect: bool,
 }
 
 /// `text` with each invisible character written `\u{XXXX}`, the same set and form as the
@@ -52,6 +55,7 @@ impl Lowerer<'_> {
             value,
             shown: None,
             item: None,
+            expect: false,
         });
         label
     }
@@ -64,6 +68,13 @@ impl Lowerer<'_> {
     /// Failure 1, for the divisor whose source is `source`.
     pub fn divide_by_zero(&mut self, source: &str) -> Label {
         self.fail_label(1, "dividing by zero (", source, " is 0)")
+    }
+
+    /// The failure of `expect <source>` at the current line, which is no failure number.
+    pub fn expect_failed(&mut self, source: &str) -> Label {
+        let label = self.fail_label(0, "", source, "");
+        self.fails.last_mut().expect("just added").expect = true;
+        label
     }
 
     /// Failure 10, for a call of `feature` that ran out of stack.
@@ -122,6 +133,13 @@ impl Lowerer<'_> {
     pub fn emit_fails(&mut self) {
         for f in std::mem::take(&mut self.fails) {
             self.emit(Inst::Mark(f.label));
+            if f.expect {
+                self.emit(Inst::Const(Reg::A, f.line as i64));
+                self.emit(Inst::Push(Reg::A));
+                self.push_text(f.parts[1].as_bytes());
+                self.call("test_expect");
+                continue;
+            }
             self.emit(Inst::Const(Reg::A, f.line as i64));
             self.emit(Inst::Push(Reg::A));
             self.emit(Inst::Const(Reg::A, f.code));
