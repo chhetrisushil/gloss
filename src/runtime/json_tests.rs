@@ -122,9 +122,9 @@ fn json_int_writes_a_whole_number_in_decimal() {
     assert_eq!(int(-10), "-10");
 }
 
-/// The descriptors of an `Expense` (a text `name`, a number `amount`, a truth `paid`), and the
-/// index of the record's.
-fn types() -> (Module, u32) {
+/// The descriptors of an `Expense` (a text `name`, a number `amount`, a truth `paid`) and of
+/// lists of numbers and of expenses: `[expense, numbers, expenses]`.
+fn types() -> (Module, [u32; 3]) {
     let mut d = Module::default();
     let (number, text, truth) = (
         d.desc(Desc::Number),
@@ -140,7 +140,8 @@ fn types() -> (Module, u32) {
         name: "Expense".into(),
         fields,
     });
-    (d, expense)
+    let (numbers, expenses) = (d.desc(Desc::List(number)), d.desc(Desc::List(expense)));
+    (d, [expense, numbers, expenses])
 }
 
 /// What `json_value` writes for the value in slot `value` of `h`, of the type `desc`; the
@@ -151,11 +152,40 @@ fn json_of(h: Heap, value: u32, desc: u32, d: Module) -> String {
 }
 
 const TEA: &str = r#"{"record":"Expense","fields":{"name":{"text":"tea"},"amount":{"number":"2.5"},"paid":{"truth":"no"}}}"#;
+const RENT: &str = r#"{"record":"Expense","fields":{"name":{"text":"rent"},"amount":{"number":"900"},"paid":{"truth":"yes"}}}"#;
 
 #[test]
 fn a_record_has_its_fields_in_declaration_order() {
-    let (d, expense) = types();
+    let (d, [expense, ..]) = types();
     let mut h = Heap::default();
     let tea = h.block(&[W::T(0), W::N(25_000), W::N(0)]);
     assert_eq!(json_of(h, tea, expense, d), TEA);
+}
+
+#[test]
+fn a_list_of_numbers_has_a_number_for_each_item() {
+    let (d, [_, numbers, _]) = types();
+    let mut h = Heap::default();
+    let list = h.list(&[W::N(10_000), W::N(20_000)]);
+    let want = r#"{"list":[{"number":"1"},{"number":"2"}]}"#;
+    assert_eq!(json_of(h, list, numbers, d), want);
+}
+
+#[test]
+fn an_empty_list_is_an_empty_array() {
+    let (d, [_, numbers, _]) = types();
+    let mut h = Heap::default();
+    let list = h.list(&[]);
+    assert_eq!(json_of(h, list, numbers, d), r#"{"list":[]}"#);
+}
+
+#[test]
+fn a_list_of_records_has_a_record_for_each_item() {
+    let (d, [.., expenses]) = types();
+    let mut h = Heap::default();
+    let tea = h.block(&[W::T(0), W::N(25_000), W::N(0)]);
+    let rent = h.block(&[W::T(1), W::N(9_000_000), W::N(1)]);
+    let list = h.list(&[W::S(tea), W::S(rent)]);
+    let want = format!(r#"{{"list":[{TEA},{RENT}]}}"#);
+    assert_eq!(json_of(h, list, expenses, d), want);
 }
