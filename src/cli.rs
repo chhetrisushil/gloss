@@ -57,8 +57,7 @@ pub fn run(
         return 3;
     };
     let milestone = match command {
-        "build" | "format" => 0,
-        "test" => 4,
+        "build" | "format" | "test" => 0,
         "trace" => 5,
         "explain" => 6,
         "flowchart" => 7,
@@ -89,11 +88,42 @@ pub fn run(
             return 3;
         }
     };
-    if command == "build" {
-        let options = BuildOptions { allow };
-        build(Path::new(file), &name, &text, &options, prompt, out, err)
-    } else {
-        format(file, &name, &text, out, err)
+    match command {
+        "build" => {
+            let options = BuildOptions { allow };
+            build(Path::new(file), &name, &text, &options, prompt, out, err)
+        }
+        "test" => test(&name, &text, out, err),
+        _ => format(file, &name, &text, out, err),
+    }
+}
+
+/// `gloss test`: check, then build and run the program's tests from a private folder.
+/// Nothing is written beside the source, and `.allow` is never read.
+fn test(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let (mut diagnostics, checked) = crate::check_program(text);
+    crate::diag::sort(&mut diagnostics);
+    for d in &diagnostics {
+        let _ = writeln!(err, "{}", d.render());
+    }
+    let Some(checked) = checked.filter(|_| !diagnostics.iter().any(|d| d.is_error())) else {
+        return 3;
+    };
+    if checked.test_count() == 0 {
+        let _ = writeln!(out, "No tests in {name}");
+        return 0;
+    }
+    // After the errors above, so a Mac user still sees them.
+    if !crate::testrun::host_runs_tests() {
+        let _ = writeln!(err, "gloss test runs tests on Linux only");
+        return 3;
+    }
+    match checked.test_executable() {
+        Ok(bytes) => crate::testrun::run_test_executable(&bytes, out, err),
+        Err(d) => {
+            let _ = writeln!(err, "{}", d.render());
+            3
+        }
     }
 }
 

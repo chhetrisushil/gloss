@@ -8,6 +8,8 @@ use run_support::running_as_root;
 fn gloss(args: &[&str]) -> (i32, String, String) {
     let o = Command::new(env!("CARGO_BIN_EXE_gloss"))
         .args(args)
+        // The test command makes its private folder under the temporary folder.
+        .env("TMPDIR", env!("CARGO_TARGET_TMPDIR"))
         .output()
         .unwrap();
     let text = |b| String::from_utf8(b).unwrap();
@@ -98,12 +100,12 @@ fn a_table_program_builds() {
 fn usage_and_unbuilt_commands_exit_3() {
     assert_eq!(gloss(&[]).0, 3);
     assert_eq!(gloss(&["frobnicate", "x.gloss"]).0, 3);
-    let (code, _, err) = gloss(&["test", "x.gloss"]);
+    let (code, _, err) = gloss(&["trace", "x.gloss"]);
     assert_eq!(
         (code, err.as_str()),
         (
             3,
-            "gloss test is not built yet; it arrives in milestone 4\n"
+            "gloss trace is not built yet; it arrives in milestone 5\n"
         )
     );
     let (code, _, err) = gloss(&["build", "/nonexistent/x.gloss"]);
@@ -485,4 +487,98 @@ fn a_program_without_tables_prints_no_list() {
         (code, err.as_str()),
         (3, "--allow x.csv: this program has no table in x.csv.\n")
     );
+}
+
+#[test]
+fn test_reports_errors_with_status_3() {
+    // Errors come before the platform refusal, so a Mac user sees them, not the Linux message.
+    let p = temp_file(
+        "testerr",
+        "feature start\n  show nope\n\ntest \"t\"\n  expect 1 is 1\n",
+    );
+    let (code, out, err) = gloss(&["test", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert!(err.starts_with("line 2: show nope"), "{err}");
+    assert!(!err.contains("Linux only"), "{err}");
+}
+
+#[test]
+fn test_with_no_tests_says_so() {
+    let p = temp_file("notests", "feature start\n  show 1\n");
+    let dir = p.parent().unwrap().to_path_buf();
+    let (code, out, err) = gloss(&["test", p.to_str().unwrap()]);
+    assert_eq!(
+        (code, out.as_str(), err.as_str()),
+        (0, "No tests in notests.gloss\n", "")
+    );
+    assert_eq!(std::fs::read_dir(dir).unwrap().count(), 1);
+}
+
+/// Passes before `test` is built (the parser already refuses `--allow` on it); kept as a
+/// regression guard so that stays true.
+#[test]
+fn test_refuses_allow() {
+    let p = temp_file("testallow", "feature start\n  show 1\n");
+    let (code, out, err) = gloss(&["test", p.to_str().unwrap(), "--allow", "a.csv"]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert!(err.starts_with("usage: gloss"), "{err}");
+}
+
+#[test]
+fn test_never_touches_allow_or_beside_the_source() {
+    let text = "record Row\n  name as text\n\ntable rows of Row in \"rows.csv\"\n\nfeature start\n  show \"x\"\n";
+    let p = temp_file("testkeep", text);
+    let allow = p.with_extension("allow");
+    std::fs::write(&allow, "note keep me\n").unwrap();
+    let listing = |d: &std::path::Path| {
+        let mut names: Vec<_> = std::fs::read_dir(d)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        names.sort();
+        names
+    };
+    let before = listing(p.parent().unwrap());
+    let (code, out, _) = gloss(&["test", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str()), (0, "No tests in testkeep.gloss\n"));
+    assert_eq!(listing(p.parent().unwrap()), before);
+    assert_eq!(std::fs::read(&allow).unwrap(), b"note keep me\n");
+}
+
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+#[test]
+fn test_refuses_off_linux() {
+    let p = temp_file(
+        "offlinux",
+        "feature start\n  show 1\n\ntest \"t\"\n  expect 1 is 1\n",
+    );
+    let (code, out, err) = gloss(&["test", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert_eq!(err, "gloss test runs tests on Linux only\n");
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn a_passing_program_exits_0() {
+    let p = temp_file(
+        "testpass",
+        "feature start\n  show 1\n\ntest \"t\"\n  expect 1 is 1\n",
+    );
+    let (code, out, err) = gloss(&["test", p.to_str().unwrap()]);
+    assert_eq!(
+        (code, out.as_str(), err.as_str()),
+        (0, "pass  t\n\n1 passed, 0 failed\n", "")
+    );
+    assert_eq!(std::fs::read_dir(p.parent().unwrap()).unwrap().count(), 1);
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn a_failing_program_exits_1() {
+    let text = "feature start\n  show 1\n\ntest \"t\"\n  expect 1 is 2\n";
+    let p = temp_file("testfail", text);
+    let (code, out, _) = gloss(&["test", p.to_str().unwrap()]);
+    assert_eq!(code, 1);
+    assert!(out.starts_with("fail  t\n"), "{out}");
+    assert!(out.ends_with("0 passed, 1 failed\n"), "{out}");
 }
