@@ -332,7 +332,10 @@ fn a_line_that_is_not_text_is_invalid_data_naming_its_number() {
         .feed(b"a\n\xff\n", &mut |_| Ok(()))
         .unwrap_err();
     assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
-    assert!(e.to_string().contains("line 2"), "{e}");
+    assert_eq!(
+        e.to_string(),
+        "the traced run wrote an event gloss cannot read (event 2: it is not text)"
+    );
 }
 
 #[test]

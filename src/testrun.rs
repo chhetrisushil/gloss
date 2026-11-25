@@ -85,7 +85,7 @@ impl Drop for PrivateDir {
 /// Writes `executable` into a private folder (mode 0700), runs it with standard input closed,
 /// streams its output as it arrives, and gives the exit status for `gloss test`.
 pub fn run_test_executable(executable: &[u8], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let (dir, path) = match write_executable(executable, "tests") {
+    let (dir, path) = match write_executable(executable, "tests", false) {
         Ok(made) => made,
         Err((what, e)) => {
             let _ = writeln!(err, "{what}: {e}");
@@ -97,13 +97,25 @@ pub fn run_test_executable(executable: &[u8], out: &mut dyn Write, err: &mut dyn
     status
 }
 
-/// Puts `executable` under `name` in a new private folder; on failure says which step failed.
+/// Puts `executable` under `name` in a new private folder; on failure says which step failed,
+/// worded for a test run or (`traced`) a traced run.
 fn write_executable(
     executable: &[u8],
     name: &str,
+    traced: bool,
 ) -> Result<(PrivateDir, PathBuf), (&'static str, std::io::Error)> {
-    let dir =
-        PrivateDir::new().map_err(|e| ("cannot make a private folder for the test run", e))?;
+    let (folder, file) = if traced {
+        (
+            "cannot make a private folder for the traced run",
+            "cannot write the traced executable",
+        )
+    } else {
+        (
+            "cannot make a private folder for the test run",
+            "cannot write the test executable",
+        )
+    };
+    let dir = PrivateDir::new().map_err(|e| (folder, e))?;
     let path = dir.path().join(name);
     std::fs::OpenOptions::new()
         .write(true)
@@ -111,7 +123,7 @@ fn write_executable(
         .mode(0o700)
         .open(&path)
         .and_then(|mut f| f.write_all(executable))
-        .map_err(|e| ("cannot write the test executable", e))?;
+        .map_err(|e| (file, e))?;
     Ok((dir, path))
 }
 
@@ -351,7 +363,8 @@ struct LineSplitter {
 impl LineSplitter {
     /// Hands each line the chunk completes to `on_line`, without its newline. Only the new
     /// bytes are scanned. A line that is not UTF-8 is an `InvalidData` error naming its number:
-    /// events are always text, so such bytes mean the stream is corrupt.
+    /// events are always text, so such bytes mean the stream is corrupt, and the error says it
+    /// as an unreadable event (the only reader of this splitter is the traced run).
     fn feed(
         &mut self,
         chunk: &[u8],
@@ -368,7 +381,9 @@ impl LineSplitter {
                 let n = self.lines;
                 std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    format!("line {n} of the program's output is not text"),
+                    format!(
+                        "the traced run wrote an event gloss cannot read (event {n}: it is not text)"
+                    ),
                 )
             })?;
             on_line(text)?;
@@ -399,7 +414,7 @@ pub fn run_traced(
     on_line: &mut dyn FnMut(&str) -> std::io::Result<()>,
     err: &mut dyn Write,
 ) -> std::io::Result<TraceEnd> {
-    let (dir, path) = write_executable(executable, "traced")
+    let (dir, path) = write_executable(executable, "traced", true)
         .map_err(|(what, e)| std::io::Error::new(e.kind(), format!("{what}: {e}")))?;
     let end = run_traced_with(&path, on_line, err, &mut spawn_inheriting);
     drop(dir);
