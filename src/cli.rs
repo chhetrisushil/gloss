@@ -174,12 +174,8 @@ fn build(
         Ok(checked) => checked,
         Err(status) => return status,
     };
-    let bytes = match checked.executable() {
-        Ok(bytes) => bytes,
-        Err(d) => {
-            let _ = writeln!(err, "{}", d.render());
-            return 3;
-        }
+    let Some(bytes) = rendered_or_none(checked.executable(), err) else {
+        return 3;
     };
     let executable = path.with_extension("");
     if let Err(e) = write_atomically(&executable, &bytes, Some(0o755)) {
@@ -188,6 +184,15 @@ fn build(
     }
     let _ = writeln!(out, "Built {}", name.strip_suffix(".gloss").unwrap_or(name));
     0
+}
+
+/// The bytes of a built executable, or `None` after printing why it could not be built.
+fn rendered_or_none(built: Result<Vec<u8>, Diagnostic>, err: &mut dyn Write) -> Option<Vec<u8>> {
+    built
+        .inspect_err(|d| {
+            let _ = writeln!(err, "{}", d.render());
+        })
+        .ok()
 }
 
 /// Lets the narrator and the runner both write to the one error stream.
@@ -205,6 +210,72 @@ impl Write for Shared<'_, '_> {
 /// Whether `gloss trace` can run programs on this host (the same rule as `gloss test`).
 fn host_traces(os: &str, arch: &str) -> bool {
     crate::testrun::host_can_run(os, arch)
+}
+
+/// What the event lines showed so far.
+struct TraceState {
+    /// The trace file's name, for its write errors.
+    label: String,
+    /// A `fail` event was seen.
+    failed: bool,
+    /// Why a line could not be read (`event N: <why>`); the run was stopped for it.
+    unreadable: Option<String>,
+}
+
+/// Handles one event line: writes it and its newline to the trace file (a bad line too, so the
+/// file is the program's output byte for byte), then narrates it. An error stops the run: a
+/// write failure carries its message (`<name>.trace cannot be written: ...`), an unreadable
+/// event is recorded in `state` and ends the run with a plain error.
+fn handle_line(
+    line: &str,
+    file: &mut dyn Write,
+    narrator: &mut crate::trace::narrate::Narrator,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+    state: &mut TraceState,
+) -> std::io::Result<()> {
+    let written = file
+        .write_all(line.as_bytes())
+        .and_then(|()| file.write_all(b"\n"));
+    written.map_err(|e| {
+        std::io::Error::new(e.kind(), format!("{} cannot be written: {e}", state.label))
+    })?;
+    let narrated = narrator.line(line, out, err).map_err(|e| {
+        std::io::Error::new(e.kind(), format!("cannot write the trace output: {e}"))
+    })?;
+    match narrated {
+        Ok(crate::trace::narrate::Narrated::Failed) => state.failed = true,
+        Ok(_) => {}
+        Err(why) => {
+            state.unreadable = Some(why);
+            return Err(std::io::Error::other("unreadable event"));
+        }
+    }
+    Ok(())
+}
+
+/// The status and the message for the end of a traced run. An unreadable event wins (3), then
+/// a run error (3). A finished run is 0, or 2 when a `fail` event was seen; any other end is
+/// 2 with the status in the message.
+fn trace_outcome(
+    ended: std::io::Result<crate::testrun::TraceEnd>,
+    failed: bool,
+    unreadable: Option<String>,
+) -> (i32, Option<String>) {
+    use crate::testrun::TraceEnd;
+    if let Some(why) = unreadable {
+        let message = format!("the traced run wrote an event gloss cannot read ({why})");
+        return (3, Some(message));
+    }
+    match ended {
+        Err(e) => (3, Some(e.to_string())),
+        Ok(TraceEnd::Exited(0)) if !failed => (0, None),
+        Ok(TraceEnd::Exited(0 | 2)) if failed => (2, None),
+        Ok(TraceEnd::Exited(n) | TraceEnd::Unfinished(n)) => {
+            let message = format!("the traced run ended without finishing (status {n})");
+            (2, Some(message))
+        }
+    }
 }
 
 /// `gloss trace`: the steps of `build`, then run the traced executable, write each event line
@@ -228,65 +299,39 @@ fn trace(
         let _ = writeln!(err, "gloss trace runs programs on Linux only");
         return 3;
     }
-    let bytes = match checked.trace_executable() {
-        Ok(bytes) => bytes,
-        Err(d) => {
-            let _ = writeln!(err, "{}", d.render());
-            return 3;
-        }
+    let Some(bytes) = rendered_or_none(checked.trace_executable(), err) else {
+        return 3;
     };
     let trace_path = path.with_extension("trace");
-    let mut file = match std::fs::File::create(&trace_path) {
-        Ok(file) => file,
-        Err(_) => {
-            let label = trace_path.file_name().map_or_else(
-                || trace_path.display().to_string(),
-                |n| n.to_string_lossy().into(),
-            );
-            let _ = writeln!(err, "{label} cannot be written");
-            return 3;
-        }
+    let label = trace_path.file_name().map_or_else(
+        || trace_path.display().to_string(),
+        |n| n.to_string_lossy().into(),
+    );
+    let Ok(mut file) = std::fs::File::create(&trace_path) else {
+        let _ = writeln!(err, "{label} cannot be written");
+        return 3;
     };
-    let mut narrator = crate::trace::narrate::Narrator::new(checked.program());
-    let (mut failed, mut unreadable) = (false, None);
+    let mut state = TraceState {
+        label,
+        failed: false,
+        unreadable: None,
+    };
+    // The narrator borrows `checked`'s program, so it lives only inside this block.
     let ended = {
+        let mut narrator = crate::trace::narrate::Narrator::new(checked.program());
         let borrowed: &mut dyn Write = &mut *err;
         let shared = std::cell::RefCell::new(borrowed);
         let mut on_line = |line: &str| {
-            file.write_all(line.as_bytes())?;
-            file.write_all(b"\n")?;
-            match narrator.line(line, out, &mut Shared(&shared))? {
-                Ok(crate::trace::narrate::Narrated::Failed) => failed = true,
-                Ok(_) => {}
-                Err(why) => {
-                    unreadable = Some(why);
-                    return Err(std::io::Error::other("unreadable event"));
-                }
-            }
-            Ok(())
+            let mut err = Shared(&shared);
+            handle_line(line, &mut file, &mut narrator, out, &mut err, &mut state)
         };
         crate::testrun::run_traced(&bytes, &mut on_line, &mut Shared(&shared))
     };
-    if let Some(why) = unreadable {
-        let _ = writeln!(
-            err,
-            "the traced run wrote an event gloss cannot read ({why})"
-        );
-        return 3;
+    let (status, message) = trace_outcome(ended, state.failed, state.unreadable);
+    if let Some(message) = message {
+        let _ = writeln!(err, "{message}");
     }
-    drop(narrator);
-    match ended {
-        Ok(crate::testrun::TraceEnd::Exited(0)) if !failed => 0,
-        Ok(crate::testrun::TraceEnd::Exited(_)) => 2,
-        Ok(crate::testrun::TraceEnd::Unfinished(n)) => {
-            let _ = writeln!(err, "the traced run ended without finishing (status {n})");
-            2
-        }
-        Err(e) => {
-            let _ = writeln!(err, "{e}");
-            3
-        }
-    }
+    status
 }
 
 /// A table file named like the program's executable (the source name without `.gloss`)
@@ -494,5 +539,44 @@ mod tests {
         assert!(host_traces("linux", "x86_64"));
         assert!(!host_traces("macos", "aarch64"));
         assert!(!host_traces("linux", "aarch64"));
+    }
+
+    #[test]
+    fn the_end_of_a_traced_run_gives_a_status_and_a_message() {
+        use crate::testrun::TraceEnd::{Exited, Unfinished};
+        let unfinished = |n| {
+            Some(format!(
+                "the traced run ended without finishing (status {n})"
+            ))
+        };
+        assert_eq!(trace_outcome(Ok(Exited(0)), false, None), (0, None));
+        assert_eq!(trace_outcome(Ok(Exited(0)), true, None), (2, None));
+        assert_eq!(trace_outcome(Ok(Exited(2)), true, None), (2, None));
+        assert_eq!(
+            trace_outcome(Ok(Exited(2)), false, None),
+            (2, unfinished(2))
+        );
+        assert_eq!(
+            trace_outcome(Ok(Unfinished(139)), false, None),
+            (2, unfinished(139))
+        );
+        assert_eq!(
+            trace_outcome(Ok(Unfinished(0)), true, None),
+            (2, unfinished(0))
+        );
+        let e = || std::io::Error::other("gone");
+        assert_eq!(
+            trace_outcome(Err(e()), false, None),
+            (3, Some("gone".into()))
+        );
+        let why = Some("event 3: not an event".to_string());
+        let read = Some(
+            "the traced run wrote an event gloss cannot read (event 3: not an event)".to_string(),
+        );
+        assert_eq!(
+            trace_outcome(Err(e()), false, why.clone()),
+            (3, read.clone())
+        );
+        assert_eq!(trace_outcome(Ok(Unfinished(137)), true, why), (3, read));
     }
 }
