@@ -1,8 +1,9 @@
 feature deep
   needs n as number
+  set r to deep with n + 1
   if n is -1
     give 0
-  give (deep with n + 1) + 1
+  give r + 1
 
 feature start
   show "going down"

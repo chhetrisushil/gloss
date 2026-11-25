@@ -1,0 +1,6 @@
+{"line":2,"event":"set","name":"n","to":{"number":"3"}}
+{"line":3,"event":"set","name":"ready","to":{"truth":"yes"}}
+{"line":4,"event":"check","condition":"n is greater than 5","values":{"n":{"number":"3"}},"result":"no"}
+{"line":7,"event":"show","text":"small"}
+{"line":8,"event":"check","condition":"ready","values":{"ready":{"truth":"yes"}},"result":"yes"}
+{"line":9,"event":"show","text":"go"}

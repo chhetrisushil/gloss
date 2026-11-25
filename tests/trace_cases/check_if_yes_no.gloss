@@ -1,0 +1,9 @@
+feature start
+  set n to 3
+  set ready to yes
+  if n is greater than 5
+    show "big"
+  otherwise
+    show "small"
+  if ready
+    show "go"
