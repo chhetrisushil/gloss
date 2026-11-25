@@ -57,8 +57,7 @@ pub fn run(
         return 3;
     };
     let milestone = match command {
-        "build" | "format" | "test" => 0,
-        "trace" => 5,
+        "build" | "format" | "test" | "trace" => 0,
         "explain" => 6,
         "flowchart" => 7,
         _ => {
@@ -94,6 +93,10 @@ pub fn run(
             build(Path::new(file), &name, &text, &options, prompt, out, err)
         }
         "test" => test(&name, &text, out, err),
+        "trace" => {
+            let options = BuildOptions { allow };
+            trace(Path::new(file), &name, &text, &options, prompt, out, err)
+        }
         _ => format(file, &name, &text, out, err),
     }
 }
@@ -185,6 +188,105 @@ fn build(
     }
     let _ = writeln!(out, "Built {}", name.strip_suffix(".gloss").unwrap_or(name));
     0
+}
+
+/// Lets the narrator and the runner both write to the one error stream.
+struct Shared<'a, 'b>(&'a std::cell::RefCell<&'b mut dyn Write>);
+
+impl Write for Shared<'_, '_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.borrow_mut().write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.borrow_mut().flush()
+    }
+}
+
+/// Whether `gloss trace` can run programs on this host (the same rule as `gloss test`).
+fn host_traces(os: &str, arch: &str) -> bool {
+    crate::testrun::host_can_run(os, arch)
+}
+
+/// `gloss trace`: the steps of `build`, then run the traced executable, write each event line
+/// to the `.trace` file beside the source and narrate it. 0 if the program ran to its end, 2 if
+/// it failed or did not finish, 3 for a problem of gloss's own, 4 for no approval.
+fn trace(
+    path: &Path,
+    name: &str,
+    text: &str,
+    options: &BuildOptions,
+    prompt: &mut dyn Prompt,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> i32 {
+    let checked = match prepare(path, name, text, options, prompt, out, err) {
+        Ok(checked) => checked,
+        Err(status) => return status,
+    };
+    // After the errors above, so a Mac user still sees them.
+    if !host_traces(std::env::consts::OS, std::env::consts::ARCH) {
+        let _ = writeln!(err, "gloss trace runs programs on Linux only");
+        return 3;
+    }
+    let bytes = match checked.trace_executable() {
+        Ok(bytes) => bytes,
+        Err(d) => {
+            let _ = writeln!(err, "{}", d.render());
+            return 3;
+        }
+    };
+    let trace_path = path.with_extension("trace");
+    let mut file = match std::fs::File::create(&trace_path) {
+        Ok(file) => file,
+        Err(_) => {
+            let label = trace_path.file_name().map_or_else(
+                || trace_path.display().to_string(),
+                |n| n.to_string_lossy().into(),
+            );
+            let _ = writeln!(err, "{label} cannot be written");
+            return 3;
+        }
+    };
+    let mut narrator = crate::trace::narrate::Narrator::new(checked.program());
+    let (mut failed, mut unreadable) = (false, None);
+    let ended = {
+        let borrowed: &mut dyn Write = &mut *err;
+        let shared = std::cell::RefCell::new(borrowed);
+        let mut on_line = |line: &str| {
+            file.write_all(line.as_bytes())?;
+            file.write_all(b"\n")?;
+            match narrator.line(line, out, &mut Shared(&shared))? {
+                Ok(crate::trace::narrate::Narrated::Failed) => failed = true,
+                Ok(_) => {}
+                Err(why) => {
+                    unreadable = Some(why);
+                    return Err(std::io::Error::other("unreadable event"));
+                }
+            }
+            Ok(())
+        };
+        crate::testrun::run_traced(&bytes, &mut on_line, &mut Shared(&shared))
+    };
+    if let Some(why) = unreadable {
+        let _ = writeln!(
+            err,
+            "the traced run wrote an event gloss cannot read ({why})"
+        );
+        return 3;
+    }
+    drop(narrator);
+    match ended {
+        Ok(crate::testrun::TraceEnd::Exited(0)) if !failed => 0,
+        Ok(crate::testrun::TraceEnd::Exited(_)) => 2,
+        Ok(crate::testrun::TraceEnd::Unfinished(n)) => {
+            let _ = writeln!(err, "the traced run ended without finishing (status {n})");
+            2
+        }
+        Err(e) => {
+            let _ = writeln!(err, "{e}");
+            3
+        }
+    }
 }
 
 /// A table file named like the program's executable (the source name without `.gloss`)
@@ -384,6 +486,13 @@ mod tests {
     fn trace_accepts_allow() {
         let (code, err) = run_with(&["trace", "x.gloss", "--allow", "a.csv"]);
         assert_eq!(code, 3);
-        assert!(err.contains("not built yet"), "{err}");
+        assert!(err.starts_with("cannot read x.gloss: "), "{err}");
+    }
+
+    #[test]
+    fn trace_refuses_on_a_host_that_cannot_run_it() {
+        assert!(host_traces("linux", "x86_64"));
+        assert!(!host_traces("macos", "aarch64"));
+        assert!(!host_traces("linux", "aarch64"));
     }
 }
