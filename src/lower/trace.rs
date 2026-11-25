@@ -101,8 +101,9 @@ impl Lowerer<'_> {
 
     /// Writes the `set` event of variable `name`, whose new value is in `a`, before the
     /// caller stores it: `from` is read from the variable's slot, which still holds the old
-    /// value, and only when the made flag is 1 (D44). Sets the flag; leaves the value in `a`.
-    pub(super) fn set_event(&mut self, line: u32, name: &str) {
+    /// value, and only when the made flag is 1, or always for `from_always` (an `add` or the
+    /// like, whose variable exists) (D44). Sets the flag; leaves the value in `a`.
+    pub(super) fn set_event(&mut self, line: u32, name: &str, from_always: bool) {
         let ty = self.vars[name].clone();
         let new = self.new_temp();
         self.emit(Inst::StoreSlot(new, Reg::A));
@@ -110,8 +111,10 @@ impl Lowerer<'_> {
         self.ev_key("name");
         self.ev_fixed_text(name);
         let first = self.new_label();
-        self.emit(Inst::LoadSlot(Reg::A, self.made[name]));
-        self.jump_if_a_is(0, first);
+        if !from_always {
+            self.emit(Inst::LoadSlot(Reg::A, self.made[name]));
+            self.jump_if_a_is(0, first);
+        }
         self.ev_key("from");
         self.ev_value_from_slot(self.slots[name], &ty);
         self.emit(Inst::Mark(first));

@@ -1,0 +1,5 @@
+feature start
+  set total to 100
+  add 50 to total
+  subtract 30 from total
+  show total

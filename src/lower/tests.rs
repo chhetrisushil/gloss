@@ -1478,3 +1478,16 @@ fn a_set_inside_a_call_comes_after_the_calls_events() {
     assert!(events[1].contains("\"event\":\"set\""), "{out}");
     assert!(events[1].ends_with("\"to\":{\"number\":\"4\"}}"), "{out}");
 }
+
+#[test]
+fn failure_4_writes_no_set_event() {
+    let m = lowered_trace("feature start\n  set x to 900000000000000\n  multiply x by 1000\n");
+    let o = crate::irsim::run(&m, "_start", b"");
+    let out = String::from_utf8(o.stdout).unwrap();
+    assert_eq!(o.status, 2);
+    assert_eq!(out.matches("\"event\":\"set\"").count(), 1, "{out}");
+    assert!(
+        out.lines().last().unwrap().contains("\"failure\":4"),
+        "{out}"
+    );
+}
