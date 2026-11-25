@@ -72,7 +72,8 @@ fn load_after_append<'a>(ctx: &mut Ctx, body: &'a [Stmt], appended: &mut BTreeMa
                     ctx.diags.push(Diagnostic::warning(ctx.src, stmt.line, msg));
                 }
             }
-            StmtKind::Clear(t) => {
+            // After a `save` the appended rows are on file, so a later `load` does not lose them.
+            StmtKind::Clear(t) | StmtKind::Save(t) => {
                 appended.remove(t.as_str());
             }
             _ => {}
@@ -144,6 +145,24 @@ mod tests {
         let in_feature =
             format!("{HEAD}feature start\n  load es\n  save es\ntest \"t\"\n  load es\n");
         assert!(diags(&in_feature).is_empty());
+    }
+
+    #[test]
+    fn a_save_between_the_append_and_the_load_silences_the_warning() {
+        let body = |mid: &str| {
+            format!(
+                "{HEAD}table fs of E in \"f.csv\"\nfeature start\n  load fs\n  save fs\n  clear es\n  save es\n  append (E with amount 1) to es\n{mid}  load es\n  save es\n"
+            )
+        };
+        assert!(diags(&body("  save es\n")).is_empty());
+        // A save of another table does not.
+        assert_eq!(diags(&body("  save fs\n")).len(), 1);
+        assert_eq!(diags(&body("")).len(), 1);
+        // The same in a test, where the pattern is common.
+        let in_test = format!(
+            "{HEAD}feature start\n  clear es\n  save es\ntest \"t\"\n  append (E with amount 1) to es\n  save es\n  load es\n"
+        );
+        assert!(diags(&in_test).is_empty());
     }
 
     #[test]

@@ -559,6 +559,8 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 
 **As-built note (task 5).** After 5b, a `write_all` failure while `err_int` writes digits exits 2. Before it, `err_int` used `Prim::Write` for each digit and ignored a failed write. `fail_begin` already used `write_all`.
 
+**As-built note (final review).** Since task 4 every executable laid out `Global::TestState` (2 KiB more memory in the data segment). The backend now leaves it out of an executable that never takes its address, so a real build has M3's layout again; only a test executable reserves it. `TestState` is the last global, so no other global moved.
+
 **Rulings** (final state):
 
 *Plan and process*
@@ -586,15 +588,18 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 - M4-R16: `table_read` and `table_rows` share one `parse_rows` emitter (see D36 above).
 - M4-R17: no newline-in-text case; v0 source cannot make text with a line break, and the M3 CSV unit tests cover newline cells.
 
-**Tests:** 844 pass and 1 is ignored (the stress test) at `m4/t22b-example-tests-2` plus the README: 702 unit tests and 142 integration tests in 26 files, from `CARGO_BUILD_JOBS=4 cargo test` on the Mac. They include 153 run cases (`MIN_CASES`, 152 in M3), 17 test cases (`MIN_TEST_CASES`, each run as a real executable and under `irsim`), 11 examples (`MIN_EXAMPLES`) of which 4 carry tests (`MIN_EXAMPLES_WITH_TESTS`). `MIN_TEST_CASES` rose 2, 5, 7, 10, 11, 14, 16, 17 over tasks 12 to 21. The tests of the `gloss test` command that need a Linux host were run in the machine (see below): after the task 11 review fixes `tests/cli.rs` passed 36, `testrun` 14 and `tests/test_runs.rs` 3.
+**Tests:** 847 pass and 1 is ignored (the stress test) at `m4/final-c-test-state-only-in-tests`, after the final-review fixes: 706 unit tests and 141 integration tests in 28 test binaries (the Linux-only CLI tests are not compiled on the Mac), from `CARGO_BUILD_JOBS=4 cargo test` on the Mac. They include 153 run cases (`MIN_CASES`, 152 in M3), 18 test cases (`MIN_TEST_CASES`, each run as a real executable and under `irsim`), 11 examples (`MIN_EXAMPLES`) of which 4 carry tests (`MIN_EXAMPLES_WITH_TESTS`). `MIN_TEST_CASES` rose 2, 5, 7, 10, 11, 14, 16, 17 over tasks 12 to 21, and 18 in the final review. The tests of the `gloss test` command that need a Linux host were run in the machine (see below): after the task 11 review fixes `tests/cli.rs` passed 36, `testrun` 14 and `tests/test_runs.rs` 3.
 
 **Known limits and accepted risks:**
 - **A looping test hangs (D40).** v0 has no time limit. Streaming (M4-R1) means the finished tests' results are already on screen.
 - **No `--permissions`.** A test executable leaves out `permissions_text`, so it does not answer `--permissions`.
-- **Signals.** The test executable resets `SIGCHLD` and nothing else. Any other disposition the caller set (an ignored `SIGPIPE`, say) is inherited, and `gloss test` starts it from the compiler's own process.
+- **Signals.** The test executable resets `SIGCHLD` and nothing else. Any other disposition the caller set (an ignored `SIGINT` from a `nohup`-style parent, say) is inherited; an ignored `SIGPIPE` is not, because Rust's `Command` restores its default in the child, and `gloss test` starts it from the compiler's own process.
+- **A broken pipe leaves an orphan (R19).** When the output writer fails (`gloss test x.gloss | head -1`), only the driver is killed. A looping test child still holds the pipes, so `gloss test` waits for it and the orphan keeps running. std has no process-group kill without libc; this follows from D40.
+- **Exit status 3 for internal failures.** `gloss test` also exits 3, with a message on standard error, when the private folder cannot be made, the executable cannot be written or started, or the output cannot be written. The language spec lists 3 for compile errors; the README and spec section 11 now say 3 covers these as well.
+- **Working directory (R18).** The test executable runs with the private folder as its working directory. Pretend files make the folder irrelevant, so nothing outside it can be touched by a relative path.
 - **`ETXTBSY`.** If another thread forks while the executable is written, the file can still be open for writing and the spawn fails with `ETXTBSY`. `gloss test` retries up to 5 times with a backoff from 20 ms to 320 ms. The race itself is not reproduced; the retry path is tested through a seam.
 - **Out-of-memory line cases.** The line named by an out-of-memory failure inside `test_input` and while `shown` grows is pinned only in the IR (M4-R14), not by an end-to-end run.
-- **Linux only (D38).** On a Mac, the tests that start `gloss test` as a program cannot run natively. They are cross-compiled with `CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld cargo test --target x86_64-unknown-linux-musl --no-run` (after `rustup target add x86_64-unknown-linux-musl`) and the printed executables are run in the OrbStack machine with `orb -m gloss-amd64 sh -c "cd <worktree> && ./<exe>"`. The machine has no network or Rust.
+- **Linux only (D38).** On a Mac, the tests that start `gloss test` as a program cannot run natively. They are cross-compiled with `CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld cargo test --target x86_64-unknown-linux-musl --no-run` (after `rustup target add x86_64-unknown-linux-musl`) and the printed executables are run in the OrbStack machine with `orb -m gloss-amd64 sh -c "cd <worktree> && ./<exe>"`. The machine has no network or Rust. The time bounds in `tests/scaling.rs` (10 seconds, for example `a_long_chain_of_variables_declared_in_reverse_checks_quickly`) do not apply under QEMU, where the compiler itself is emulated; a failure there should be re-run, not read as a regression. Natively, on the Mac and on CI, the bounds hold.
 - **Deferred:** `trace` (M5), `explain` (M6), `flowchart` (M7); a time limit; fixtures that inject a bad file.
 - **Reviews:** `Fork` and `Wait` (target numbers, status decoding, the `irsim` clone) and the pretend-file backend each had a first review on the top tier.
 
