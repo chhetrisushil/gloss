@@ -85,25 +85,34 @@ impl Drop for PrivateDir {
 /// Writes `executable` into a private folder (mode 0700), runs it with standard input closed,
 /// streams its output as it arrives, and gives the exit status for `gloss test`.
 pub fn run_test_executable(executable: &[u8], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let dir = match PrivateDir::new() {
-        Ok(dir) => dir,
-        Err(e) => {
-            let _ = writeln!(err, "cannot make a private folder for the test run: {e}");
+    let (dir, path) = match write_executable(executable, "tests") {
+        Ok(made) => made,
+        Err((what, e)) => {
+            let _ = writeln!(err, "{what}: {e}");
             return 3;
         }
     };
-    let path = dir.path().join("tests");
-    let written = std::fs::OpenOptions::new()
+    let status = run_program(&path, out, err);
+    drop(dir);
+    status
+}
+
+/// Puts `executable` under `name` in a new private folder; on failure says which step failed.
+fn write_executable(
+    executable: &[u8],
+    name: &str,
+) -> Result<(PrivateDir, PathBuf), (&'static str, std::io::Error)> {
+    let dir =
+        PrivateDir::new().map_err(|e| ("cannot make a private folder for the test run", e))?;
+    let path = dir.path().join(name);
+    std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o700)
         .open(&path)
-        .and_then(|mut f| f.write_all(executable));
-    if let Err(e) = written {
-        let _ = writeln!(err, "cannot write the test executable: {e}");
-        return 3;
-    }
-    run_program(&path, out, err)
+        .and_then(|mut f| f.write_all(executable))
+        .map_err(|e| ("cannot write the test executable", e))?;
+    Ok((dir, path))
 }
 
 /// Runs the program at `path`, copying its output to `out` and `err` as bytes arrive.
@@ -136,6 +145,54 @@ fn run_program_with(
     err: &mut dyn Write,
     start: &mut dyn FnMut(&Path) -> std::io::Result<Child>,
 ) -> i32 {
+    let mut on_out = |chunk: &[u8]| out.write_all(chunk).and_then(|()| out.flush());
+    match drive(path, &mut on_out, err, start) {
+        Ok(ended) => {
+            let (status, message) = status_for(ended);
+            if let Some(message) = message {
+                let _ = writeln!(err, "{message}");
+            }
+            status
+        }
+        Err(failure) => {
+            let _ = writeln!(err, "{}", failure.message());
+            3
+        }
+    }
+}
+
+/// Why a run could not be driven to the end.
+enum Failure {
+    Start(std::io::Error),
+    Output(std::io::Error),
+    Wait(std::io::Error),
+}
+
+impl Failure {
+    fn into_error(self) -> std::io::Error {
+        let kind = match &self {
+            Failure::Start(e) | Failure::Output(e) | Failure::Wait(e) => e.kind(),
+        };
+        std::io::Error::new(kind, self.message())
+    }
+
+    fn message(&self) -> String {
+        match self {
+            Failure::Start(e) => format!("cannot run the test executable: {e}"),
+            Failure::Output(e) => format!("cannot write the test output: {e}"),
+            Failure::Wait(e) => format!("cannot wait for the test run: {e}"),
+        }
+    }
+}
+
+/// Starts the program (retrying a busy file), gives each chunk of its standard output to
+/// `on_out` as it arrives, copies its standard error to `err`, and returns how it ended.
+fn drive(
+    path: &Path,
+    on_out: &mut dyn FnMut(&[u8]) -> std::io::Result<()>,
+    err: &mut dyn Write,
+    start: &mut dyn FnMut(&Path) -> std::io::Result<Child>,
+) -> Result<ExitStatus, Failure> {
     let mut tries = 0;
     let spawned = loop {
         match start(path) {
@@ -146,13 +203,7 @@ fn run_program_with(
             other => break other,
         }
     };
-    let mut child = match spawned {
-        Ok(child) => child,
-        Err(e) => {
-            let _ = writeln!(err, "cannot run the test executable: {e}");
-            return 3;
-        }
-    };
+    let mut child = spawned.map_err(Failure::Start)?;
     let (tx, rx) = mpsc::channel::<(bool, Vec<u8>)>();
     let mut readers = Vec::new();
     if let Some(stdout) = child.stdout.take() {
@@ -164,8 +215,12 @@ fn run_program_with(
     drop(tx);
     let mut failed = None;
     for (is_err, chunk) in &rx {
-        let sink: &mut dyn Write = if is_err { &mut *err } else { &mut *out };
-        if let Err(e) = sink.write_all(&chunk).and_then(|()| sink.flush()) {
+        let written = if is_err {
+            err.write_all(&chunk).and_then(|()| err.flush())
+        } else {
+            on_out(&chunk)
+        };
+        if let Err(e) = written {
             failed = Some(e);
             break;
         }
@@ -178,20 +233,12 @@ fn run_program_with(
         for r in readers {
             let _ = r.join();
         }
-        let _ = writeln!(err, "cannot write the test output: {e}");
-        return 3;
+        return Err(Failure::Output(e));
     }
     for r in readers {
         let _ = r.join();
     }
-    let (status, message) = match child.wait() {
-        Ok(ended) => status_for(ended),
-        Err(e) => (3, Some(format!("cannot wait for the test run: {e}"))),
-    };
-    if let Some(message) = message {
-        let _ = writeln!(err, "{message}");
-    }
-    status
+    child.wait().map_err(Failure::Wait)
 }
 
 /// Reads `from` on its own thread, sending each chunk as it arrives.
@@ -210,13 +257,18 @@ fn pump(
     })
 }
 
-/// 0 and 1 are the test run's own; any other end is 1 with a message.
-pub fn status_for(ended: ExitStatus) -> (i32, Option<String>) {
-    let code = match (ended.code(), ended.signal()) {
+/// The exit code, or 256 plus the signal that ended the program.
+fn exit_code(ended: ExitStatus) -> i32 {
+    match (ended.code(), ended.signal()) {
         (Some(code), _) => code,
         (None, Some(signal)) => 256 + signal,
         (None, None) => 256,
-    };
+    }
+}
+
+/// 0 and 1 are the test run's own; any other end is 1 with a message.
+pub fn status_for(ended: ExitStatus) -> (i32, Option<String>) {
+    let code = exit_code(ended);
     match code {
         0 | 1 => (code, None),
         n => (
@@ -228,3 +280,60 @@ pub fn status_for(ended: ExitStatus) -> (i32, Option<String>) {
 
 #[cfg(test)]
 mod tests;
+
+/// How a traced run ended: it finished (status 0, or 2 for a run-time failure the program
+/// reported itself), or it did not (any other status, or a last line cut short).
+#[derive(Debug, PartialEq, Eq)]
+pub enum TraceEnd {
+    Exited(i32),
+    Unfinished(i32),
+}
+
+/// Starts the program with standard input and working folder inherited from this process, and
+/// standard output and error piped.
+fn spawn_inheriting(path: &Path) -> std::io::Result<Child> {
+    Command::new(path)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+}
+
+/// Runs a traced executable: standard output is one JSON event per line, each handed whole to
+/// `on_line`; standard error goes to `err`. A failing `on_line` or `err` ends the run.
+pub fn run_traced(
+    executable: &[u8],
+    on_line: &mut dyn FnMut(&str) -> std::io::Result<()>,
+    err: &mut dyn Write,
+) -> std::io::Result<TraceEnd> {
+    let (dir, path) = write_executable(executable, "traced")
+        .map_err(|(what, e)| std::io::Error::new(e.kind(), format!("{what}: {e}")))?;
+    let end = run_traced_with(&path, on_line, err, &mut spawn_inheriting);
+    drop(dir);
+    end
+}
+
+/// `run_traced` for a program already in place, with the way it is started given.
+fn run_traced_with(
+    path: &Path,
+    on_line: &mut dyn FnMut(&str) -> std::io::Result<()>,
+    err: &mut dyn Write,
+    start: &mut dyn FnMut(&Path) -> std::io::Result<Child>,
+) -> std::io::Result<TraceEnd> {
+    // The bytes of a line whose newline has not arrived yet.
+    let mut rest: Vec<u8> = Vec::new();
+    let mut on_out = |chunk: &[u8]| {
+        rest.extend_from_slice(chunk);
+        while let Some(at) = rest.iter().position(|&b| b == b'\n') {
+            let line: Vec<u8> = rest.drain(..=at).collect();
+            on_line(&String::from_utf8_lossy(&line[..at]))?;
+        }
+        Ok(())
+    };
+    let ended = drive(path, &mut on_out, err, start).map_err(|f| f.into_error())?;
+    let code = exit_code(ended);
+    Ok(match code {
+        0 | 2 if rest.is_empty() => TraceEnd::Exited(code),
+        n => TraceEnd::Unfinished(n),
+    })
+}
