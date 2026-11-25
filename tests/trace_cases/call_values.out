@@ -1,0 +1,6 @@
+line 14: calling keep with xs = list of 1, 2, e = Expense with name "Rent", amount 10
+line 14: keep gives list of 1, 2
+line 14: kept is list of 1, 2
+line 15: calling big with n = 9
+line 15: big gives yes
+line 15: b is yes

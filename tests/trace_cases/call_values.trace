@@ -1,0 +1,6 @@
+{"line":14,"event":"enter","feature":"keep","inputs":{"xs":{"list":[{"number":"1"},{"number":"2"}]},"e":{"record":"Expense","fields":{"name":{"text":"Rent"},"amount":{"number":"10"}}}}}
+{"line":14,"event":"leave","feature":"keep","result":{"list":[{"number":"1"},{"number":"2"}]}}
+{"line":14,"event":"set","name":"kept","to":{"list":[{"number":"1"},{"number":"2"}]}}
+{"line":15,"event":"enter","feature":"big","inputs":{"n":{"number":"9"}}}
+{"line":15,"event":"leave","feature":"big","result":{"truth":"yes"}}
+{"line":15,"event":"set","name":"b","to":{"truth":"yes"}}
