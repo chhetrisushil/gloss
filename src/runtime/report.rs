@@ -114,7 +114,8 @@ fn report_lines() -> Function {
     s.finish("report_lines", 3, 3)
 }
 
-/// `test_begin(title)`: remembers the title text of the test being run.
+/// `test_begin(title)`: remembers the title text of the test being run, and allocates the
+/// shown buffer so that a test that shows anything always has one, even once it is failing.
 fn test_begin() -> Function {
     let mut s = Asm::default();
     s.i(LoadArg(A, 1));
@@ -124,6 +125,7 @@ fn test_begin() -> Function {
         offset: TITLE as i32 * 8,
         from: A,
     });
+    s.call("shown_init");
     s.finish("test_begin", 1, 0)
 }
 
