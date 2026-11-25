@@ -758,6 +758,53 @@ fn the_line_is_stored_before_each_statement_kind() {
 }
 
 #[test]
+fn the_line_is_stored_again_when_a_called_feature_returns() {
+    // The feature's own statements move the line word; the caller's statement takes it back,
+    // keeping the result in `a`, for an expression call and for `run`.
+    let head = format!("{ROWS}feature f\n  set y to 1\n  give y\n\nfeature g\n  show 2\n\n");
+    let text = format!("{head}test \"t\"\n  show f\n  run g\n");
+    let t = function_text(function(&lowered_tests(&text).unwrap(), "t_0"));
+    let again = |name: &str, line: u32| {
+        format!(
+            "call {name}\n  push a\n  a = {line}\n  b = address of test_state\n  [b + 64] = a\n  pop a\n"
+        )
+    };
+    assert!(t.contains(&again("f_f", 17)), "{t}");
+    assert!(t.contains(&again("f_g", 18)), "{t}");
+    // A real build does not.
+    let real = function_text(function(&lowered(&text).unwrap(), "f_start"));
+    assert!(!real.contains("test_state"));
+}
+
+#[test]
+fn a_show_after_a_feature_call_reports_its_own_line_when_shown_grows() {
+    // `f` runs statements on other lines; the flush that grows shown happens in a later
+    // item of the show, so the line must be the show's (10 here), not `f`'s (6).
+    let text = "feature start\n  show 1\n\nfeature f\n  set y to 1\n  give y\n\n\
+                test \"t\"\n  for each i from 1 to 2000\n    show f, i\n";
+    let mut m = lowered_tests(text).unwrap();
+    stub_grow_text(&mut m);
+    assert_eq!(crate::irsim::run(&m, "t_0", b"").status, 10);
+}
+
+/// Replaces `grow_text` with a stub that exits with the line it is given.
+fn stub_grow_text(m: &mut Module) {
+    use crate::ir::{Inst, Prim, Reg};
+    let at = m
+        .functions
+        .iter()
+        .position(|f| f.name == "grow_text")
+        .unwrap();
+    m.functions[at].body = vec![
+        Inst::Enter(0),
+        Inst::LoadArg(Reg::A, 4),
+        Inst::Push(Reg::A),
+        Inst::System(Prim::Exit),
+    ];
+    m.functions[at].slots = 0;
+}
+
+#[test]
 fn out_of_memory_while_shown_grows_reports_the_line_of_the_show() {
     // The shows fill the output buffer, and the one that overflows it flushes into shown,
     // whose first growth the stub for `grow_text` ends with the line it is given (its fourth

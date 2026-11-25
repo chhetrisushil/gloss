@@ -188,6 +188,7 @@ impl Lowerer<'_> {
         let fail = self.too_deep(feature);
         self.emit(Inst::StackCheck { bytes: 0, fail });
         self.emit(Inst::Call(super::function_name(feature)));
+        self.restore_line();
         Ok(())
     }
 }
