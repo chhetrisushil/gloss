@@ -30,6 +30,8 @@ mod save;
 mod shown;
 mod table_read;
 mod test_backend;
+#[cfg(test)]
+mod test_backend_tests;
 mod test_state;
 #[cfg(test)]
 mod test_state_tests;
@@ -87,12 +89,13 @@ const FAIL: u32 = 42;
 const LOST: u32 = 43;
 const PASSED: u32 = 44;
 const FAILED: u32 = 45;
+const SHOWN_HEAD: u32 = 46;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 46] = [
+const TEXTS: [&[u8]; 47] = [
     b"line ",
     b": failure ",
     b": ",
@@ -139,6 +142,7 @@ const TEXTS: [&[u8]; 46] = [
     b"ended without a result (status ",
     b" passed, ",
     b" failed\n",
+    b"      shown:\n",
 ];
 
 /// The bytes of the runtime text `i`.

@@ -1,4 +1,4 @@
-use super::add_reachable;
+use super::{Backend, add_reachable, add_reachable_for};
 use crate::ir::{
     Data, Function, Global, Inst,
     Inst::*,
@@ -9,6 +9,11 @@ use crate::irsim::{self, Faults, Files, Outcome};
 
 /// A module whose `_start` is `body` followed by `exit 0`, with the runtime it calls.
 pub(super) fn program(body: Vec<Inst>, texts: &[&[u8]]) -> Module {
+    program_for(Backend::Real, body, texts)
+}
+
+/// `program`, with the runtime of `backend`.
+pub(super) fn program_for(backend: Backend, body: Vec<Inst>, texts: &[&[u8]]) -> Module {
     let mut m = Module::default();
     for t in texts {
         m.text(t);
@@ -29,7 +34,7 @@ pub(super) fn program(body: Vec<Inst>, texts: &[&[u8]]) -> Module {
         slots: 0,
         body: code,
     });
-    add_reachable(&mut m, &called);
+    add_reachable_for(&mut m, &called, backend);
     m
 }
 

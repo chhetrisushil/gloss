@@ -28,7 +28,7 @@ pub const SHOWN_FIRST: i64 = IO_BUF_BYTES as i64;
 const _: () = assert!(FAIL_BYTES as usize * 8 + FAIL_CAP as usize <= TEST_STATE_BYTES);
 
 /// Loads word `i` of the state into `to`.
-fn get(s: &mut Asm, to: Reg, i: u32) {
+pub(super) fn get(s: &mut Asm, to: Reg, i: u32) {
     s.i(AddressOf(to, Data::Global(Global::TestState)));
     s.i(Load {
         to,
@@ -38,7 +38,7 @@ fn get(s: &mut Asm, to: Reg, i: u32) {
 }
 
 /// Stores `from` into word `i` of the state, using `tmp` for the address.
-fn set(s: &mut Asm, i: u32, from: Reg, tmp: Reg) {
+pub(super) fn set(s: &mut Asm, i: u32, from: Reg, tmp: Reg) {
     s.i(AddressOf(tmp, Data::Global(Global::TestState)));
     s.i(Store {
         base: tmp,
