@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 
 use crate::check::check;
 use crate::irsim::{Faults, Files, run_with};
-use crate::lower::lower_trace;
+use crate::lower::{lower, lower_trace};
 use crate::source::Source;
+use crate::trace::narrate::Narrator;
 
 include!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -88,4 +89,60 @@ fn a_call_nested_too_deep_ends_on_the_enter_then_the_failure_in_irsim() {
         (o.status, deep_ending(&o.stdout)),
         (2, DEEP_ENDING.to_string())
     );
+}
+
+/// What a real (non-trace) build of `case` writes to standard error under irsim.
+fn real_stderr(case: &Path) -> Vec<u8> {
+    let text = std::fs::read_to_string(case).unwrap();
+    let src = Source::new(&text);
+    let program = crate::parse_source(&src).expect("parses");
+    let types = check(&program, &src).types.expect("checks clean");
+    let module = lower(&program, &types, &src).expect("lowers");
+    let mut files = Files::default();
+    let seeded = case.with_extension("files");
+    if seeded.is_dir() {
+        super::cases::seed_files(&mut files, &seeded);
+    }
+    let input = std::fs::read(case.with_extension("in")).unwrap_or_default();
+    run_with(
+        &module,
+        "_start",
+        &input,
+        &[],
+        Faults::default(),
+        &mut files,
+    )
+    .stderr
+}
+
+/// R14: what the narrator writes to standard error for a failing case's trace is what the real
+/// build of the same program writes, so the failure text is checked against an independent
+/// source rather than the trace's own decoder.
+#[test]
+fn the_narrators_stderr_is_what_the_real_build_writes_when_a_case_fails() {
+    let mut failing = 0;
+    for case in cases() {
+        let text = std::fs::read_to_string(&case).unwrap();
+        let src = Source::new(&text);
+        let program = crate::parse_source(&src).expect("parses");
+        let mut narrator = Narrator::new(&program);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let trace = std::fs::read_to_string(case.with_extension("trace")).unwrap();
+        for line in trace.lines() {
+            narrator.line(line, &mut out, &mut err).unwrap().unwrap();
+        }
+        if case.with_extension("status").is_file() {
+            failing += 1;
+            assert!(
+                !err.is_empty(),
+                "{case:?}: a failing case narrates a failure"
+            );
+            assert_eq!(
+                String::from_utf8_lossy(&err),
+                String::from_utf8_lossy(&real_stderr(&case)),
+                "{case:?}"
+            );
+        }
+    }
+    assert!(failing >= 5, "too few failing cases: {failing}");
 }
