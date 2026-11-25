@@ -62,6 +62,16 @@ Non-goals (and why):
 | D38 | `gloss test` on a host that cannot run x86-64 Linux programs? | It refuses with `gloss test runs tests on Linux only` and status 3. A ruling, recorded as a deviation risk: the language spec says `gloss test` "builds and runs" without naming a platform. | The compiler does not ship an interpreter (§1), so it can only run what the OS can run. Owner, 2026-11-24. |
 | D39 | How is M4 tested? | New cases `tests/test_cases/<name>.gloss` with `.out` (standard output) and `.status`, run as real executables through `GLOSS_RUNNER` and under `irsim`, which must agree (D21). The CLI's build step is a library function (`build_test_executable`) so the harness can build a test executable on the Mac and run it through the runner. The language spec's §13 program becomes a case; the examples gain tests. Negative cases show isolation: a failing `expect`, failure 10 in one test and a missing `input`, while the other tests still pass. | One case format for both engines, as D29. Owner, 2026-11-24. |
 | D40 | Accepted risk: a test that loops forever. | The run hangs. v0 has no time limit. | A limit needs a clock primitive and a policy; neither is worth it before someone hits it. Owner, 2026-11-24. |
+| D41 | How is milestone 5 split? | Two parts. **M5a, the event stream:** `lower_trace` and the trace backend; the traced executable writes the events of spec §10 as JSON lines. **M5b, the narrator and the CLI:** `gloss trace` runs that executable, writes `x.trace` and prints the sentences. | M5a is testable on its own (real executable against `irsim`, like D13), and M5b's narrator is testable on the Mac from recorded event files. Owner, 2026-11-25. |
+| D42 | Who turns events into sentences? | `gloss` does, in Rust (`src/trace/`). The traced executable writes only events; the narrator reads them, with the checked program at hand for each line's syntax tree. | One serializer in IR instead of two; the sentences are plain Rust and easy to test; the runtime that Explain prints stays smaller. Owner, 2026-11-25. |
+| D43 | What does the traced executable write, and where? | One JSON event per line on standard output, through the normal output buffer, and nothing else. The buffer is flushed before `ask` reads, when the program fails and when it ends. What a normal build prints becomes events: each `show` line is a `show` event, `ask`'s question is a `show` event followed, once answered, by an `ask` event, and a run-time failure is a `fail` event, after which the program exits 2. | A single stream keeps the order exact with no framing: the narrator prints program lines and sentences in the order the events arrive. Owner, 2026-11-25. |
+| D44 | When is a `set` event written, and what does it carry? | For `set`, `add`, `subtract`, `multiply` and `divide`, on a variable, a field (`amount of expense`) or an item (`item 2 of prices`): the new value is computed first (so any events from calls inside it come first), then the event is written while the old value is still in place, then the value is stored. A variable's first `set` has no `from`. `append` writes a `set` event with `"item": N` and only the new item, never the whole list. | Writing whole lists on every `append` would make building a table of `n` rows cost `n²`. Owner, 2026-11-25. |
+| D45 | What does a `check` event carry? | The condition as `gloss format` writes it, and `values`: each variable and field read (`amount of expense`) named in it, read after the condition is evaluated. `item` reads are left out, since reading them can fail. `if`, `otherwise if` and `repeat while` write one; `otherwise` writes none. | The narrator rebuilds the sentence from the condition's syntax tree and these values. Owner, 2026-11-25. |
+| D46 | How are calls narrated? | `enter` is written when a feature starts, with its inputs; `leave` when it gives a value or ends. Both carry the line of the call. The narrator indents each sentence 2 spaces per call level, so recursion shows as a staircase. | Owner, 2026-11-25 (indent chosen over a flat list). |
+| D47 | How are values written in sentences? | As `show` writes them, with text in quotes. A list shows its first 3 items then `… (N items)`; text longer than 60 characters is cut with `…`. The `.trace` file always holds full values. | Owner, 2026-11-25. |
+| D48 | What does `gloss trace x.gloss` do? | Checks the program (errors: status 3), asks for approval of its files exactly like `build` (`--allow` works; refusal: status 4), refuses on a host that cannot run x86-64 Linux programs (status 3, as D38), builds the traced executable into a private folder (as D37), and runs it with the current folder as its working directory and standard input inherited. It writes the events to `x.trace` beside the source (replaced each run; if it cannot be written, status 3) and narrates them. It exits 0 when the program ends normally, 2 after a `fail` event, and 2 with `the traced run ended without finishing (status N)` on standard error for any other end. | Owner, 2026-11-25. |
+| D49 | Accepted risk: a run with millions of events. | Trace narrates every event; there is no limit. Ctrl-C stops it. | Nothing is hidden, and a cap would need a policy nobody has asked for yet. Owner, 2026-11-25. |
+| D50 | How is M5 tested? | `tests/trace_cases/<name>.gloss` with the expected `<name>.trace`, run as a real executable and under `irsim` (the two must agree, as D13 and D39), with a sweep floor `MIN_TRACE_CASES`. The narrator has golden tests from recorded `.trace` files to `.out` sentences, which run on any host. `tests/cli.rs` covers `gloss trace` on Linux. | Owner, 2026-11-25. |
 
 ## 3. Rejected alternatives
 
@@ -79,6 +89,9 @@ Non-goals (and why):
 | Error recovery in the parser | Complex, and the first error is enough at this program size | Users routinely hit several parse errors at once |
 | Run each test in-process and catch failures (unwinding, or a failure routine that returns) | Every failure routine ends the process today; making them return touches every call site, and one test's damage (heap, tables, globals) could leak into the next | Fork becomes unavailable on a target |
 | Capture a child's standard error through a pipe (`Pipe` and `Dup2` primitives) | Two more primitives and more states to model in `irsim`, when the test backend can send failure text to a buffer by itself (D36) | The test backend and the real runtime drift apart |
+| The traced executable writes the sentences itself, in IR | Every sentence form becomes runtime code checked under `irsim`, about twice the runtime work, and Explain would print it all (D42) | Trace must run without `gloss` installed |
+| Events on a second descriptor (fd 3) beside the program's own output | Two pipes lose the order between a printed line and the events around it (D43) | n/a |
+| A cap on the number of narrated events | Hides part of the run; no one has asked for it (D49) | Real programs make traces too long to use |
 
 ## 4. Design
 
@@ -102,7 +115,8 @@ Non-goals (and why):
 | `target::x86_64` | IR to typed x86-64 instructions, their Intel-syntax text, and the encoder | M2 |
 | `target::elf`, `target::linux` | Static ELF writer; OS primitives as x86-64 Linux system calls | M2 |
 | `irsim` | Test-only IR interpreter (D21) | M2 |
-| `trace`, `explain`, `flowchart` | The remaining modes | M5, M6, M7 |
+| `trace` | The narrator: JSON events to sentences (§4.9) | M5 |
+| `explain`, `flowchart` | The remaining modes | M6, M7 |
 
 ### 4.2 Pipeline
 
@@ -275,6 +289,76 @@ The library function the harness calls is `build_test_executable(text) -> Result
 **Testing (D39).** `tests/test_cases/<name>.gloss` with `<name>.out`, optional `.err` (default empty) and `.status` (default 0); a sweep like D13's (`MIN_TEST_CASES`) shared by `tests/test_cases.rs` (real executables) and `src/irsim/test_cases.rs` (`irsim`). `tests/cli.rs` covers: no tests, a compile error (3), the Linux-only refusal (the deciding function is unit tested, since a Linux host cannot show it), and, on Linux, all pass and one fails. A lowering test asserts that a test module's IR contains no `Open`, `Rename`, `Sync`, `Mode` or `SetMode` (D36). Spec §13's complete program is `tests/test_cases/expense_tracker.gloss`; the examples gain tests, and `tests/examples.rs` also runs `gloss test` on each.
 
 **Reviews.** `Fork` and `Wait` (target numbers, status decoding, the `irsim` clone) and the pretend-file backend (the swap, and the claim that no real file primitive remains) get their first review on the top tier.
+
+### 4.9 Milestone 5: trace
+
+**Scope.** `gloss trace x.gloss` (D48). M5a (D41): `lower_trace` and the trace backend, so the traced executable writes the events of spec §10. M5b: the narrator (`src/trace/`), the `gloss trace` command, the spec's sentence forms. The step-through viewer is v0.1 (spec §15) and not part of v0.
+
+**Pipeline.** check → `lower_trace` (`Mode::Trace`: `start` and the features with event code, no tests, no `permissions_text`) → the reachable runtime with `Backend::Trace` → the same x86-64 backend and ELF writer. The trace `_start` is generated: `heap_init; stack_init; tables_init; enter(start); call f_start; leave(start); flush; exit 0`. It does not call `args_check`: the traced executable is only ever run by `gloss trace`, with no arguments.
+
+**The trace state.** One new global, `Global::TraceState` (32 bytes), laid out only when used (like `TestState`), so real and test builds keep their layout. Words: `ESCAPING` (text entering the output buffer is JSON-escaped), `FAILING` (writes to fd 2 are the failure message), `OPEN` (a `show` event is open: its text is being written).
+
+**The trace backend.** `out_bytes` is split: its body becomes `buf_bytes(addr, len)`, and the real `out_bytes` calls it (the only change to real builds' code in M5). With `Trace`, these routines are replaced by name:
+
+| Routine | Real | Trace |
+|---|---|---|
+| `out_bytes(addr, len)` | `buf_bytes` | `ESCAPING` 0: `buf_bytes`; 1: `json_bytes` (escaped into the buffer through `buf_bytes`) |
+| `write_all(fd, addr, len)` | writes | fd 2 while `FAILING`: `out_bytes` (so escaped into the `fail` event); fd 2 otherwise: flush, then the real write; fd 1: the real write |
+| `fail_begin(line, code)` | flush, `line L: failure C: ` to fd 2 | if `OPEN`: close the `show` event (`"}` and a newline); then `{"line":L,"event":"fail","failure":C,"message":"`; `FAILING` and `ESCAPING` set |
+| `fail_end()` | newline, exit 2 | `"}` and a newline; flush; exit 2 |
+| `ask(question, line)` | shows the question, flushes, `ask_read(line)` | a `show` event of the question, flush, `ask_read(line)` |
+
+The real `ask` is split the same way: its read loop becomes `ask_read(line)`.
+
+`json_bytes` escapes `"` and `\` with a backslash, `\n`, `\r` and `\t` by their short forms, every other byte below 0x20 and 0x7F as `\u00XX` (lower-case hex), and copies valid UTF-8 sequences unchanged. Each byte that does not start a valid UTF-8 sequence becomes `�`. Text from files is valid UTF-8 already (failure 6 otherwise); text typed at an `ask` may not be.
+
+`json_value(value, desc)` writes a typed JSON value (spec §10), walking the same descriptors as `show_value`: `{"number":"<show form>"}`, `{"text":"<escaped>"}`, `{"truth":"yes"}`, `{"list":[v, …]}`, `{"record":"Expense","fields":{"name":v, …}}` with fields in declaration order. No spaces are written anywhere in an event.
+
+**Events (binding).** Keys appear in exactly this order. `L` is the event's line; `V` a typed value.
+
+| Event | Shape |
+|---|---|
+| set | `{"line":L,"event":"set","name":"total","from":V,"to":V}`; a field adds `"field":"amount"` after `name`; an item adds `"item":N` after `name` (and before `field` for a field of an item); a variable's first set has no `from`; `append` is `{"line":L,"event":"set","name":"prices","item":N,"to":V}` with `N` the new count |
+| check | `{"line":L,"event":"check","condition":"<as gloss format writes it>","values":{"price":V,…},"result":"yes"}` |
+| loop | `{"line":L,"event":"loop","name":"price","turn":N,"value":V}` |
+| enter | `{"line":L,"event":"enter","feature":"gcd","inputs":{"a":V,…}}` (`"inputs":{}` when it has none) |
+| leave | `{"line":L,"event":"leave","feature":"gcd","result":V}`; no `result` when the feature gives nothing |
+| show | `{"line":L,"event":"show","text":"<the line, without its newline>"}` |
+| ask | `{"line":L,"event":"ask","name":"item","question":"…","answer":"…"}` |
+| file | `{"line":L,"event":"file","table":"expenses","file":"expenses.csv","action":"load","rows":N}`; `action` is `load`, `save` or `clear` |
+| fail | `{"line":L,"event":"fail","failure":C,"message":"<the text after line L: failure C: >"}` |
+
+Each event ends with one newline. `line`, `item`, `turn`, `rows` and `failure` are JSON integers.
+
+**Where the events are written (lowering).**
+- Only a `show` event is open while user expressions run (its items are evaluated and written one by one, as in a real build). Every other event is written from values already computed into hidden slots, so events from calls inside an expression always come before the event of the statement that contains them.
+- **set** (D44): the new value is computed (and copied, as today), the target's position checks done (failures 2 and 3), then the old value is read, the event written, the value stored. For `add`, `subtract`, `multiply` and `divide` the old value is saved before the arithmetic, so a failure 4 writes no event. Each variable made in a function has a hidden "made" flag slot in a trace build (frames start zeroed); a set with the flag 0 writes no `from` and sets it. `ask … into` makes its variable the same way but writes an `ask` event instead of a `set` event.
+- **check** (D45): in `condition()`, after the condition's value is in `a` and before the branch. `values` holds each distinct variable, loop variable, input, and field read rooted at one of those (`amount of expense`, but not `amount of item 2 of expenses`), in order of first appearance, keyed by its printed form.
+- **loop**: after the loop variable is stored, before the body. A counting loop keeps a hidden turn counter; a list loop uses its index + 1.
+- **enter / leave** (D46): at the call site, after the inputs are evaluated and after the call's `StackCheck` (so failure 10 writes no `enter`), and after the call returns. The line is the call's line.
+- **file**: after `load`, `save` or `clear` succeeds; `rows` is the table's count afterwards.
+
+**The narrator (`src/trace/`).** `json.rs` (a small JSON reader, std only), `event.rs` (typed events), `value.rs` (values as `show` writes them, shortened: D47), `narrate.rs` (sentences, indentation). `Narrator::new(&Program)` maps each line to its condition's syntax tree. For each event line it writes the line to `x.trace` and prints:
+
+| Event | Printed |
+|---|---|
+| show | the text and a newline, never indented |
+| fail | `line L: failure C: <message>` and a newline on standard error |
+| set | `line L: total becomes 150`; first set: `line L: total is 0`; field: `amount of expense becomes 12`; item: `item 2 of prices becomes 5`; field of item: `amount of item 2 of expenses becomes 12`; append: `line L: 5 is appended to prices (now 4 items)` (`1 item`) |
+| check | `if`/`otherwise if`: `line L: <c>, so the block runs` or `line L: <c> is no, so the block is skipped`; `repeat while`: `…, so the loop runs` or `… is no, so the loop ends`. `<c>` is the condition as written with each name in `values` replaced by its value; a condition that is a single name or field read is written `<name> is yes` / `<name> is no` |
+| loop | `line L: price is 150` |
+| enter | `line L: calling gcd with a = 48, b = 36`, or `line L: calling report` |
+| leave | `line L: gcd gives 12`, or `line L: report ends` |
+| ask | `line L: the answer "coffee" goes into item` |
+| file | `line L: loaded expenses from expenses.csv (12 rows)`, `line L: saved expenses to expenses.csv (12 rows)`, `line L: cleared expenses` (`1 row`) |
+
+Every sentence is indented 2 spaces per open call below `start`; `start`'s own `enter` and `leave` are in the file but not narrated. Values: numbers in their show form, truths `yes`/`no`, text in quotes with `"` doubled, lists and records as `show` writes them; a list shows its first 3 items and then `… (N items)`, text over 60 characters is cut to 60 and ends with `…` (D47).
+
+**The CLI (D48).** `trace` shares `build`'s first half (diagnostics, the `.suffix` rule, `check_flags`, the permission list and `approve`) through one helper. Then: the host check (`gloss trace runs programs on Linux only`, status 3); `Checked::trace_executable()`; create `x.trace` (failure: `x.trace cannot be written`, status 3); write the executable into a `PrivateDir`; run it with the current folder as working directory, standard input inherited, standard output piped (read in whole lines), standard error streamed through. Status: 0 → 0; 2 after a `fail` event → 2; anything else, or a last line with no newline, → `the traced run ended without finishing (status N)` on standard error and 2.
+
+**Testing (D50).** `tests/trace_cases/<name>.gloss` with `<name>.trace` (the exact event lines) and `<name>.out` (the narration), optional `<name>.in`, `<name>.status` and a `<name>.files/` seed folder; a sweep with `MIN_TRACE_CASES`. Three harnesses: `tests/trace_cases.rs` (real executable: stdout equals `.trace`), `src/irsim/trace_cases.rs` (`irsim` agrees), `tests/trace_narration.rs` (the narrator turns `.trace` into `.out`; any host). A test asserts that a real build and a test build contain no `trace_state` and no trace routine.
+
+**Reviews.** The trace backend's swaps (`out_bytes`, `write_all`, `fail_begin`, `fail_end`, `ask`), the set-event ordering, and enter/leave at the call site get their first review on the top tier.
 
 ## 5. Open questions for the owner
 
