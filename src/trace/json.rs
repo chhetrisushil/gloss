@@ -1,4 +1,7 @@
-//! A small JSON reader for event lines. Integers only; objects keep their key order.
+//! A small JSON reader for event lines. Integers only (no fractions, exponents or leading
+//! zeros; `-0` reads as 0); objects keep their key order, and a repeated key is an error.
+//! It is lenient about whitespace between tokens: the four RFC 8259 characters (space, tab,
+//! line feed, carriage return) are skipped, though the traced program writes none.
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Json {
@@ -92,8 +95,12 @@ impl Reader<'_> {
         if self.peek() == Some(b'-') {
             self.at += 1;
         }
+        let digits = self.at;
         while self.peek().is_some_and(|b| b.is_ascii_digit()) {
             self.at += 1;
+        }
+        if self.at - digits > 1 && self.bytes[digits] == b'0' {
+            return Err(format!("leading zero at byte {start}"));
         }
         if matches!(self.peek(), Some(b'.' | b'e' | b'E')) {
             return Err(format!("not an integer at byte {start}"));
@@ -139,6 +146,9 @@ impl Reader<'_> {
             let key = self.string()?;
             self.skip_space();
             self.eat(b':')?;
+            if pairs.iter().any(|(k, _)| *k == key) {
+                return Err(format!("repeated key \"{key}\""));
+            }
             pairs.push((key, self.value()?));
             self.skip_space();
             match self.peek() {
@@ -292,7 +302,41 @@ mod tests {
         ] {
             assert!(parse(bad).is_err(), "{bad}");
         }
-        let deep = "[".repeat(100) + &"]".repeat(100);
-        assert_eq!(parse(&deep).unwrap_err(), "nested too deeply");
+        for bad in ["007", "-01", "-", "\"a\u{1}b\"", "\"a\nb\""] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+        let nested = |n: usize| "[".repeat(n) + &"]".repeat(n);
+        assert!(parse(&nested(64)).is_ok());
+        assert_eq!(parse(&nested(65)).unwrap_err(), "nested too deeply");
+        assert_eq!(
+            parse(r#"{"a":1,"b":2,"a":3}"#).unwrap_err(),
+            "repeated key \"a\""
+        );
+    }
+
+    #[test]
+    fn reads_unicode_escapes_written_as_json() {
+        assert_eq!(parse(r#""\u00e9""#).unwrap(), s("é"));
+        assert_eq!(parse(r#""\u00E9""#).unwrap(), s("é"));
+        assert_eq!(parse(r#""\ud83d\ude00""#).unwrap(), s("😀"));
+        assert_eq!(parse(r#""\uD83D\uDE00""#).unwrap(), s("😀"));
+        assert_eq!(parse(r#""\ufffd""#).unwrap(), s("\u{fffd}"));
+    }
+
+    #[test]
+    fn numbers_follow_rfc_8259_for_zero() {
+        assert_eq!(parse("0").unwrap(), Json::Int(0));
+        assert_eq!(parse("-0").unwrap(), Json::Int(0));
+        assert_eq!(parse("10").unwrap(), Json::Int(10));
+    }
+
+    #[test]
+    fn skips_the_four_rfc_whitespace_characters() {
+        let spaced = " \t\r\n{ \"a\" :\t[ 1 ,\n2 ]\r}\n";
+        let want = Json::Object(vec![(
+            "a".into(),
+            Json::Array(vec![Json::Int(1), Json::Int(2)]),
+        )]);
+        assert_eq!(parse(spaced).unwrap(), want);
     }
 }
