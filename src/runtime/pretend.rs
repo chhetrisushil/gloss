@@ -26,6 +26,26 @@ fn file_word(s: &mut Asm) {
     s.i(AddImm(A, FILE_AT));
 }
 
+/// `pretend_save(index, list, desc, line)`: the table `list` of records of `desc` becomes the
+/// pretend file of table `index`, as the text `csv_text` makes of it. An earlier file is
+/// replaced. Slots: 1 the text, 2 the entry's offset.
+fn pretend_save() -> Function {
+    let mut s = Asm::default();
+    for arg in [2, 3, 4] {
+        s.push_arg(arg);
+    }
+    s.call("csv_text");
+    s.i(StoreSlot(1, A));
+    file_word(&mut s);
+    s.i(LoadSlot(B, 1));
+    s.i(Store {
+        base: A,
+        offset: 0,
+        from: B,
+    });
+    s.finish("pretend_save", 4, 2)
+}
+
 /// `pretend_read(index, shown, desc, line)`: the rows of the pretend file of table `index`
 /// as a new list of records of `desc`; a missing file is an empty list, with no notice.
 /// Slots: 1 the list, 2 the entry's offset.
@@ -58,7 +78,7 @@ fn pretend_read() -> Function {
 }
 
 pub fn routines() -> Vec<Function> {
-    vec![pretend_read()]
+    vec![pretend_read(), pretend_save()]
 }
 
 #[cfg(test)]
@@ -167,5 +187,153 @@ mod tests {
         let (status, shown, err) = read(Some((0, "name,amount,paid\nA,x,yes\n")), 0);
         let msg = "line 7: failure 6: e.csv line 2: amount \"x\" is not a number\n";
         assert_eq!((status, shown.as_str(), err.as_str()), (2, "", msg));
+    }
+}
+
+#[cfg(test)]
+mod save_tests {
+    use super::super::tests::{program, run};
+    use crate::ir::{
+        Data, Desc, Global,
+        Inst::*,
+        Module,
+        Reg::{A, B},
+    };
+
+    /// A row of `Expense`: the index of its name among the texts after `NAMES`, a number, a truth.
+    type Row = (u32, i64, i64);
+    /// What a session does with a two-table block (24 bytes an entry) of `Expense` tables.
+    enum Step {
+        Save(i64, Vec<Row>),
+        Read(i64),
+        /// Writes the text of the pretend file word of the table.
+        Word(i64),
+    }
+    /// Texts 0 and 1 are the shown name `e.csv` and the separator written after each step.
+    const NAMES: [&[u8]; 2] = [b"tea", b"a, \"b\""];
+
+    fn session(steps: &[Step]) -> (i32, String, String) {
+        let mut descs = Module::default();
+        let kinds = [Desc::Text, Desc::Number, Desc::Truth];
+        let fields = ["name", "amount", "paid"].map(String::from);
+        let fields = fields.into_iter().zip(kinds.map(|k| descs.desc(k)));
+        let record = descs.desc(Desc::Record {
+            name: "Expense".into(),
+            fields: fields.collect(),
+        });
+        let list = descs.desc(Desc::List(record));
+        let push = |a| [AddressOf(A, a), Push(A)];
+        let mut body = vec![Const(A, 48), Push(A), Const(A, 0), Push(A)];
+        body.extend([Call("alloc".into()), StoreSlot(1, A)]);
+        body.extend([AddressOf(B, Data::Global(Global::Tables))]);
+        body.extend([Store {
+            base: B,
+            offset: 0,
+            from: A,
+        }]);
+        for step in steps {
+            match step {
+                Step::Save(at, rows) => {
+                    body.extend([Const(A, 4), Push(A), Const(A, 0), Push(A)]);
+                    body.extend([Call("list_new".into()), StoreSlot(2, A)]);
+                    for (name, amount, paid) in rows {
+                        body.extend([Const(A, 24), Push(A), Const(A, 0), Push(A)]);
+                        body.extend([Call("alloc".into()), StoreSlot(3, A)]);
+                        let cells = [
+                            AddressOf(B, Data::Text(2 + name)),
+                            Const(B, *amount),
+                            Const(B, *paid),
+                        ];
+                        for (i, cell) in cells.into_iter().enumerate() {
+                            body.extend([
+                                cell,
+                                Store {
+                                    base: A,
+                                    offset: 8 * i as i32,
+                                    from: B,
+                                },
+                            ]);
+                        }
+                        body.extend([LoadSlot(A, 2), Push(A), LoadSlot(A, 3), Push(A)]);
+                        body.extend([Const(A, 0), Push(A), Call("list_push".into())]);
+                    }
+                    body.extend([Const(A, *at), Push(A), LoadSlot(A, 2), Push(A)]);
+                    body.extend(push(Data::Desc(record)));
+                    body.extend([Const(A, 7), Push(A), Call("pretend_save".into())]);
+                }
+                Step::Read(at) => {
+                    body.extend([Const(A, *at), Push(A)]);
+                    body.extend(push(Data::Text(0)));
+                    body.extend(push(Data::Desc(record)));
+                    body.extend([Const(A, 7), Push(A), Call("pretend_read".into()), Push(A)]);
+                    body.extend(push(Data::Desc(list)));
+                    body.push(Call("show_value".into()));
+                }
+                Step::Word(at) => {
+                    body.extend([LoadSlot(A, 1), AddImm(A, 24 * *at as i32 + 16)]);
+                    body.extend([
+                        Load {
+                            to: A,
+                            base: A,
+                            offset: 0,
+                        },
+                        Push(A),
+                        Call("out_text".into()),
+                    ]);
+                }
+            }
+            body.extend(push(Data::Text(1)));
+            body.extend([Call("out_text".into())]);
+        }
+        body.push(Call("flush".into()));
+        let mut texts: Vec<&[u8]> = vec![b"e.csv", b"|"];
+        texts.extend(NAMES);
+        let mut m = program(body, &texts);
+        m.functions[0].slots = 3;
+        m.functions[0].body[0] = Enter(3);
+        m.descs = descs.descs;
+        let o = run(&m);
+        let text = |b: Vec<u8>| String::from_utf8(b).unwrap();
+        (o.status, text(o.stdout), text(o.stderr))
+    }
+
+    fn shown(steps: &[Step]) -> String {
+        let (status, out, err) = session(steps);
+        assert_eq!((status, err.as_str()), (0, ""), "{out}");
+        out
+    }
+
+    const TWO: [Row; 2] = [(0, 1_205_000, 1), (1, -30_000, 0)];
+    const ROWS: &str = "list of (Expense with name \"tea\", amount 120.5, paid yes), \
+                        (Expense with name \"a, \"\"b\"\"\", amount -3, paid no)|";
+
+    #[test]
+    fn a_saved_table_reads_back() {
+        let steps = [Step::Save(0, TWO.to_vec()), Step::Read(0)];
+        assert_eq!(shown(&steps), format!("|{ROWS}"));
+    }
+
+    #[test]
+    fn save_twice_keeps_the_last() {
+        let steps = [
+            Step::Save(1, TWO.to_vec()),
+            Step::Save(1, TWO[..1].to_vec()),
+            Step::Read(1),
+        ];
+        let one = "list of (Expense with name \"tea\", amount 120.5, paid yes)|";
+        assert_eq!(shown(&steps), format!("||{one}"));
+    }
+
+    #[test]
+    fn a_saved_table_does_not_fill_the_other_ones_file() {
+        let steps = [Step::Save(1, TWO.to_vec()), Step::Read(0), Step::Read(1)];
+        assert_eq!(shown(&steps), format!("|empty list of Expense|{ROWS}"));
+    }
+
+    #[test]
+    fn pretend_save_uses_the_real_writer() {
+        let want = "name,amount,paid\ntea,120.5,yes\n\"a, \"\"b\"\"\",-3,no\n|";
+        let steps = [Step::Save(0, TWO.to_vec()), Step::Word(0)];
+        assert_eq!(shown(&steps), format!("|{want}"));
     }
 }
