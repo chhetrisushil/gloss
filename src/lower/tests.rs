@@ -825,3 +825,83 @@ fn out_of_memory_while_shown_grows_reports_the_line_of_the_show() {
     m.functions[at].slots = 0;
     assert_eq!(crate::irsim::run(&m, "t_0", b"").status, 11);
 }
+
+fn run_tests(text: &str) -> (String, i32) {
+    let o = crate::irsim::run(&lowered_tests(text).unwrap(), "_start", b"");
+    (String::from_utf8(o.stdout).unwrap(), o.status)
+}
+
+const TWO_TESTS: &str = "feature start\n  show 1\n\ntest \"one\"\n  set y to 1\n\n\
+                         test \"two\"\n  set y to 2\n";
+
+#[test]
+fn the_driver_forks_once_per_test() {
+    let m = lowered_tests(TWO_TESTS).unwrap();
+    let main = function_text(function(&m, "test_main"));
+    assert_eq!(function(&m, "test_main").params, 0);
+    assert_eq!(function(&m, "test_main").slots, 3);
+    assert_eq!(main.matches("  system fork\n").count(), 2, "{main}");
+    assert_eq!(main.matches("  system wait\n").count(), 2, "{main}");
+    let (a, b) = (
+        main.find("call t_0\n").unwrap(),
+        main.find("call t_1\n").unwrap(),
+    );
+    assert!(a < b, "{main}");
+    assert_eq!(main.matches("call t_").count(), 2, "{main}");
+    // `_start` replaces the runtime's: no `f_start`, the driver instead.
+    let start = function_text(function(&m, "_start"));
+    assert!(
+        start.contains("call test_main") && !start.contains("f_start"),
+        "{start}"
+    );
+    assert_eq!(m.functions.iter().filter(|f| f.name == "_start").count(), 1);
+}
+
+#[test]
+fn the_title_is_escaped() {
+    let text = "feature start\n  show 1\n\ntest \"a\u{202E}b\"\n  set y to 1\n";
+    let m = lowered_tests(text).unwrap();
+    assert!(m.texts.iter().any(|t| t == b"a\\u{202E}b"));
+    assert!(!m.texts.iter().any(|t| t == "a\u{202E}b".as_bytes()));
+}
+
+#[test]
+fn an_empty_driver_summarises_zero() {
+    let (out, status) = run_tests("feature start\n  show 1\n");
+    assert_eq!((out.as_str(), status), ("\n0 passed, 0 failed\n", 0));
+}
+
+#[test]
+fn the_driver_counts_passes_and_failures_and_exits_1_when_any_failed() {
+    let (out, status) = run_tests(TWO_TESTS);
+    assert_eq!(
+        (out.as_str(), status),
+        ("pass  one\npass  two\n\n2 passed, 0 failed\n", 0)
+    );
+    let text =
+        format!("{ROWS}test \"ok\"\n  set y to 1\n\ntest \"bad\"\n  set y to item 7 of rows\n");
+    let (out, status) = run_tests(&text);
+    let want = "pass  ok\nfail  bad\n      line 13: failure 2: there is no item 7 in rows; it has 0 items\n\n\
+                1 passed, 1 failed\n";
+    assert_eq!((out.as_str(), status), (want, 1));
+}
+
+#[test]
+fn a_child_that_dies_is_reported_lost() {
+    let text = "feature start\n  show 1\n\ntest \"t\"\n  set y to 1\n";
+    let mut m = lowered_tests(text).unwrap();
+    let at = m.functions.iter().position(|f| f.name == "t_0").unwrap();
+    m.functions[at].body = vec![
+        crate::ir::Inst::Enter(0),
+        crate::ir::Inst::Const(crate::ir::Reg::A, 7),
+        crate::ir::Inst::Push(crate::ir::Reg::A),
+        crate::ir::Inst::System(crate::ir::Prim::Exit),
+    ];
+    m.functions[at].slots = 0;
+    let o = crate::irsim::run(&m, "_start", b"");
+    let want = "fail  t\n      ended without a result (status 7)\n\n0 passed, 1 failed\n";
+    assert_eq!(
+        (String::from_utf8(o.stdout).unwrap().as_str(), o.status),
+        (want, 1)
+    );
+}

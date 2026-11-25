@@ -273,6 +273,10 @@ fn lower_program(
 ) -> Result<Module, Diagnostic> {
     let mut module = Module::default();
     let mut called = vec!["_start".to_string()];
+    // A test build has its own `_start`, put in before the runtime's would be.
+    if mode == Mode::Test {
+        called.clear();
+    }
     let context = (src, program, types);
     for feature in program.features() {
         let f = lower_feature((&mut module, mode), context, feature, &mut called)?;
@@ -283,6 +287,8 @@ fn lower_program(
             let f = test::lower_test((&mut module, mode), context, i, test, &mut called)?;
             module.functions.push(f);
         }
+        let driver = test::lower_driver((&mut module, mode), context, &mut called);
+        module.functions.extend(driver);
     }
     let list = crate::permissions::render(&crate::permissions::list(program));
     let text = module.text(list.as_bytes());
