@@ -56,6 +56,9 @@ pub(crate) struct Lowerer<'a> {
     pub loops: Vec<(Label, Label)>,
     /// Hidden slots handed out so far, numbered after the named ones.
     pub temps: u32,
+    /// A trace build's "made" flag slot of each variable: 0 until a `set` or `ask` makes it
+    /// (frames start zeroed), 1 after. Empty outside a trace build.
+    pub made: BTreeMap<String, u32>,
 }
 
 impl Lowerer<'_> {
@@ -142,7 +145,7 @@ impl<'a> Lowerer<'a> {
         inputs: Vec<String>,
     ) -> Self {
         let slots = assign_slots(vars, loops);
-        Lowerer {
+        let mut l = Lowerer {
             module,
             mode,
             src,
@@ -158,7 +161,15 @@ impl<'a> Lowerer<'a> {
             line: 0,
             loops: Vec::new(),
             temps: 0,
+            made: BTreeMap::new(),
+        };
+        if mode == Mode::Trace {
+            for (name, ..) in vars {
+                let flag = l.new_temp();
+                l.made.insert(name.clone(), flag);
+            }
         }
+        l
     }
 
     /// Ends the function: the failure blocks, the frame (the named slots and the hidden
