@@ -1,0 +1,17 @@
+record Expense
+  name as text
+  amount as number
+
+table expenses of Expense in "expenses.csv"
+
+feature start
+  load expenses
+  show 1
+
+test "clear empties the table but not the pretend file"
+  append Expense with name "Lunch", amount 120 to expenses
+  save expenses
+  clear expenses
+  expect count of expenses is 0
+  load expenses
+  expect count of expenses is 1

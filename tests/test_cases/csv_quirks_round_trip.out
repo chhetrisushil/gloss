@@ -1,0 +1,5 @@
+pass  empty text, commas, quotes and decimals survive
+pass  a one-column table survives
+pass  spaces, a leading quote, non-ASCII text and large numbers survive
+
+3 passed, 0 failed
