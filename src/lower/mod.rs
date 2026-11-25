@@ -290,9 +290,12 @@ fn lower_program(
         let driver = test::lower_driver((&mut module, mode), context, &mut called);
         module.functions.extend(driver);
     }
-    let list = crate::permissions::render(&crate::permissions::list(program));
-    let text = module.text(list.as_bytes());
-    module.functions.push(permissions_text(text));
+    // The runtime's `args_check` is the only caller, and a test executable takes no flags.
+    if mode == Mode::Real {
+        let list = crate::permissions::render(&crate::permissions::list(program));
+        let text = module.text(list.as_bytes());
+        module.functions.push(permissions_text(text));
+    }
     module
         .functions
         .push(table::tables_init(program, &mut called));
