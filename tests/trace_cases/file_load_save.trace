@@ -1,0 +1,3 @@
+{"line":8,"event":"file","table":"expenses","file":"expenses.csv","action":"load","rows":1}
+{"line":9,"event":"set","name":"expenses","item":2,"to":{"record":"Expense","fields":{"name":{"text":"Tea"},"amount":{"number":"2"}}}}
+{"line":10,"event":"file","table":"expenses","file":"expenses.csv","action":"save","rows":2}

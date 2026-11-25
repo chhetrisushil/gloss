@@ -1,0 +1,10 @@
+record Expense
+  name as text
+  amount as number
+
+table expenses of Expense in "expenses.csv"
+
+feature start
+  load expenses
+  append Expense with name "Tea", amount 2 to expenses
+  save expenses
