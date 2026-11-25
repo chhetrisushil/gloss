@@ -3,7 +3,7 @@
 use super::test_state::*;
 use super::tests::{program, run};
 use crate::ir::Reg::{A, B};
-use crate::ir::{Cond, Data, Global, Inst, Inst::*, Prim};
+use crate::ir::{Cond, Data, Global, Inst, Inst::*, IntOp, Prim};
 
 fn state() -> Inst {
     AddressOf(A, Data::Global(Global::TestState))
@@ -110,20 +110,35 @@ fn shown_bytes() -> Vec<Inst> {
 
 #[test]
 fn shown_add_collects_and_grows() {
-    let text = pattern(5000);
+    let text = pattern(9000);
     let body = [add("shown_add", 300), add("shown_add", 5000), shown_bytes()];
     let o = run(&program(body.concat(), &[&text]));
-    assert_eq!((o.status, o.stdout), (0, [&text[..300], &text].concat()));
-    // The first call gives room 256 (32 words), a full buffer doubles it.
-    let room = |n| {
+    assert_eq!(
+        (o.status, o.stdout),
+        (0, [&text[..300], &text[..5000]].concat())
+    );
+    // A first call grows the buffer past its 4096 bytes of room, so that 4096 stay free.
+    let after = |n, size: &[Inst]| {
         let exit = [
-            Shift(crate::ir::Shift::Right, 3),
+            Shift(crate::ir::Shift::Right, 12),
             Push(A),
             System(Prim::Exit),
         ];
-        let body = [add("shown_add", n), word(SHOWN_ROOM), exit.to_vec()];
+        let body = [add("shown_add", n), size.to_vec(), exit.to_vec()];
         run(&program(body.concat(), &[&text])).status
     };
+    let free = [
+        word(SHOWN_LEN),
+        vec![Move { to: B, from: A }],
+        word(SHOWN_ROOM),
+    ]
+    .concat();
+    let free = [free, vec![Int(IntOp::Sub)]].concat();
+    let rooms = [1, 4100, 9000].map(|n| after(n, &word(SHOWN_ROOM)));
+    assert_eq!(
+        (rooms, [1, 4100, 9000].map(|n| after(n, &free))),
+        ([2, 2, 3], [1; 3])
+    );
     // The block's own length word follows.
     let at = Load {
         to: A,
@@ -136,7 +151,6 @@ fn shown_add_collects_and_grows() {
         vec![at, Push(A), System(Prim::Exit)],
     ];
     assert_eq!(run(&program(body.concat(), &[&text])).status, 7);
-    assert_eq!((room(1), room(257), room(1500)), (32, 64, 187));
 }
 
 fn set_heap_next_0() -> Vec<Inst> {
@@ -149,14 +163,21 @@ fn set_heap_next_0() -> Vec<Inst> {
     vec![Const(B, 0), at, zero]
 }
 
-/// `test_begin` (which allocates the shown buffer), then 250 bytes shown, then `FAILING`.
+/// `test_begin` (which allocates the shown buffer), then 250 bytes shown, then `FAILING`
+/// with the room cut to 256: a full buffer, which only the guard in `shown_add` can reach.
 fn shown_then_failing() -> Vec<Inst> {
     let begin = [
         AddressOf(A, Data::Text(0)),
         Push(A),
         Call("test_begin".into()),
     ];
-    [&begin[..], &add("shown_add", 250), &set_word(FAILING, 1)].concat()
+    [
+        &begin[..],
+        &add("shown_add", 250),
+        &set_word(SHOWN_ROOM, 256),
+        &set_word(FAILING, 1),
+    ]
+    .concat()
 }
 
 #[test]
@@ -193,4 +214,10 @@ fn failing_with_an_allocated_empty_buffer_keeps_bytes() {
     ];
     let o = run(&program(body.concat(), &[b"hello"]));
     assert_eq!(o.stdout, b"hello");
+}
+
+#[test]
+fn shown_add_of_no_bytes_allocates_nothing() {
+    assert_eq!(allocated(add("shown_add", 0), b"x"), 0);
+    assert_eq!(allocated(add("shown_add", 1), b"x"), 1);
 }
