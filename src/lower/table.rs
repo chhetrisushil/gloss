@@ -1,12 +1,19 @@
 //! Tables in memory: `Global::Tables` holds the address of a block of two words per table,
-//! in declaration order: the table's list, then its loaded flag.
+//! in declaration order: the table's list, then its loaded flag; a test build adds a third,
+//! the table's pretend file.
 use super::{Lowerer, Mode};
 use crate::ast::program::Program;
 use crate::diag::Diagnostic;
 use crate::ir::{Cond, Data, Function, Global, Inst, Reg};
 
-/// The size in bytes of one table's entry in the block.
-const ENTRY: i32 = 16;
+/// The size in bytes of one table's entry in the block: 16 in a real build; a test build
+/// adds the pretend file (`runtime::ENTRY_BYTES`).
+pub fn entry_bytes(mode: Mode) -> i32 {
+    match mode {
+        Mode::Real => 16,
+        Mode::Test => crate::runtime::ENTRY_BYTES,
+    }
+}
 /// The suffix of the temporary file `save` writes beside the table.
 const TEMP_SUFFIX: &str = ".gloss-new";
 
@@ -68,7 +75,7 @@ impl Lowerer<'_> {
     /// Puts the list of table `index` in `a`.
     pub fn load_table(&mut self, index: usize) {
         self.emit(Inst::AddressOf(Reg::A, Data::Global(Global::Tables)));
-        for offset in [0, ENTRY * index as i32] {
+        for offset in [0, entry_bytes(self.mode) * index as i32] {
             self.emit(Inst::Load {
                 to: Reg::A,
                 base: Reg::A,
@@ -86,7 +93,7 @@ impl Lowerer<'_> {
             offset: 0,
         });
         self.emit(Inst::LoadSlot(Reg::B, slot));
-        let at = ENTRY * index as i32;
+        let at = entry_bytes(self.mode) * index as i32;
         self.emit(Inst::Store {
             base: Reg::A,
             offset: at,
@@ -113,7 +120,8 @@ impl Lowerer<'_> {
         self.install_list(index, fresh);
     }
 
-    /// `load t`: `table_read` builds a new list from the file, with the path and its display
+    /// `load t`: `table_read` (`pretend_read` in a test build, which reads the table's
+    /// pretend file by its index) builds a new list from the file, with the path and its display
     /// form as compile-time texts. Only when it has read the whole file is the list stored as
     /// the table's, and the loaded flag set; a failure ends the program before that.
     pub fn read_table(&mut self, index: usize) -> Result<(), Diagnostic> {
@@ -124,14 +132,24 @@ impl Lowerer<'_> {
             .expect("a table of that index");
         check_table_path(&table.path)
             .map_err(|message| Diagnostic::error(self.src, self.line, &message))?;
-        self.push_text(&[table.path.as_bytes(), b"\0"].concat());
+        let pretend = self.mode == Mode::Test;
+        if pretend {
+            self.emit(Inst::Const(Reg::A, index as i64));
+            self.emit(Inst::Push(Reg::A));
+        } else {
+            self.push_text(&[table.path.as_bytes(), b"\0"].concat());
+        }
         self.push_text(crate::permissions::display_name(&table.path).as_bytes());
         let desc = self.record_desc(&table.record);
         self.emit(Inst::AddressOf(Reg::A, Data::Desc(desc)));
         self.emit(Inst::Push(Reg::A));
         self.emit(Inst::Const(Reg::A, i64::from(self.line)));
         self.emit(Inst::Push(Reg::A));
-        self.call("table_read");
+        self.call(if pretend {
+            "pretend_read"
+        } else {
+            "table_read"
+        });
         let fresh = self.new_temp();
         self.emit(Inst::StoreSlot(fresh, Reg::A));
         self.install_list(index, fresh);
@@ -155,7 +173,7 @@ impl Lowerer<'_> {
             " is saved here but was not loaded or cleared first",
         );
         self.emit(Inst::AddressOf(Reg::A, Data::Global(Global::Tables)));
-        for offset in [0, ENTRY * index as i32 + 8] {
+        for offset in [0, entry_bytes(self.mode) * index as i32 + 8] {
             self.emit(Inst::Load {
                 to: Reg::A,
                 base: Reg::A,
@@ -214,7 +232,8 @@ pub fn tables_init(program: &Program, called: &mut Vec<String>, mode: Mode) -> F
             body.push(Inst::Const(Reg::A, value));
             body.push(Inst::Push(Reg::A));
         };
-        push(&mut body, i64::from(ENTRY * n));
+        let entry = entry_bytes(mode);
+        push(&mut body, i64::from(entry * n));
         push(&mut body, 0);
         body.push(Inst::Call("alloc".to_string()));
         body.push(Inst::StoreSlot(1, Reg::A));
@@ -225,14 +244,14 @@ pub fn tables_init(program: &Program, called: &mut Vec<String>, mode: Mode) -> F
             body.push(Inst::LoadSlot(Reg::B, 1));
             body.push(Inst::Store {
                 base: Reg::B,
-                offset: ENTRY * i,
+                offset: entry * i,
                 from: Reg::A,
             });
             if mode == Mode::Test {
                 body.push(Inst::Const(Reg::A, 1));
                 body.push(Inst::Store {
                     base: Reg::B,
-                    offset: ENTRY * i + 8,
+                    offset: entry * i + 8,
                     from: Reg::A,
                 });
             }
