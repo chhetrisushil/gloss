@@ -50,6 +50,9 @@ impl Lowerer<'_> {
             {
                 self.mark_line(s.line);
                 self.store_value(value)?;
+                if self.mode == Mode::Trace {
+                    self.set_event(s.line, name);
+                }
                 self.emit(Inst::StoreSlot(self.slots[name], Reg::A));
                 Ok(())
             }

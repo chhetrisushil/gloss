@@ -1,2 +1,4 @@
 {"line":2,"event":"show","text":"before"}
+{"line":3,"event":"set","name":"n","to":{"number":"0"}}
+{"line":4,"event":"set","name":"x","to":{"number":"10"}}
 {"line":5,"event":"fail","failure":1,"message":"dividing by zero (n is 0)"}

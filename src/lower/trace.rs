@@ -63,8 +63,6 @@ impl Lowerer<'_> {
     }
 
     /// Writes the value in `slot`, of type `ty`, as a typed JSON value (`json_value`).
-    // First used by the events of later tasks.
-    #[allow(dead_code)]
     pub fn ev_value_from_slot(&mut self, slot: u32, ty: &Ty) {
         if self.mode == Mode::Trace {
             self.emit(Inst::LoadSlot(Reg::A, slot));
@@ -99,6 +97,29 @@ impl Lowerer<'_> {
     /// Writes `}` and a newline.
     pub fn ev_close(&mut self) {
         self.ev_raw("}\n");
+    }
+
+    /// Writes the `set` event of variable `name`, whose new value is in `a`, before the
+    /// caller stores it: `from` is read from the variable's slot, which still holds the old
+    /// value, and only when the made flag is 1 (D44). Sets the flag; leaves the value in `a`.
+    pub(super) fn set_event(&mut self, line: u32, name: &str) {
+        let ty = self.vars[name].clone();
+        let new = self.new_temp();
+        self.emit(Inst::StoreSlot(new, Reg::A));
+        self.ev_open(line, "set");
+        self.ev_key("name");
+        self.ev_fixed_text(name);
+        let first = self.new_label();
+        self.emit(Inst::LoadSlot(Reg::A, self.made[name]));
+        self.jump_if_a_is(0, first);
+        self.ev_key("from");
+        self.ev_value_from_slot(self.slots[name], &ty);
+        self.emit(Inst::Mark(first));
+        self.ev_key("to");
+        self.ev_value_from_slot(new, &ty);
+        self.ev_close();
+        self.set_made(name);
+        self.emit(Inst::LoadSlot(Reg::A, new));
     }
 
     /// Sets `name`'s made flag (see `Lowerer::made`); clobbers `a`.
