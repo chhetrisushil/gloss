@@ -130,7 +130,7 @@ fn test_begin() -> Function {
 }
 
 /// Reports the title of the test being run.
-fn report_title(s: &mut Asm) {
+pub(super) fn report_title(s: &mut Asm) {
     s.i(AddressOf(A, Data::Global(Global::TestState)));
     s.i(Load {
         to: A,
