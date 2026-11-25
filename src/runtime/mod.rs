@@ -131,12 +131,14 @@ const FAIL_LINE: u32 = 78;
 const FAIL_EVENT: u32 = 79;
 const FAIL_MESSAGE: u32 = 80;
 const FAIL_CLOSE: u32 = 81;
+/// The middle of a `show` event, between its line and its escaped text.
+const SHOW_EVENT: u32 = 82;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 82] = [
+const TEXTS: [&[u8]; 83] = [
     b"line ",
     b": failure ",
     b": ",
@@ -219,6 +221,7 @@ const TEXTS: [&[u8]; 82] = [
     b",\"event\":\"fail\",\"failure\":",
     b",\"message\":\"",
     b"\"}\n",
+    b",\"event\":\"show\",\"text\":\"",
 ];
 
 /// The bytes of the runtime text `i`.

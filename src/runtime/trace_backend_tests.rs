@@ -312,3 +312,111 @@ fn an_internal_error_after_events_leaves_only_whole_events_on_stdout() {
         (2, "{\"line\":1}\n", "internal error\n")
     );
 }
+
+/// Source line the asks of these tests are made on.
+const ASK_LINE: i64 = 3;
+
+/// A program that calls `ask(text 0, ASK_LINE)` and writes the answer after a `|`, plain.
+fn ask_program() -> crate::ir::Module {
+    let body = vec![
+        AddressOf(A, Data::Text(0)),
+        Push(A),
+        Const(A, ASK_LINE),
+        Push(A),
+        Call("ask".into()),
+        Push(A),
+        AddressOf(A, Data::Text(1)),
+        Push(A),
+        Call("out_text".into()),
+        Call("out_text".into()),
+        Call("flush".into()),
+    ];
+    program_for(Backend::Trace, body, &[b"What?", b"|"])
+}
+
+fn run_ask(m: &crate::ir::Module, stdin: &[u8]) -> crate::irsim::Outcome {
+    crate::irsim::run(m, "_start", stdin)
+}
+
+#[test]
+fn the_trace_ask_shows_the_question_as_an_event_then_reads() {
+    // The `Push(A)` before `|` puts the answer under it, so `out_text` writes `|` first.
+    let o = run_ask(&ask_program(), b"tea\n");
+    let want = "{\"line\":3,\"event\":\"show\",\"text\":\"What?\"}\n|tea";
+    assert_eq!(
+        (o.status, String::from_utf8(o.stdout).unwrap()),
+        (0, want.to_string())
+    );
+}
+
+#[test]
+fn the_trace_ask_escapes_the_question() {
+    let body = vec![
+        AddressOf(A, Data::Text(0)),
+        Push(A),
+        Const(A, 8),
+        Push(A),
+        Call("ask".into()),
+    ];
+    let m = program_for(Backend::Trace, body, &[b"say \"hi\"\n"]);
+    let o = run_ask(&m, b"x\n");
+    let want = "{\"line\":8,\"event\":\"show\",\"text\":\"say \\\"hi\\\"\\n\"}\n";
+    assert_eq!((o.status, o.stdout), (0, want.as_bytes().to_vec()));
+}
+
+/// An `ask_read` that writes `R` to standard output at once, and gives text 1 (`|` in
+/// `ask_program`) as the answer.
+fn marking_ask_read() -> Function {
+    let body = vec![
+        Enter(0),
+        Const(A, i64::from(b'R')),
+        Push(A),
+        Const(A, 1),
+        Push(A),
+        StackPointer(A),
+        AddImm(A, 8),
+        Push(A),
+        Const(A, 1),
+        Push(A),
+        System(Prim::Write),
+        Pop(B),
+        AddressOf(A, Data::Text(1)),
+        Return,
+    ];
+    Function {
+        name: "ask_read".into(),
+        params: 1,
+        slots: 0,
+        body,
+    }
+}
+
+#[test]
+fn the_question_is_flushed_before_the_read() {
+    let mut m = ask_program();
+    let at = m
+        .functions
+        .iter()
+        .position(|f| f.name == "ask_read")
+        .expect("ask calls ask_read");
+    m.functions[at] = marking_ask_read();
+    let o = run_ask(&m, b"");
+    // Without the flush, `R` would come first (the event waits in the buffer for the end).
+    let out = String::from_utf8(o.stdout).unwrap();
+    assert_eq!(
+        out, "{\"line\":3,\"event\":\"show\",\"text\":\"What?\"}\nR||",
+        "the event, then the read's mark, then the program's own writes"
+    );
+}
+
+#[test]
+fn input_ended_is_a_fail_event() {
+    let o = run_ask(&ask_program(), b"");
+    let want = "{\"line\":3,\"event\":\"show\",\"text\":\"What?\"}\n\
+                {\"line\":3,\"event\":\"fail\",\"failure\":9,\
+                \"message\":\"input ended while ask was waiting\"}\n";
+    assert_eq!(
+        (o.status, String::from_utf8(o.stdout).unwrap(), o.stderr),
+        (2, want.to_string(), vec![])
+    );
+}
