@@ -2,4 +2,5 @@
 
 pub mod event;
 pub mod json;
+pub mod narrate;
 pub mod value;
