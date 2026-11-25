@@ -45,7 +45,7 @@ mod text;
 pub(crate) mod trace_backend;
 #[cfg(test)]
 mod trace_backend_tests;
-pub mod trace_state;
+pub(crate) mod trace_state;
 mod utf8;
 mod values;
 

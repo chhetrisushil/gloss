@@ -29,25 +29,14 @@ impl Lowerer<'_> {
             StmtKind::Note(_) => Ok(()),
             StmtKind::Show(items) => {
                 self.mark_line(s.line);
-                // A trace build writes one event: the items are its escaped `text`, and the
-                // newline a real `show` ends with is not written.
-                self.ev_open(s.line, "show");
-                self.ev_key("text");
-                self.ev_raw("\"");
-                self.set_open(true);
-                self.set_escaping(true);
+                if self.mode == Mode::Trace {
+                    return self.show_event(s.line, items);
+                }
                 for item in items {
                     self.show_item(item)?;
                 }
-                self.set_escaping(false);
-                self.set_open(false);
-                self.ev_raw("\"");
-                if self.mode == Mode::Trace {
-                    self.ev_close();
-                } else {
-                    self.push_text(b"\n");
-                    self.call("out_text");
-                }
+                self.push_text(b"\n");
+                self.call("out_text");
                 Ok(())
             }
             StmtKind::Set {
@@ -261,44 +250,79 @@ impl Lowerer<'_> {
     }
 
     fn show_item(&mut self, item: &Expr) -> Result<(), Diagnostic> {
-        match &item.kind {
-            ExprKind::Text(text) => {
-                self.push_text(text.as_bytes());
-                self.call("out_text");
-                Ok(())
-            }
+        if let ExprKind::Text(text) = &item.kind {
+            self.push_text(text.as_bytes());
+            self.call("out_text");
+            return Ok(());
+        }
+        self.expr(item)?;
+        self.show_loaded(item)
+    }
+
+    /// Shows `item`, whose value is in `a`, by its type.
+    fn show_loaded(&mut self, item: &Expr) -> Result<(), Diagnostic> {
+        match () {
             _ if self.is_text(item) => {
-                self.expr(item)?;
                 self.emit(Inst::Push(Reg::A));
                 self.call("out_text");
-                Ok(())
             }
             _ if self.is_number(item) => {
-                self.expr(item)?;
                 self.emit(Inst::Push(Reg::A));
                 self.call("out_number");
-                Ok(())
             }
-            _ if self.is_truth(item) => {
-                self.expr(item)?;
-                self.show_truth();
-                Ok(())
-            }
+            _ if self.is_truth(item) => self.show_truth(),
             _ if self.record_type(item).is_some() => {
-                self.expr(item)?;
                 self.show_record(self.record_type(item).expect("just checked"));
-                Ok(())
             }
             _ if self.list_item_type(item).is_some() => {
-                self.expr(item)?;
                 self.show_list(&self.list_item_type(item).expect("just checked"));
-                Ok(())
             }
-            _ => Err(Diagnostic::error(
-                self.src,
-                item.line,
-                "this compiler cannot build this expression yet",
-            )),
+            _ => {
+                return Err(Diagnostic::error(
+                    self.src,
+                    item.line,
+                    "this compiler cannot build this expression yet",
+                ));
+            }
         }
+        Ok(())
+    }
+
+    /// A trace build's `show`: every item is evaluated into a hidden slot first, so no user
+    /// code (a call that writes its own events) runs while the event is open; then the event
+    /// is opened and each item written from its slot. A failure part-way through the items
+    /// therefore comes before the event, which is then not written.
+    fn show_event(&mut self, line: u32, items: &[Expr]) -> Result<(), Diagnostic> {
+        let mut slots = Vec::new();
+        for item in items {
+            let slot = if matches!(item.kind, ExprKind::Text(_)) {
+                None
+            } else {
+                self.expr(item)?;
+                let slot = self.new_temp();
+                self.emit(Inst::StoreSlot(slot, Reg::A));
+                Some(slot)
+            };
+            slots.push(slot);
+        }
+        self.ev_open(line, "show");
+        self.ev_key("text");
+        self.ev_raw("\"");
+        self.set_open(true);
+        self.set_escaping(true);
+        for (item, slot) in items.iter().zip(slots) {
+            match slot {
+                Some(slot) => {
+                    self.emit(Inst::LoadSlot(Reg::A, slot));
+                    self.show_loaded(item)?;
+                }
+                None => self.show_item(item)?,
+            }
+        }
+        self.set_escaping(false);
+        self.set_open(false);
+        self.ev_raw("\"");
+        self.ev_close();
+        Ok(())
     }
 }
