@@ -44,15 +44,11 @@ impl<'p> Narrator<'p> {
         if matches!(cond.kind, ExprKind::Name(_) | ExprKind::FieldOf { .. }) {
             return Some(format!("line {line}: {} is {truth}, so {tail}", expr(cond)));
         }
-        let shown = expr_with(cond, &|e| {
-            if !matches!(e.kind, ExprKind::Name(_) | ExprKind::FieldOf { .. }) {
-                return None;
-            }
-            let printed = expr(e);
-            values
-                .iter()
-                .find(|(k, _)| *k == printed)
-                .map(|(_, v)| say(v))
+        let said: HashMap<&str, String> =
+            values.iter().map(|(k, v)| (k.as_str(), say(v))).collect();
+        let shown = expr_with(cond, &|e| match e.kind {
+            ExprKind::Name(_) | ExprKind::FieldOf { .. } => said.get(expr(e).as_str()).cloned(),
+            _ => None,
         });
         let is_no = if result { "" } else { " is no" };
         Some(format!("line {line}: {shown}{is_no}, so {tail}"))
@@ -150,10 +146,21 @@ mod tests {
 
     #[test]
     fn a_call_stays_as_written() {
-        let body = "  if seven is greater than 5\n    show \"x\"\n";
+        // A call with inputs is a `Call` node; only names are ever looked up, so even a
+        // value listed under the call's own name is not used.
+        let body = "  if f with 1 is greater than 5\n    show \"x\"\n";
         assert_eq!(
-            sentence(body, 2, &[], true),
-            "line 2: seven is greater than 5, so the block runs"
+            sentence(body, 2, &[("f", num("7"))], true),
+            "line 2: f with 1 is greater than 5, so the block runs"
+        );
+    }
+
+    #[test]
+    fn a_call_keeps_its_name_but_its_inputs_are_replaced() {
+        let body = "  if f with price is greater than 5\n    show \"x\"\n";
+        assert_eq!(
+            sentence(body, 2, &[("price", num("150")), ("f", num("7"))], true),
+            "line 2: f with 150 is greater than 5, so the block runs"
         );
     }
 
