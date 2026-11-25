@@ -1,8 +1,9 @@
-//! Tests of `json_bytes`: the exact bytes it writes for each kind of input.
+//! Tests of the JSON writers: the exact bytes `json_bytes`, `json_int`, `json_text` and
+//! `json_value` write for each kind of input.
 
 use super::tests::{program, run};
 use crate::ir::Reg::A;
-use crate::ir::{Data, Inst::*};
+use crate::ir::{Data, Desc, Inst, Inst::*, Module};
 
 /// What `json_bytes` writes for `bytes`, flushed to standard output.
 fn escaped(bytes: &[u8]) -> Vec<u8> {
@@ -61,4 +62,61 @@ fn nothing_in_gives_nothing_out() {
 #[test]
 fn five_thousand_escaped_quotes_arrive_whole() {
     assert_eq!(escaped(&[b'"'; 5000]), b"\\\"".repeat(5000));
+}
+
+/// What the runtime routine `name` writes when called with `args` pushed first to last, with
+/// `texts` as the module's texts and `d` holding the descriptors; flushed to standard output.
+fn written(name: &str, args: Vec<Inst>, texts: &[&[u8]], d: Module) -> String {
+    let mut body = Vec::new();
+    for a in args {
+        body.extend([a, Push(A)]);
+    }
+    body.extend([Call(name.into()), Call("flush".into())]);
+    let mut m = program(body, texts);
+    m.descs = d.descs;
+    let o = run(&m);
+    assert_eq!(o.status, 0);
+    String::from_utf8(o.stdout).unwrap()
+}
+
+/// What `json_value` writes for the scalar `value` of the type `kind` (descriptor 0).
+fn scalar(value: Inst, kind: Desc, texts: &[&[u8]]) -> String {
+    let mut d = Module::default();
+    d.desc(kind);
+    written(
+        "json_value",
+        vec![value, AddressOf(A, Data::Desc(0))],
+        texts,
+        d,
+    )
+}
+
+#[test]
+fn a_number_is_its_show_form_in_a_string() {
+    let number = |n| scalar(Const(A, n), Desc::Number, &[]);
+    assert_eq!(number(1_205_000), r#"{"number":"120.5"}"#);
+    assert_eq!(number(-30_000), r#"{"number":"-3"}"#);
+    assert_eq!(number(0), r#"{"number":"0"}"#);
+}
+
+#[test]
+fn a_text_is_escaped_not_doubled() {
+    let text = scalar(AddressOf(A, Data::Text(0)), Desc::Text, &[b"say \"hi\""]);
+    assert_eq!(text, r#"{"text":"say \"hi\""}"#);
+}
+
+#[test]
+fn a_truth_is_yes_or_no() {
+    let truth = |n| scalar(Const(A, n), Desc::Truth, &[]);
+    assert_eq!(truth(1), r#"{"truth":"yes"}"#);
+    assert_eq!(truth(0), r#"{"truth":"no"}"#);
+}
+
+#[test]
+fn json_int_writes_a_whole_number_in_decimal() {
+    let int = |n| written("json_int", vec![Const(A, n)], &[], Module::default());
+    assert_eq!(int(0), "0");
+    assert_eq!(int(7), "7");
+    assert_eq!(int(1_234_567), "1234567");
+    assert_eq!(int(-10), "-10");
 }

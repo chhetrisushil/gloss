@@ -78,3 +78,13 @@ fn the_trace_out_bytes_routes_to_json_bytes_when_escaping() {
     let o = run(&m);
     assert_eq!((o.status, o.stdout), (0, b"J".to_vec()));
 }
+
+#[test]
+fn the_trace_out_bytes_escapes_with_the_real_json_bytes_when_escaping() {
+    let body = [escaping(1), out_then_flush(5)].concat();
+    let o = run(&program_for(Backend::Trace, body, &[b"a\"\xC3\xA9\x80"]));
+    assert_eq!(
+        (o.status, o.stdout),
+        (0, "a\\\"é\u{FFFD}".as_bytes().to_vec())
+    );
+}

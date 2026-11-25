@@ -111,12 +111,19 @@ const ASKED_NUMBER: u32 = 53;
 const PLURAL_S: u32 = 54;
 /// The text of "first"; the ten ordinals follow in order, to "tenth".
 const FIRST_ORDINAL: u32 = 55;
+// The fixed pieces of a typed JSON value (`json.rs`), which come after the ten ordinals.
+const JSON_NUMBER: u32 = 65;
+const JSON_NUMBER_END: u32 = 66;
+const JSON_TEXT: u32 = 67;
+const JSON_BRACE: u32 = 68;
+const JSON_YES: u32 = 69;
+const JSON_NO: u32 = 70;
 
 /// The index of the table of invisible characters, which `shown::unshowable_table` builds.
 const UNSHOWABLE: u32 = TEXTS.len() as u32;
 
 /// The texts the routines refer to.
-const TEXTS: [&[u8]; 65] = [
+const TEXTS: [&[u8]; 71] = [
     b"line ",
     b": failure ",
     b": ",
@@ -182,6 +189,12 @@ const TEXTS: [&[u8]; 65] = [
     b"eighth",
     b"ninth",
     b"tenth",
+    b"{\"number\":\"",
+    b"\"}",
+    b"{\"text\":",
+    b"}",
+    b"{\"truth\":\"yes\"}",
+    b"{\"truth\":\"no\"}",
 ];
 
 /// The bytes of the runtime text `i`.
