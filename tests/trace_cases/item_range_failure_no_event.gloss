@@ -1,0 +1,7 @@
+record Expense
+  name as text
+  amount as number
+
+feature start
+  set expenses to list of (Expense with name "Rent", amount 10)
+  set amount of item 3 of expenses to 12
