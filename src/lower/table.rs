@@ -1,6 +1,6 @@
 //! Tables in memory: `Global::Tables` holds the address of a block of two words per table,
 //! in declaration order: the table's list, then its loaded flag.
-use super::Lowerer;
+use super::{Lowerer, Mode};
 use crate::ast::program::Program;
 use crate::diag::Diagnostic;
 use crate::ir::{Cond, Data, Function, Global, Inst, Reg};
@@ -201,8 +201,9 @@ impl Lowerer<'_> {
 }
 
 /// `tables_init`: allocates the block, gives each table a new empty list and a loaded flag of 0
-/// (a fresh block is zeroed). A program with no tables allocates nothing. Slot 1 is the block.
-pub fn tables_init(program: &Program, called: &mut Vec<String>) -> Function {
+/// (a fresh block is zeroed), or of 1 in a test build, where every table starts cleared.
+/// A program with no tables allocates nothing. Slot 1 is the block.
+pub fn tables_init(program: &Program, called: &mut Vec<String>, mode: Mode) -> Function {
     let n = program.tables().count() as i32;
     let mut body = vec![Inst::Enter(1)];
     if n > 0 {
@@ -227,6 +228,14 @@ pub fn tables_init(program: &Program, called: &mut Vec<String>) -> Function {
                 offset: ENTRY * i,
                 from: Reg::A,
             });
+            if mode == Mode::Test {
+                body.push(Inst::Const(Reg::A, 1));
+                body.push(Inst::Store {
+                    base: Reg::B,
+                    offset: ENTRY * i + 8,
+                    from: Reg::A,
+                });
+            }
         }
         body.push(Inst::LoadSlot(Reg::A, 1));
         body.push(Inst::AddressOf(Reg::B, Data::Global(Global::Tables)));
