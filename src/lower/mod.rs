@@ -67,14 +67,29 @@ impl Lowerer<'_> {
     pub fn mark_line(&mut self, line: u32) {
         self.line = line;
         self.emit(Inst::Line(line));
+        self.store_line();
+    }
+
+    /// In a test build, stores the line being lowered in the test state (see `mark_line`).
+    fn store_line(&mut self) {
         if self.mode == Mode::Test {
-            self.emit(Inst::Const(Reg::A, i64::from(line)));
+            self.emit(Inst::Const(Reg::A, i64::from(self.line)));
             self.emit(Inst::AddressOf(Reg::B, Data::Global(Global::TestState)));
             self.emit(Inst::Store {
                 base: Reg::B,
                 offset: runtime::CURRENT_LINE as i32 * 8,
                 from: Reg::A,
             });
+        }
+    }
+
+    /// After a call returns, a test build takes back the line word the callee moved, keeping
+    /// the result in `a` (`b` is the callee's to clobber).
+    pub fn restore_line(&mut self) {
+        if self.mode == Mode::Test {
+            self.emit(Inst::Push(Reg::A));
+            self.store_line();
+            self.emit(Inst::Pop(Reg::A));
         }
     }
 
