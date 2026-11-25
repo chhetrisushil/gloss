@@ -327,9 +327,14 @@ impl Walk<'_, '_> {
             }
             StmtKind::Input(items) => {
                 self.test_only(stmt.line, "input");
-                items.iter().for_each(|i| {
-                    self.ty(i);
-                });
+                for i in items {
+                    if self.in_test {
+                        self.require(stmt.line, i, &Ty::Text, "An input answer must be text");
+                    } else {
+                        // One error for the statement: the placement one.
+                        self.ty(i);
+                    }
+                }
             }
             _ => {}
         }
@@ -582,6 +587,71 @@ mod tests {
         assert_eq!(
             start("  set n to 1\n  save n\n  show n\n"),
             ["line 6: save n. save works on tables; n is a number."]
+        );
+    }
+
+    fn in_test(lines: &str) -> Vec<String> {
+        diags(&format!(
+            "{HEAD}feature start\n  show 1\ntest \"t\"\n{lines}"
+        ))
+    }
+
+    #[test]
+    fn input_answers_must_be_text() {
+        assert_eq!(
+            in_test("  input 5\n"),
+            ["line 7: input 5. An input answer must be text; 5 is a number."]
+        );
+        assert_eq!(
+            in_test("  input \"a\", yes\n"),
+            ["line 7: input \"a\", yes. An input answer must be text; yes is a truth."]
+        );
+        assert_eq!(
+            in_test("  input (list of 1, 2)\n"),
+            [
+                "line 7: input (list of 1, 2). An input answer must be text; (list of 1, 2) is a list of number."
+            ]
+        );
+    }
+
+    #[test]
+    fn variables_and_features_are_checked_by_their_type() {
+        assert_eq!(
+            in_test("  set n to 3\n  input n\n  show n\n"),
+            ["line 8: input n. An input answer must be text; n is a number."]
+        );
+        let with = |feature: &str| {
+            let head = format!("{HEAD}feature word\n  give {feature}\n");
+            diags(&format!(
+                "{head}feature start\n  show 1\ntest \"t\"\n  input word\n"
+            ))
+        };
+        assert_eq!(
+            with("3"),
+            ["line 9: input word. An input answer must be text; word is a number."]
+        );
+        assert!(with("\"x\"").is_empty());
+        assert!(in_test("  set a to \"x\"\n  input a, \"b\"\n  show a\n").is_empty());
+    }
+
+    #[test]
+    fn input_outside_a_test_gives_one_error() {
+        assert_eq!(
+            start("  input 5\n"),
+            ["line 5: input 5. input can only be used inside a test."]
+        );
+    }
+
+    #[test]
+    fn text_answers_check_clean() {
+        assert!(in_test("  input \"a\", \"b\"\n").is_empty());
+    }
+
+    #[test]
+    fn spec_9_input_example_still_checks() {
+        assert!(
+            in_test("  input \"Lunch\", \"120\"\n  input \"Dinner\", \"300\", \"food\"\n")
+                .is_empty()
         );
     }
 
