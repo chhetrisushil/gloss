@@ -61,6 +61,11 @@ pub struct Checked {
 }
 
 impl Checked {
+    /// The checked program, for the narrator.
+    pub fn program(&self) -> &Program {
+        &self.program
+    }
+
     /// The table files this program can touch, as a person approves them at build time.
     pub fn permissions(&self) -> Vec<permissions::Entry> {
         permissions::list(&self.program)

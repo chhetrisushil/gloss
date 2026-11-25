@@ -1,0 +1,4 @@
+feature start
+  set paid to yes
+  if not paid
+    show "unpaid"
