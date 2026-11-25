@@ -1,0 +1,3 @@
+feature start
+  ask "Name?" into who
+  set who to "Ann"
