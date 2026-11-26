@@ -41,7 +41,7 @@ Agents now write most code, and fewer people read it. Gloss aims to make program
 
 ## Status
 
-Milestones 1 to 5 are built. The compiler reads a Gloss program, reports every compile error and warning the spec defines, formats source into its one accepted form, and `gloss build` writes a static x86-64 Linux executable. Programs can declare tables, and `load` and `save` read and write CSV files, and `clear` empties a table. A program that touches files needs approval at build time (see [Tables and files](#tables-and-files)). Test blocks (`expect`, `input`) are left out of the built program; `gloss test` runs them (see [Tests](#tests)), and `gloss trace` runs a program and narrates each step (see [Trace](#trace)).
+Milestones 1 to 6 are built. The compiler reads a Gloss program, reports every compile error and warning the spec defines, formats source into its one accepted form, and `gloss build` writes a static x86-64 Linux executable. Programs can declare tables, and `load` and `save` read and write CSV files, and `clear` empties a table. A program that touches files needs approval at build time (see [Tables and files](#tables-and-files)). Test blocks (`expect`, `input`) are left out of the built program; `gloss test` runs them (see [Tests](#tests)), `gloss trace` runs a program and narrates each step (see [Trace](#trace)), and `gloss explain` prints each source line beside the machine instructions it became (see [Explain](#explain)).
 
 | Milestone | What it adds | State |
 |---|---|---|
@@ -50,7 +50,8 @@ Milestones 1 to 5 are built. The compiler reads a Gloss program, reports every c
 | 3 | Tables and files: CSV `load`/`save`/`clear`, file permissions, `--allow`, `.allow` | Done |
 | 4 | `gloss test`: test blocks, `expect`, `input`, `shown`, pretend files | Done |
 | 5 | `gloss trace`: events from a trace build, narrated in plain words | Done |
-| 6–7 | `gloss explain`, `gloss flowchart` | Planned |
+| 6 | `gloss explain`: the real instructions beside each source line, then the runtime | Done |
+| 7 | `gloss flowchart` | Planned |
 
 ## Getting started
 
@@ -87,7 +88,7 @@ Built hello
 
 Run it: `./hello` on x86-64 Linux, or `orb -m gloss-amd64 ./hello` on a Mac. It prints `hello`.
 
-The [`examples/`](examples/README.md) folder holds more programs (FizzBuzz, greatest common divisor, primes, Collatz, square root, binary search, ...), each with the output it must produce.
+The [`examples/`](examples/README.md) folder holds more programs (FizzBuzz, greatest common divisor, primes, Collatz, square root, binary search, ...), each with the output it must produce and its own `test` blocks. The table examples include `inventory`, which loads, changes, appends to and saves a table.
 
 Errors name the line, quote it, explain the problem and suggest the fix:
 
@@ -200,6 +201,48 @@ line 6: total becomes 150
 - `gloss trace` asks for approval of the program's files like `build`, and takes `--allow`. It needs x86-64 Linux, and elsewhere prints `gloss trace runs programs on Linux only` and exits 3.
 - There is no limit on the number of events: a long loop gives a long story, and Ctrl-C stops it.
 
+## Explain
+
+`gloss explain` prints the instructions `gloss build` makes for each line. This program:
+
+```gloss
+feature add_to_total
+  needs price as number
+  set total to 0
+  add price to total
+  give total
+
+feature start
+  show (add_to_total with 150)
+```
+
+prints, for its first feature (cut here):
+
+```console
+$ gloss explain spec_explain.gloss
+Explain spec_explain.gloss for x86-64 Linux
+
+feature add_to_total (line 1)
+  price: number, input 1, at [rbp+16]
+  total: number, created on line 3, at [rbp-8]
+
+line 1: feature add_to_total
+    push rbp
+    ...
+line 4: add price to total
+    mov rax, [rbp+16]               ; price
+    mov rcx, rax
+    mov rax, [rbp-8]                ; total
+    add rax, rcx
+    jo .L0                          ; failure 4: a number went out of range (add price to total)
+```
+
+- The instructions are the real ones: the listing is made from the same list that `build` encodes. Nothing is tidied.
+- A comment after `;` names a variable or input, quotes a piece of text, or says what a system call or a failure jump does. A comment comes only from what the instruction refers to, so an instruction with nothing to name has none.
+- Instructions are in the order the machine runs them. A line whose code resumes after other code is headed again with `(continued)`; failure code is listed apart under `failure N, line L`.
+- After the program's features comes `runtime`, then every runtime routine the executable contains, as `routine NAME`. The listing is long: most of it is runtime.
+- Explain writes no file, asks for no approval and runs nothing, so it works on any host, not only x86-64 Linux.
+
 ## Commands
 
 | Command | What it does | Available |
@@ -208,7 +251,7 @@ line 6: total becomes 150
 | `gloss format FILE` | Rewrites the file into the one accepted form. A file that does not parse is left untouched. | Now |
 | `gloss test FILE` | Runs every test block and prints each title with `pass` or `fail`. x86-64 Linux only. | Now |
 | `gloss trace FILE [--allow F]...` | Runs the program, narrates each step in plain words and writes the events to `NAME.trace`. x86-64 Linux only. | Now |
-| `gloss explain FILE` | Prints each source line beside its machine instructions | Milestone 6 |
+| `gloss explain FILE` | Prints each source line beside the machine instructions it became, then the runtime routines. Works on any host. | Now |
 | `gloss flowchart FILE` | Writes one SVG flowchart per feature | Milestone 7 |
 
 Exit status is **0** on success, **1** when a test failed, **2** on a run-time failure (also from `gloss trace`), **3** on a compile error, wrong usage, or a test or trace run that could not be started or written, and **4** when file access was not approved. Warnings alone do not fail a build. The full set of statuses (including failed tests and run-time failures) is in section 11 of the spec.
@@ -227,6 +270,7 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 - **Unit tests** sit beside each module (`#[cfg(test)]`) and assert exact diagnostic text, because messages are part of the language design.
 - **`tests/cli.rs`** runs the real `gloss` binary.
 - **Test cases** (`tests/test_cases/*.gloss`, with `.out`, `.err` and `.status`) are programs with test blocks. Each is built with `build_test_executable`, run as a real executable through the runner, and also run under `irsim`; the two must agree. The tests of `gloss test` itself (`src/testrun.rs`, the Linux-only cases of `tests/cli.rs`) need a real x86-64 Linux host; on a Mac, see below.
+- **Explain cases** (`tests/explain_cases/*.gloss`, with `.out`, the exact listing of the program part and the routine names) run on any host; `GLOSS_BLESS=1 cargo test --test explain_cases` rewrites the `.out` files. Section 10 of the spec is pinned to the `spec_explain` case.
 - **Trace cases** (`tests/trace_cases/*.gloss`, with `.trace` (the exact events), `.out` (the narration) and optional `.in`, `.err`, `.status` and `.files/`) are built with `build_trace_executable` and run as real executables and under `irsim`; `tests/trace_narration.rs` turns each `.trace` into its `.out` on any host. Section 10 of the spec is pinned to the `spec_trace` case.
 - **`tests/spec_examples.rs`** compiles every ` ```gloss ` example in `spec/v0.md`, so the spec and the compiler cannot drift apart.
 - **`tests/format_generated.rs`** checks that formatting never changes a program and is idempotent.
@@ -278,6 +322,7 @@ Rosetta is turned off because it does not implement `openat2`, which the file co
 | `src/ir/`, `src/lower/`, `src/runtime/` | The Gloss IR, lowering from the checked program, and the runtime written in IR |
 | `src/target/` | The x86-64 backend, encoder, static ELF writer and Linux system calls |
 | `src/irsim/` | Test-only IR interpreter |
+| `src/explain/` | `gloss explain`: the listing printer, comments and failure headers |
 | `src/testrun.rs` | `gloss test`: the private folder, running the test executable, and its status |
 | `examples/` | Programs that build and run, with expected output; programs that use files carry a `.allow` |
 | `src/format/` | `gloss format`: canonical printing, rewrites, line wrapping |
