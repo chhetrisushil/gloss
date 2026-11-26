@@ -2,7 +2,7 @@
 // `std::path::{Path, PathBuf}` in scope.
 
 /// Raised by every change that adds cases.
-const MIN_EXPLAIN_CASES: usize = 7;
+const MIN_EXPLAIN_CASES: usize = 8;
 
 /// The `.gloss` programs in `dir`, sorted; an error naming every file that is not part of a
 /// case: an extension other than gloss and out, no `<stem>.gloss`, or a folder. A `.gloss`
