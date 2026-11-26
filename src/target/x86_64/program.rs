@@ -57,7 +57,30 @@ fn rodata(m: &Module) -> (Vec<u8>, HashMap<Sym, usize>) {
     (laid.bytes, symbols)
 }
 
-pub fn executable(m: &Module) -> Result<Vec<u8>, String> {
+/// One function or helper of the executable, in layout order.
+pub struct Assembled {
+    pub name: String,
+    pub code: Vec<X>,
+}
+
+/// Every routine of the executable in the order `executable` encodes them: the module's
+/// functions, then the arithmetic helpers.
+pub struct Assembly {
+    pub routines: Vec<Assembled>,
+}
+
+impl Assembly {
+    /// The routines' instructions, one after another, as they are encoded.
+    pub fn code(&self) -> Vec<X> {
+        self.routines
+            .iter()
+            .flat_map(|r| r.code.iter().cloned())
+            .collect()
+    }
+}
+
+/// Lowers each function and appends the helpers, without encoding anything.
+pub fn assemble(m: &Module) -> Result<Assembly, String> {
     let params: HashMap<String, u32> = m
         .functions
         .iter()
@@ -74,12 +97,39 @@ pub fn executable(m: &Module) -> Result<Vec<u8>, String> {
             arith::PREFIX
         ));
     }
-    let mut xs: Vec<X> = Vec::new();
+    let mut routines = Vec::new();
     for f in &m.functions {
-        xs.extend(lower_function(f, &params)?);
+        routines.push(Assembled {
+            name: f.name.clone(),
+            code: lower_function(f, &params)?,
+        });
     }
-    xs.extend(arith::helpers());
-    let code = encode(&xs)?;
+    let mut helpers: Vec<Assembled> = Vec::new();
+    for x in arith::helpers() {
+        match &x {
+            X::Label(l) if arith::ENTRIES.contains(&l.as_str()) => helpers.push(Assembled {
+                name: l.clone(),
+                code: Vec::new(),
+            }),
+            _ => {}
+        }
+        helpers
+            .last_mut()
+            .ok_or("the arithmetic helpers do not start with a label")?
+            .code
+            .push(x);
+    }
+    routines.extend(helpers);
+    Ok(Assembly { routines })
+}
+
+pub fn executable(m: &Module) -> Result<Vec<u8>, String> {
+    image(m, &assemble(m)?.code())
+}
+
+/// Encodes `xs` and lays the executable out around them: rodata, globals and the ELF.
+pub(super) fn image(m: &Module, xs: &[X]) -> Result<Vec<u8>, String> {
+    let code = encode(xs)?;
     let entry = *code
         .labels
         .get("_start")

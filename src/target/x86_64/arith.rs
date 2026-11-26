@@ -16,6 +16,11 @@ pub const PREFIX: &str = "x86_64.";
 pub const MULTIPLY: &str = "x86_64.multiply_number";
 pub const DIVIDE: &str = "x86_64.divide_number";
 pub const REMAINDER: &str = "x86_64.remainder_number";
+/// The helpers other code calls, in layout order. The other `x86_64.` labels are jump targets
+/// inside them, so `assemble` starts a routine only at these. The shared tail (`FINISH`,
+/// `RANGE`, `ZERO`), which multiply and divide jump into, is laid out after `REMAINDER`, so it
+/// lists under that routine.
+pub const ENTRIES: [&str; 3] = [MULTIPLY, DIVIDE, REMAINDER];
 /// Shared tail: `r9:rax` is the magnitude of the quotient and `r10` its sign (0 or 1).
 const FINISH: &str = "x86_64.number_finish";
 const RANGE: &str = "x86_64.number_range";
