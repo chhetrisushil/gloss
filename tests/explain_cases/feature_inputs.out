@@ -1,0 +1,124 @@
+Explain feature_inputs.gloss for x86-64 Linux
+
+feature add_up (line 1)
+  a: number, input 1, at [rbp+24]
+  b: number, input 2, at [rbp+16]
+
+    push rbp
+    mov rbp, rsp
+    sub rsp, 8
+    mov [rbp-8], rcx
+line 3: give a + b
+    mov rax, [rbp+24]               ; a
+    push rax
+    mov rax, [rbp+16]               ; b
+    mov rcx, rax
+    pop rax
+    add rax, rcx
+    jo .L0                          ; failure 4: a number went out of range (a + b)
+    mov rcx, [rbp-8]
+    mov rsp, rbp
+    pop rbp
+    ret
+    call flush
+    lea rax, [rip+text_0]           ; "internal error: feature add_up…"
+    push rax
+    call err_text
+    add rsp, 8
+    call fail_end
+failure 4, line 3
+  .L0:
+    movabs rax, 3
+    push rax
+    movabs rax, 4
+    push rax
+    call fail_begin
+    add rsp, 16
+    lea rax, [rip+text_1]           ; "a number went out of range ("
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_2]           ; "a + b"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_3]           ; ")"
+    push rax
+    call err_text
+    add rsp, 8
+    call fail_end
+
+feature start (line 5)
+
+    push rbp
+    mov rbp, rsp
+    sub rsp, 8
+    mov [rbp-8], rcx
+line 6: show (add_up with 1, 2)
+    movabs rax, 10000
+    push rax
+    movabs rax, 20000
+    push rax
+    lea rdx, [rsp-88]
+    mov rsi, [rip+stack_limit]
+    cmp rdx, rsi
+    jb .L0                          ; failure 10: calls nested too deep (add_up)
+    call f_add_up
+    add rsp, 16
+    push rax
+    call out_number
+    add rsp, 8
+    lea rax, [rip+text_4]           ; "\u{000A}"
+    push rax
+    call out_text
+    add rsp, 8
+    mov rcx, [rbp-8]
+    mov rsp, rbp
+    pop rbp
+    ret
+failure 10, line 6
+  .L0:
+    movabs rax, 6
+    push rax
+    movabs rax, 10
+    push rax
+    call fail_begin
+    add rsp, 16
+    lea rax, [rip+text_5]           ; "calls nested too deep ("
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_6]           ; "add_up"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_3]           ; ")"
+    push rax
+    call err_text
+    add rsp, 8
+    call fail_end
+
+runtime
+
+permissions_text
+tables_init
+out_text
+out_bytes
+buf_bytes
+write_all
+write_loop
+flush
+out_number
+number_format
+fail_begin
+err_text
+err_int
+fail_end
+_start
+args_check
+stack_init
+stack_limit
+heap_init
+x86_64.multiply_number
+x86_64.divide_number
+x86_64.remainder_number

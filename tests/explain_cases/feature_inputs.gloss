@@ -1,0 +1,6 @@
+feature add_up
+  needs a as number, b as number
+  give a + b
+
+feature start
+  show (add_up with 1, 2)
