@@ -187,4 +187,57 @@ mod tests {
             "Explain x.gloss for x86-64 Linux\n"
         );
     }
+
+    /// The loop line is listed again, as continued, after the body's line.
+    fn assert_continued(program: &str, loop_line: &str, body_line: &str) {
+        let out = explain(program);
+        let plain = format!("{loop_line}\n");
+        assert_eq!(out.matches(&plain).count(), 1, "{out}");
+        let body = out.find(body_line).expect("body line");
+        let again = out
+            .find(&format!("{loop_line} (continued)\n"))
+            .expect("continued");
+        assert!(body < again, "{out}");
+    }
+
+    #[test]
+    fn lines_repeat_as_continued() {
+        let (loop_line, body) = ("line 4: for each price in prices", "line 5: add price");
+        assert_continued(PROGRAM, loop_line, body);
+    }
+
+    #[test]
+    fn a_counting_loop_continues_on_its_line() {
+        let text =
+            "feature start\n  set t to 0\n  for each i from 1 to 3\n    add i to t\n  show t\n";
+        assert_continued(text, "line 3: for each i from 1 to 3", "line 4: add i to t");
+    }
+
+    #[test]
+    fn a_repeat_while_continues_on_its_line() {
+        let text = "feature start\n  set n to 0\n  repeat while n is less than 3\n    add 1 to n\n  show n\n";
+        let loop_line = "line 3: repeat while n is less than 3";
+        assert_continued(text, loop_line, "line 4: add 1 to n");
+    }
+
+    #[test]
+    fn an_immediate_repeat_of_a_line_prints_nothing() {
+        use crate::target::listing::{Item, Routine};
+        let src = Source::new("feature a\n  show 1\n  show 2\n");
+        let inst = || Item::Inst {
+            text: "nop".into(),
+            refs: vec![],
+        };
+        let items = vec![Item::Line(2), Item::Line(2), inst(), Item::Line(3), inst()];
+        let mut out = String::new();
+        super::items(
+            &mut out,
+            &src,
+            &Routine {
+                name: "f_a".into(),
+                items,
+            },
+        );
+        assert_eq!(out, "line 2: show 1\n    nop\nline 3: show 2\n    nop\n");
+    }
 }
