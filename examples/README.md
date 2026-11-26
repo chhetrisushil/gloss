@@ -15,8 +15,9 @@ Small Gloss programs that compile to x86-64 Linux executables with today's compi
 | [bubble_sort.gloss](bubble_sort.gloss) | Bubble sort on a copy of a list: swapping with `set item i of`, stopping early once a pass makes no swap, and counting the passes; has tests |
 | [expenses.gloss](expenses.gloss) | A table: `clear`, `append`, `save` to `expenses.csv`, then `load` it back and show it; approved by `expenses.allow`; has tests |
 | [report.gloss](report.gloss) | A read-only table loaded from the committed `report.csv`, with totals and a `paid` truth column; has tests |
+| [inventory.gloss](inventory.gloss) | A table that is loaded, changed through its loop variable (a sale lowers `stock`), appended to and saved back to `inventory.csv`; approved by `inventory.allow`; running it rewrites `inventory.csv`, so run it from a copy; has tests |
 
-Programs that use files are approved by the `<name>.allow` beside them, and find their files in the folder they are run from; `tests/examples.rs` runs every example in a temporary copy of this folder, so `expenses.gloss` never leaves an `expenses.csv` here.
+Programs that use files are approved by the `<name>.allow` beside them, and find their files in the folder they are run from; `tests/examples.rs` runs every example in a temporary copy of this folder, so `expenses.gloss` never leaves an `expenses.csv` or changes `inventory.csv` here.
 
 Tests: every example has `test` blocks, which are not part of the built program. `gloss test examples/gcd.gloss` runs them on Linux and prints each title with `pass` or `fail`; each `<name>.tests.out` is exactly that output, and `tests/examples.rs` checks it.
 

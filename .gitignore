@@ -7,3 +7,4 @@
 !/examples/README.md
 !/examples/*.allow
 !/examples/report.csv
+!/examples/inventory.csv
