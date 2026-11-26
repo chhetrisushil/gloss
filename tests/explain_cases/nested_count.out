@@ -1,0 +1,195 @@
+Explain nested_count.gloss for x86-64 Linux
+
+feature start (line 1)
+  k: number, created on line 4, at [rbp-8]
+  x: number, loop variable on line 2, at [rbp-16]
+  j: number, loop variable on line 3, at [rbp-24]
+
+line 1: feature start
+    push rbp
+    mov rbp, rsp
+    sub rsp, 72
+    mov [rbp-72], rcx
+    xor rdx, rdx
+    mov [rbp-8], rdx                ; k
+    mov [rbp-16], rdx               ; x
+    mov [rbp-24], rdx               ; j
+    mov [rbp-32], rdx
+    mov [rbp-40], rdx
+    mov [rbp-48], rdx
+    mov [rbp-56], rdx
+    mov [rbp-64], rdx
+line 2: for each x in (list of 1, 2)
+    movabs rax, 4
+    push rax
+    movabs rax, 2
+    push rax
+    call list_new
+    add rsp, 16
+    mov [rbp-48], rax
+    movabs rax, 10000
+    mov rcx, rax
+    mov rax, [rbp-48]
+    mov rax, [rax+16]
+    mov [rax+0], rcx
+    movabs rax, 20000
+    mov rcx, rax
+    mov rax, [rbp-48]
+    mov rax, [rax+16]
+    mov [rax+8], rcx
+    movabs rcx, 2
+    mov rax, [rbp-48]
+    mov [rax+0], rcx
+    mov [rbp-32], rax
+    movabs rax, 0
+    mov [rbp-40], rax
+  .L0:
+    mov rax, [rbp-40]
+    mov rcx, [rbp-32]
+    mov rcx, [rcx+0]
+    cmp rax, rcx
+    jge .L2
+    shl rax, 3
+    mov rcx, [rbp-32]
+    mov rcx, [rcx+16]
+    add rax, rcx
+    mov rax, [rax+0]
+    mov [rbp-16], rax               ; x
+line 3: for each j from 1 to 2
+    movabs rax, 10000
+    mov [rbp-56], rax
+    mov rcx, rax
+    cqo
+    movabs rsi, 10000
+    idiv rsi
+    imul rax, rsi
+    cmp rax, rcx
+    jne .L3                         ; failure 3: the start of a count must be whole (1 is …)
+    movabs rax, 20000
+    mov [rbp-64], rax
+    mov rcx, rax
+    cqo
+    movabs rsi, 10000
+    idiv rsi
+    imul rax, rsi
+    cmp rax, rcx
+    jne .L4                         ; failure 3: the end of a count must be whole (2 is …)
+    mov rax, [rbp-56]
+    mov [rbp-24], rax               ; j
+  .L5:
+    mov rax, [rbp-24]               ; j
+    mov rcx, [rbp-64]
+    cmp rax, rcx
+    jg .L7
+line 4: set k to j
+    mov rax, [rbp-24]               ; j
+    mov [rbp-8], rax                ; k
+line 3: for each j from 1 to 2 (continued)
+  .L6:
+    mov rax, [rbp-24]               ; j
+    mov rcx, [rbp-64]
+    cmp rax, rcx
+    je .L7
+    movabs rcx, 10000
+    add rax, rcx
+    mov [rbp-24], rax               ; j
+    jmp .L5
+line 2: for each x in (list of 1, 2) (continued)
+  .L7:
+  .L1:
+    mov rax, [rbp-40]
+    add rax, 1
+    mov [rbp-40], rax
+    jmp .L0
+line 1: feature start (continued)
+  .L2:
+    mov rcx, [rbp-72]
+    mov rsp, rbp
+    pop rbp
+    ret
+failure 3, line 3
+  .L3:
+    movabs rax, 3
+    push rax
+    movabs rax, 3
+    push rax
+    call fail_begin
+    add rsp, 16
+    lea rax, [rip+text_0]           ; "the start of a count must be w…"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_1]           ; "1"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_2]           ; " is "
+    push rax
+    call err_text
+    add rsp, 8
+    mov rax, [rbp-56]
+    push rax
+    call err_number
+    add rsp, 8
+    lea rax, [rip+text_3]           ; ")"
+    push rax
+    call err_text
+    add rsp, 8
+    call fail_end
+failure 3, line 3
+  .L4:
+    movabs rax, 3
+    push rax
+    movabs rax, 3
+    push rax
+    call fail_begin
+    add rsp, 16
+    lea rax, [rip+text_4]           ; "the end of a count must be who…"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_5]           ; "2"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_2]           ; " is "
+    push rax
+    call err_text
+    add rsp, 8
+    mov rax, [rbp-64]
+    push rax
+    call err_number
+    add rsp, 8
+    lea rax, [rip+text_3]           ; ")"
+    push rax
+    call err_text
+    add rsp, 8
+    call fail_end
+
+runtime
+
+permissions_text
+tables_init
+fail_end
+err_text
+write_all
+write_loop
+err_number
+number_format
+fail_begin
+err_int
+flush
+list_new
+alloc
+fail_memory
+_start
+args_check
+out_text
+out_bytes
+buf_bytes
+stack_init
+stack_limit
+heap_init
+x86_64.multiply_number
+x86_64.divide_number
+x86_64.remainder_number
