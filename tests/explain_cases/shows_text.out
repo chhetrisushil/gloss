@@ -16,6 +16,7 @@ line 2: show "hello"
     push rax
     call out_text
     add rsp, 8
+line 1: feature start (continued)
     mov rcx, [rbp-8]
     mov rsp, rbp
     pop rbp

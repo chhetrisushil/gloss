@@ -18,7 +18,7 @@ fn show_of_text_lowers_to_out_text_calls() {
     assert_eq!(
         function_text(f),
         "function f_start, 0 params, 0 slots\n  enter 0\nline 2\n  a = address of text 0\n  \
-         push a\n  call out_text\n  a = address of text 1\n  push a\n  call out_text\n  return\n"
+         push a\n  call out_text\n  a = address of text 1\n  push a\n  call out_text\nline 1\n  return\n"
     );
     assert_eq!(&m.texts[..2], [b"hi".to_vec(), b"\n".to_vec()]);
 }
@@ -100,7 +100,7 @@ fn line_markers_follow_the_source_lines_past_blanks_and_notes() {
         "function f_start, 0 params, 0 slots\n  enter 0\nline 2\n  a = address of text 0\n  \
          push a\n  call out_text\n  a = address of text 1\n  push a\n  call out_text\n\
          line 5\n  a = address of text 2\n  push a\n  call out_text\n  a = address of text 1\n  \
-         push a\n  call out_text\n  return\n"
+         push a\n  call out_text\nline 1\n  return\n"
     );
 }
 
@@ -150,7 +150,7 @@ fn a_mixed_show_lowers_each_item_in_order() {
         "function f_start, 0 params, 0 slots\n  enter 0\nline 2\n  a = address of text 0\n  \
          push a\n  call out_text\n  a = 10000\n  push a\n  call out_number\n  \
          a = address of text 1\n  push a\n  call out_text\n  a = -25000\n  push a\n  \
-         call out_number\n  a = address of text 2\n  push a\n  call out_text\n  return\n"
+         call out_number\n  a = address of text 2\n  push a\n  call out_text\nline 1\n  return\n"
     );
 }
 
@@ -162,7 +162,7 @@ fn a_sum_lowers_to_num_add_with_a_failure_block() {
         "function f_start, 0 params, 1 slots\n  enter 1\nline 2\n  a = 10000\n  push a\n  \
          a = 20000\n  b = a\n  pop a\n  a = num_add a, b; out of range L0\n  slot 1 = a\n\
          line 3\n  a = slot 1\n  push a\n  call out_number\n  a = address of text 0\n  push a\n  \
-         call out_text\n  return\nL0:\n  a = 2\n  push a\n  a = 4\n  push a\n  call fail_begin\n  \
+         call out_text\nline 1\n  return\nL0:\n  a = 2\n  push a\n  a = 4\n  push a\n  call fail_begin\n  \
          a = address of text 1\n  push a\n  call err_text\n  a = address of text 2\n  push a\n  \
          call err_text\n  a = address of text 3\n  push a\n  call err_text\n  call fail_end\n"
     );

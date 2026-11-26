@@ -69,6 +69,7 @@ line 8: show "many"
     call out_text
     add rsp, 8
   .L0:
+line 1: feature start (continued)
     mov rcx, [rbp-16]
     mov rsp, rbp
     pop rbp

@@ -36,6 +36,7 @@ line 4: add 1 to n
 line 3: repeat while n is less than 2 (continued)
     jmp .L0
   .L1:
+line 1: feature start (continued)
     mov rcx, [rbp-16]
     mov rsp, rbp
     pop rbp

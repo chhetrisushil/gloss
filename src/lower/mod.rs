@@ -207,6 +207,7 @@ fn lower_feature(
     if info.is_some_and(|i| !i.gives.is_empty()) {
         l.fall_off_end(&feature.name, feature.line);
     } else {
+        l.emit(Inst::Line(feature.line));
         l.emit(Inst::Return);
     }
     let name = function_name(&feature.name);
