@@ -100,12 +100,12 @@ fn a_table_program_builds() {
 fn usage_and_unbuilt_commands_exit_3() {
     assert_eq!(gloss(&[]).0, 3);
     assert_eq!(gloss(&["frobnicate", "x.gloss"]).0, 3);
-    let (code, _, err) = gloss(&["explain", "x.gloss"]);
+    let (code, _, err) = gloss(&["flowchart", "x.gloss"]);
     assert_eq!(
         (code, err.as_str()),
         (
             3,
-            "gloss explain is not built yet; it arrives in milestone 6\n"
+            "gloss flowchart is not built yet; it arrives in milestone 7\n"
         )
     );
     let (code, _, err) = gloss(&["build", "/nonexistent/x.gloss"]);
@@ -734,4 +734,38 @@ fn trace_file_that_cannot_be_created_says_why() {
         err,
         "tracecreate.trace cannot be written: Is a directory (os error 21)\n"
     );
+}
+
+#[test]
+fn explain_prints_the_listing_and_exits_0() {
+    let p = temp_file("x", "feature start\n  show 1\n");
+    let dir = p.parent().unwrap().to_path_buf();
+    let (code, out, err) = gloss(&["explain", p.to_str().unwrap()]);
+    assert_eq!((code, err.as_str()), (0, ""), "{out}");
+    assert!(
+        out.starts_with("Explain x.gloss for x86-64 Linux\n\nfeature start (line 1)\n"),
+        "{out}"
+    );
+    assert!(out.contains("\nruntime\n"), "{out}");
+    let names: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(names, ["x.gloss"]);
+}
+
+#[test]
+fn explain_of_a_program_with_errors_exits_3() {
+    let p = temp_file("experr", "feature start\n  show nope\n");
+    let (code, out, err) = gloss(&["explain", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert!(err.starts_with("line 2: show nope"), "{err}");
+}
+
+#[test]
+fn explain_with_allow_is_a_usage_error() {
+    let p = temp_file("expallow", "feature start\n  show 1\n");
+    let (code, out, err) = gloss(&["explain", p.to_str().unwrap(), "--allow", "a.csv"]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert!(err.starts_with("usage: gloss"), "{err}");
 }
