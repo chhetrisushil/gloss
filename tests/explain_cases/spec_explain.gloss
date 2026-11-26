@@ -1,0 +1,8 @@
+feature add_to_total
+  needs price as number
+  set total to 0
+  add price to total
+  give total
+
+feature start
+  show (add_to_total with 150)
