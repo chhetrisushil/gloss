@@ -59,8 +59,7 @@ pub fn run(
         return 3;
     };
     let milestone = match command {
-        "build" | "format" | "test" | "trace" => 0,
-        "explain" => 6,
+        "build" | "format" | "test" | "trace" | "explain" => 0,
         "flowchart" => 7,
         _ => {
             let _ = err.write_all(USAGE.as_bytes());
@@ -98,6 +97,7 @@ pub fn run(
             build(Path::new(file), &name, &text, &options, prompt, out, err)
         }
         "test" => test(&name, &text, out, err),
+        "explain" => explain(&name, &text, out, err),
         "trace" => {
             let options = BuildOptions {
                 allow,
@@ -136,6 +136,35 @@ fn test(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32
             3
         }
     }
+}
+
+/// `gloss explain`: check, then write the listing of what the compiler made. Nothing is
+/// written beside the source and nothing is asked.
+fn explain(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let (mut diagnostics, checked) = crate::check_program(text);
+    crate::diag::sort(&mut diagnostics);
+    for d in &diagnostics {
+        let _ = writeln!(err, "{}", d.render());
+    }
+    let Some(checked) = checked.filter(|_| !diagnostics.iter().any(|d| d.is_error())) else {
+        return 3;
+    };
+    let listing = match checked.explanation(name) {
+        Ok(listing) => listing,
+        Err(d) => {
+            let _ = writeln!(err, "{}", d.render());
+            return 3;
+        }
+    };
+    if out
+        .write_all(listing.as_bytes())
+        .and_then(|()| out.flush())
+        .is_err()
+    {
+        let _ = writeln!(err, "cannot write the explanation");
+        return 3;
+    }
+    0
 }
 
 /// The steps `build` and `trace` share: diagnostics, the `.gloss` clash rule, the `--allow`
@@ -778,5 +807,57 @@ mod tests {
             (3, read.clone())
         );
         assert_eq!(trace_outcome(Ok(Unfinished(137)), true, why), (3, read));
+    }
+
+    /// A writer that always fails.
+    struct Broken;
+
+    impl Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::other("full"))
+        }
+    }
+
+    #[test]
+    fn explain_write_failure_says_so() {
+        let mut err = Vec::new();
+        let code = explain(
+            "x.gloss",
+            "feature start\n  show 1\n",
+            &mut Broken,
+            &mut err,
+        );
+        assert_eq!(code, 3);
+        assert_eq!(err, b"cannot write the explanation\n");
+    }
+
+    #[test]
+    fn explain_of_a_table_program_asks_nothing() {
+        let dir = std::env::temp_dir().join(format!("gloss-explain-table-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("t.gloss");
+        let text = "record Row\n  name as text\n\ntable rows of Row in \"rows.csv\"\n\nfeature start\n  load rows\n";
+        std::fs::write(&file, text).unwrap();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let args: Vec<String> = ["explain", file.to_str().unwrap()]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let code = run(
+            &args,
+            &mut out,
+            &mut err,
+            &mut FakePrompt { terminal: true },
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(code, 0, "{}", String::from_utf8_lossy(&err));
+        assert!(
+            String::from_utf8(out)
+                .unwrap()
+                .starts_with("Explain t.gloss")
+        );
     }
 }
