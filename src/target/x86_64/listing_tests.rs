@@ -488,3 +488,41 @@ fn a_syscall_does_not_reuse_an_earlier_number() {
     };
     assert!(listing(&a, &m).unwrap_err().contains("has no name"));
 }
+
+/// The listing of one routine `f` with `code` after its own label.
+fn listed(code: Vec<X>) -> Result<Vec<Item>, String> {
+    let mut all = vec![X::Label("f".to_string())];
+    all.extend(code);
+    let a = Assembly {
+        routines: vec![Assembled {
+            name: "f".to_string(),
+            code: all,
+        }],
+    };
+    let m = Module {
+        functions: vec![],
+        texts: vec![],
+        descs: vec![],
+    };
+    listing(&a, &m).map(|mut r| r.remove(0).items)
+}
+
+#[test]
+fn a_syscall_is_named_by_the_mov_that_set_rax_with_pushes_between() {
+    let items = listed(vec![X::MovRI(R::Rax, 1), X::Push(R::Rcx), X::Syscall]).unwrap();
+    assert!(matches!(&items[2], Item::Inst { refs, .. } if refs == &[Ref::System("write")]));
+}
+
+#[test]
+fn another_write_to_rax_between_the_mov_and_the_syscall_is_an_error() {
+    for between in [
+        X::MovRR(R::Rax, R::Rcx),
+        X::MovRM(R::Rax, Mem::Base(R::Rbp, -8)),
+        X::Pop(R::Rax),
+        X::AluI(crate::target::x86_64::inst::AluOp::Add, R::Rax, 1),
+        X::Call("g".to_string()),
+    ] {
+        let err = listed(vec![X::MovRI(R::Rax, 1), between, X::Syscall]).unwrap_err();
+        assert!(err.contains("has no name"), "{err}");
+    }
+}

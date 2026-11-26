@@ -61,8 +61,13 @@ pub fn listing(a: &Assembly, m: &Module) -> Result<Vec<Routine>, String> {
                 X::Jcc(c, l) => items.push(jump(&r.name, l, |l| X::Jcc(*c, l))),
                 X::Jmp(l) => items.push(jump(&r.name, l, X::Jmp)),
                 x => {
-                    if let X::MovRI(R::Rax, n) = x {
-                        rax = Some(*n);
+                    // The number is known only from a `movabs rax, N` that nothing has
+                    // touched since: any other instruction forgets it, `push` aside.
+                    match x {
+                        X::MovRI(R::Rax, n) => rax = Some(*n),
+                        // The `syscall` itself reads the number below.
+                        X::Push(_) | X::Syscall => {}
+                        _ => rax = None,
                     }
                     let mut refs: Vec<Ref> = mem(x)
                         .into_iter()
