@@ -205,7 +205,7 @@ fn lower_feature(
     let mut l = Lowerer::new((module, mode), context, (vars, loops), inputs);
     l.stmts(&feature.body)?;
     if info.is_some_and(|i| !i.gives.is_empty()) {
-        l.fall_off_end(&feature.name);
+        l.fall_off_end(&feature.name, feature.line);
     } else {
         l.emit(Inst::Return);
     }

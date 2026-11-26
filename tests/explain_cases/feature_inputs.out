@@ -4,6 +4,7 @@ feature add_up (line 1)
   a: number, input 1, at [rbp+24]
   b: number, input 2, at [rbp+16]
 
+line 1: feature add_up
     push rbp
     mov rbp, rsp
     sub rsp, 8
@@ -20,6 +21,7 @@ line 3: give a + b
     mov rsp, rbp
     pop rbp
     ret
+line 1: feature add_up (continued)
     call flush
     lea rax, [rip+text_0]           ; "internal error: feature add_up…"
     push rax
@@ -50,6 +52,7 @@ failure 4, line 3
 
 feature start (line 5)
 
+line 5: feature start
     push rbp
     mov rbp, rsp
     sub rsp, 8

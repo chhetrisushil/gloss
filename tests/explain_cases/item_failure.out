@@ -3,6 +3,7 @@ Explain item_failure.gloss for x86-64 Linux
 feature start (line 1)
   xs: list of number, created on line 2, at [rbp-8]
 
+line 1: feature start
     push rbp
     mov rbp, rsp
     sub rsp, 48
