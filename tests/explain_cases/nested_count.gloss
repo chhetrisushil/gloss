@@ -1,0 +1,4 @@
+feature start
+  for each x in (list of 1, 2)
+    for each j from 1 to 2
+      set k to j
