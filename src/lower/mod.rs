@@ -24,6 +24,7 @@ use crate::ir::{Data, Function, Global, Inst, Label, Module, Reg};
 use crate::runtime;
 use crate::source::Source;
 
+pub(crate) use fail::spell_invisible;
 pub use notes::{FailNote, FunctionNotes, Notes};
 
 /// What a lowering is for: the program as it runs, the test executable `gloss test` builds
