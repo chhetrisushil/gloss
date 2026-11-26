@@ -72,6 +72,14 @@ Non-goals (and why):
 | D48 | What does `gloss trace x.gloss` do? | Checks the program (errors: status 3), asks for approval of its files exactly like `build` (`--allow` works; refusal: status 4), refuses on a host that cannot run x86-64 Linux programs (status 3, as D38), builds the traced executable into a private folder (as D37), and runs it with the current folder as its working directory and standard input inherited. It writes the events to `x.trace` beside the source (replaced each run; if it cannot be written, status 3) and narrates them. It exits 0 when the program ends normally, 2 after a `fail` event, and 2 with `the traced run ended without finishing (status N)` on standard error for any other end. | Owner, 2026-11-25. |
 | D49 | Accepted risk: a run with millions of events. | Trace narrates every event; there is no limit. Ctrl-C stops it. | Nothing is hidden, and a cap would need a policy nobody has asked for yet. Owner, 2026-11-25. |
 | D50 | How is M5 tested? | `tests/trace_cases/<name>.gloss` with the expected `<name>.trace`, run as a real executable and under `irsim` (the two must agree, as D13 and D39), with a sweep floor `MIN_TRACE_CASES`. The narrator has golden tests from recorded `.trace` files to `.out` sentences, which run on any host. `tests/cli.rs` covers `gloss trace` on Linux. | Owner, 2026-11-25. |
+| D51 | What does Explain print, and from what? | The instructions of the real build (`lower`, `Backend::Real`), exactly as encoded. `target::x86_64::program` gets `assemble(&Module) -> Assembly` (each function's typed instructions, then the x86 helpers, in layout order); `executable` encodes that assembly and `explain` prints it. No cleaned-up or improved form. | What a reader sees is what runs (spec rule 6). The encoder's text already agrees with GNU objdump instruction by instruction (`tests/objdump.rs`), so printing the assembled list closes the chain. Owner, 2026-11-26 (real code over a cleaned-up view or peephole codegen). |
+| D52 | In what order are instructions printed? | Machine order. Each `Line` marker starts a header `line N: <source line>`; when a line's code resumes after another line's, its header is repeated with ` (continued)`. A failure block (after a feature's `Return`) starts a header `failure C, line N`. | Jumps and labels then read correctly top to bottom. Owner, 2026-11-26 (machine order over source order). |
+| D53 | What does Explain comment? | Only what the instruction does not show: the variable or input a frame slot holds (`; total`), the text a read-only address points at (`; "Total: "`, cut at 30 characters with `…`), the failure a jump leads to (`; failure 4: a number went out of range (price * 1000000)`: the failure's message as lowering knows it, with any part known only at run time written `…`), and the Linux call a `syscall` makes (`; write`). Every other instruction is bare. Comments start in one column per function. | The comments carry names a reader cannot recover; a gloss on every instruction would be noise. Owner, 2026-11-26. |
+| D54 | Where are inferred types listed? | At the top of each feature, after its header `feature NAME (line N)`: each input (`rows: list of expense, input 1, at [rbp+24]`), then each variable (`total: number, created on line 13, at [rbp-8]`) and loop variable (`r: expense, loop variable on line 14, at [rbp-16]`), in the checker's order. | A reader knows what a slot holds before reading the code that uses it. Owner, 2026-11-26 (per feature over beside the line or one list). |
+| D55 | How is the runtime printed? | After the program, under `runtime`, every routine the executable contains, in layout order, each under `routine NAME`: the IR runtime (with its system calls, inline as in the executable) and the x86 helpers. Labels inside a function print as `.L<n>`. A routine has no comments other than D53's text, syscall and failure ones. | Spec §10: nothing the executable runs is left out. |
+| D56 | What does `gloss explain x.gloss` do? | Checks the program (errors: printed as `build` prints them, status 3; warnings printed, run continues), then prints the listing on standard output and exits 0. It asks for no approval, writes no file, runs nothing, and works on any host. Test blocks are left out, as in `build`. `--allow` is a usage error. A failed write to standard output is `cannot write the explanation` and status 3. | Explain only reads the program. Owner, 2026-11-26. |
+| D57 | How is M6 tested? | `tests/explain_cases/<name>.gloss` with `<name>.out`: the listing up to and including the `runtime` line, then the names of its routines, one per line (the routine bodies are not golden). A sweep floor `MIN_EXPLAIN_CASES`. Invariant tests: `executable(m)` equals the ELF of `encode(assemble(m))`; the listing's instruction lines equal the text of every assembled instruction, in order (labels renamed by D55's rule); every function label in the encoded code has a `routine` or `feature` header. Spec §10's example is a case, pinned by `tests/spec_examples.rs`. | Golden routine bodies would rewrite every case on every runtime change; the invariants cover them. Owner, 2026-11-26. |
+| D58 | Spec §10's example shows idealised code (`add [rbp-8], rax`). | Replace it with real output from the `spec_explain` case, and note the change in the spec's design-changes table. | D51. Owner, 2026-11-26. |
 
 ## 3. Rejected alternatives
 
@@ -92,6 +100,10 @@ Non-goals (and why):
 | The traced executable writes the sentences itself, in IR | Every sentence form becomes runtime code checked under `irsim`, about twice the runtime work, and Explain would print it all (D42) | Trace must run without `gloss` installed |
 | Events on a second descriptor (fd 3) beside the program's own output | Two pipes lose the order between a printed line and the events around it (D43) | n/a |
 | A cap on the number of narrated events | Hides part of the run; no one has asked for it (D49) | Real programs make traces too long to use |
+| Explain disassembles the built ELF | Needs a disassembler, and loses the line markers (D51) | n/a |
+| Explain prints the IR | It is not the machine's instructions (spec §10, §12) | n/a |
+| Peephole improvements so Explain matches the spec's first example | Optimisation, which v0 forbids, and a wider milestone (D51, D58) | v0.1 allows optimisation |
+| Golden files for whole runtime routines | Every runtime change would rewrite every case (D57) | n/a |
 
 ## 4. Design
 
@@ -116,7 +128,8 @@ Non-goals (and why):
 | `target::elf`, `target::linux` | Static ELF writer; OS primitives as x86-64 Linux system calls | M2 |
 | `irsim` | Test-only IR interpreter (D21) | M2 |
 | `trace` | The narrator: JSON events to sentences (§4.9) | M5 |
-| `explain`, `flowchart` | The remaining modes | M6, M7 |
+| `explain` | The listing: features, lines, comments, runtime (§4.10) | M6 |
+| `flowchart` | The remaining mode | M7 |
 
 ### 4.2 Pipeline
 
@@ -359,6 +372,31 @@ Every sentence is indented 2 spaces per open call below `start`; `start` has no 
 **Testing (D50).** `tests/trace_cases/<name>.gloss` with `<name>.trace` (the exact event lines) and `<name>.out` (the narration), optional `<name>.in`, `<name>.status` and a `<name>.files/` seed folder; a sweep with `MIN_TRACE_CASES`. Three harnesses: `tests/trace_cases.rs` (real executable: stdout equals `.trace`), `src/irsim/trace_cases.rs` (`irsim` agrees), `tests/trace_narration.rs` (the narrator turns `.trace` into `.out`; any host). A test asserts that a real build and a test build contain no `trace_state` and no trace routine.
 
 **Reviews.** The trace backend's swaps (`out_bytes`, `write_all`, `fail_begin`, `fail_end`, `ask`), the set-event ordering, and enter/leave at the call site get their first review on the top tier.
+
+### 4.10 Milestone 6: explain
+
+**Scope.** `gloss explain x.gloss` (D56) prints the real build's instructions beside the source (D51 to D55). Nothing new runs; the work is a printer over what `build` already makes, plus the names it needs.
+
+**Pipeline.** check → `lower_explained` (the real lowering, which also returns `Notes`) → the reachable runtime with `Backend::Real` → `assemble` → the listing. `build` goes check → `lower` → runtime → `assemble` → `encode` → ELF, so both read one `Assembly`.
+
+**`assemble` (D51).** `program::executable` is split: `assemble(m: &Module) -> Result<Assembly, String>` lowers every function in module order and appends `arith::helpers()`; `Assembly` keeps, for each function or helper, its name and its `Vec<X>`. `executable` is `assemble`, then the existing encode and ELF steps over the concatenated instructions. Nothing about the bytes changes: the same instructions are encoded in the same order, and every test that runs an executable covers the split.
+
+**The listing types (`src/target/listing.rs`, target-neutral, D18).** `Target::listing(&Module) -> Result<Vec<Routine>, String>`. A `Routine` is `{ name: String, items: Vec<Item> }`; an `Item` is `Line(u32)` (a `Line` marker), `Label { text: String, local: Option<u32> }` (`local` is the IR label number for a function's own labels, printed `.L<n>`), or `Inst { text: String, refs: Vec<Ref> }`. A `Ref` is `Slot(u32)`, `Input(u32)`, `Text(u32)`, `Jump(u32)` (to the function's own label `n`) or `System(&'static str)` (the call a `syscall` makes). The x86-64 target builds these from its `Assembly`; `src/explain/` never sees an `X`.
+
+**Notes.** IR `Function` stays as it is (168 places build one). `lower_explained(program, types, src) -> Result<(Module, Notes), Diagnostic>` runs `lower_program` in `Mode::Real` and keeps, per feature function: the name of each named slot, the inputs in order, and, per failure label, its code, line and message text (the `Fail`'s parts, with `…` for a value, shown text or item count read at run time). `lower` calls it and drops the notes. Runtime routines have no notes.
+
+**The listing (`src/explain/`).** `listing(src, program, types, notes, assembly) -> String`:
+- First line `Explain x.gloss for x86-64 Linux`, a blank line.
+- Each feature function (`f_<name>`, in module order, which is source order): `feature NAME (line N)`, its inputs, variables and loop variables (D54; types as the checker describes them, the slot as `[rbp-8k]`, an input as `[rbp+16+8(p-k)]`), a blank line, then its instructions.
+- Instructions are 4 spaces in; a label (`X::Label`) is 2 spaces in and ends with `:`. `X::Comment("line N")` becomes a header (D52); a `Mark` of a failure label (from the notes) becomes `failure C, line N`. Local labels `L<f>_<n>` print as `.L<n>` in both labels and jumps.
+- Comments (D53) come from each instruction's refs: `Slot`/`Input` with a note (feature functions only), `Text(k)` (the module's text `k` in quotes, each `"` doubled, each character `chars::unshowable` spelled `\u{XXXX}`, cut after 30 characters with `…` inside the quotes), `Jump(n)` to a failure label in the notes, and `System(name)`. Several refs join with `, `. A comment starts at column 36 (counting from 0), or one space after the instruction when it is longer.
+- Then a blank line, `runtime`, and every other function and helper in assembly order as `routine NAME` with its instructions (D55).
+
+**The CLI (D56).** `explain` takes exactly one `.gloss` file, as `format` does. It shares `build`'s diagnostics step; it never calls `approve`. It prints through one locked, buffered standard output and maps a write error to `cannot write the explanation` (status 3), so a closed pipe (`gloss explain x.gloss | head`) does not panic.
+
+**Testing (D57).** `tests/explain_cases/` with a sweep (`MIN_EXPLAIN_CASES`), run on any host. Unit tests in `src/explain/` for headers, `(continued)`, failure headers, label renaming and each comment rule. Invariants in `src/target/x86_64/` (assembly equals what is encoded) and `tests/explain_cases.rs` (listing lines equal the assembled instruction texts; every routine is listed). `tests/cli.rs` covers statuses and messages.
+
+**Reviews.** The `assemble` split (it sits on the path of every executable) gets its first review on the top tier; the rest on the default tier.
 
 ## 5. Open questions for the owner
 
@@ -689,7 +727,7 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 
 The milestone ledger (every ruling, review record and carry) is kept in `.superpowers/sdd/2026-11-24-compiler-m4-tests/progress.md`.
 
-### Milestone 5 (`gloss trace`), finished 2026-11-26, branches stacked on `main` @ 0abe6df, not yet merged
+### Milestone 5 (`gloss trace`), finished 2026-11-26, merged to `main` @ de25111
 
 **What shipped:**
 - **`gloss trace FILE`.** It runs the steps of `build` (diagnostics, the `.suffix` rule, `--allow`, approval), checks the host, builds a trace executable, writes the events to `NAME.trace`, narrates them on standard output and passes the program's standard error through. Status: 0 finished, 2 a run-time failure, 3 an internal or setup fault, 4 not approved (D48).
@@ -700,7 +738,7 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 - **Tests.** 47 cases in `tests/trace_cases/` (`MIN_TRACE_CASES`), each run as a real executable, under `irsim`, and through the narrator; six failing cases also agree with a real build's standard error under irsim (M5-R14). Spec §10's example is the case `spec_trace`, and `tests/spec_examples.rs` pins the spec text to it.
 - **Docs.** `spec/v0.md` §10 and §11 describe the events, the sentences and the messages; the README has a Trace section.
 
-**Pull requests.** None merged. The work is stacked branches (`m5/t01a-trace-state` … `m5/t22-as-built`, each at most 200 changed lines and 10 files); PRs: listed at merge.
+**Pull requests.** #475 (the plan), then #476 to #567, 92 branches (`m5/t01a-trace-state` … `m5/final-f-trace-flush`, each at most 200 changed lines and 10 files), rebase-merged in order on 2026-11-26. The merged tree equals the tested tip.
 
 | Task | What |
 |---|---|
