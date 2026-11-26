@@ -13,7 +13,6 @@ use crate::source::Source;
 /// One `(file name, svg)` pair per feature, in source order; the stem is `name` without `.gloss`.
 // Task 7 calls this from the CLI.
 #[cfg_attr(not(test), expect(dead_code))]
-#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn charts(program: &Program, src: &Source, name: &str) -> Vec<(String, String)> {
     let stem = name.strip_suffix(".gloss").unwrap_or(name);
     program
@@ -24,4 +23,19 @@ pub(crate) fn charts(program: &Program, src: &Source, name: &str) -> Vec<(String
             (format!("{stem}.{}.svg", f.name), svg)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn charts_are_named_by_stem_and_feature_in_source_order() {
+        let text = "feature start\n  show 1\n\nfeature other\n  show 2\n";
+        let (_, checked) = crate::check_program(text);
+        let checked = checked.unwrap();
+        let src = crate::source::Source::new(text);
+        let out = super::charts(checked.program(), &src, "x.gloss");
+        let names: Vec<&str> = out.iter().map(|c| c.0.as_str()).collect();
+        assert_eq!(names, ["x.start.svg", "x.other.svg"]);
+        assert!(out[1].1.contains("<title>x.gloss: feature other</title>\n"));
+    }
 }

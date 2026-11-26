@@ -243,6 +243,71 @@ pub(super) fn invariants(f: &FeatureDecl, g: &Graph, l: &Layout) -> Result<(), S
     geometry(g, l)
 }
 
+/// Every `&` of `s` must start one of the four entities `svg` writes.
+fn entities(s: &str) -> Result<(), String> {
+    for (i, _) in s.match_indices('&') {
+        if !["&amp;", "&lt;", "&gt;", "&quot;"]
+            .iter()
+            .any(|e| s[i..].starts_with(e))
+        {
+            return Err(format!("a bare `&` in {s:?}"));
+        }
+    }
+    Ok(())
+}
+
+/// A small XML check: tags open and close in order, attributes are quoted, and every `&` is one
+/// of the four entities.
+pub(super) fn well_formed(xml: &str) -> Result<(), String> {
+    let (mut open, mut rest) = (vec![], xml);
+    while let Some(lt) = rest.find('<') {
+        entities(&rest[..lt])?;
+        let tag = &rest[lt + 1..];
+        let end = tag.find('>').ok_or("a tag with no `>`")?;
+        let (body, closing) = (&tag[..end], tag.starts_with('/'));
+        rest = &tag[end + 1..];
+        if closing {
+            let name = &body[1..];
+            if open.pop() != Some(name) {
+                return Err(format!("`</{name}>` closes the wrong tag"));
+            }
+            continue;
+        }
+        let selfclosed = body.ends_with('/');
+        let body = body.strip_suffix('/').unwrap_or(body);
+        let name = body.split(' ').next().unwrap_or(body);
+        let mut attrs = &body[name.len()..];
+        while !attrs.trim().is_empty() {
+            let (key, value) = attrs
+                .trim_start()
+                .split_once('=')
+                .ok_or("an attribute with no `=`")?;
+            let mut chars = key.chars();
+            let name_ok = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+                && chars.all(|c| c.is_ascii_alphanumeric() || "-_:".contains(c));
+            if !name_ok || !attrs.starts_with(' ') {
+                return Err(format!("a bad attribute name {key:?}"));
+            }
+            let quoted = value
+                .strip_prefix('"')
+                .ok_or(format!("`{key}` is not quoted"))?;
+            let (value, after) = quoted
+                .split_once('"')
+                .ok_or("an unclosed attribute value")?;
+            entities(value)?;
+            attrs = after;
+        }
+        if !selfclosed {
+            open.push(name);
+        }
+    }
+    entities(rest)?;
+    match open.last() {
+        Some(name) => Err(format!("`<{name}>` is never closed")),
+        None => Ok(()),
+    }
+}
+
 /// Lays out every feature of the program and checks it; returns how many it checked.
 pub(super) fn program(text: &str) -> usize {
     let (_, checked) = crate::check_program(text);
@@ -254,6 +319,9 @@ pub(super) fn program(text: &str) -> usize {
         let l = layout(&g);
         invariants(f, &g, &l).unwrap_or_else(|e| panic!("{e}\nfeature line {}:\n{text}", f.line));
         features += 1;
+    }
+    for (file, svg) in super::charts(checked.program(), &src, "x.gloss") {
+        well_formed(&svg).unwrap_or_else(|e| panic!("{e}\n{file}:\n{svg}\n{text}"));
     }
     features
 }
@@ -456,6 +524,37 @@ mod tests {
         }
         eprintln!("{files} files checked, {skipped} skipped, {features} features");
         assert!(files > 0 && features > 0);
+    }
+
+    #[test]
+    fn well_formed_rejects() {
+        assert!(well_formed("<a><b x=\"1\"/><c>t &amp; &lt;</c></a>").is_ok());
+        for bad in [
+            "<a><b></a>",
+            "<a>",
+            "</a>",
+            "<a><b></a></b>",
+            "<a>x & y</a>",
+            "<a>&copy;</a>",
+            "<a/>&",
+            "<a x=1/>",
+            "<a x=1 y=\"2\" z=\"3\"/>",
+            "<a 1x=\"1\"/>",
+            "<a \"x\"=\"1\"/>",
+            "<a x y=\"1\"/>",
+            "<a x=\"1\"y=\"2\"/>",
+            "<a x=\"1/>",
+            "<a x=\"&\"/>",
+            "<a",
+        ] {
+            assert!(well_formed(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_labelled_chart_with_odd_text_is_well_formed() {
+        let text = "feature start\n  show \"a<b & \"\"c\"\"\"\n";
+        assert_eq!(program(text), 1);
     }
 
     #[test]
