@@ -687,3 +687,27 @@ fn the_spec_trace_example_is_a_trace_case() {
         "the events differ from the spec's"
     );
 }
+
+/// Section 10's explain example is a contiguous run of lines of a real explain case.
+#[test]
+fn the_spec_explain_example_is_an_explain_case() {
+    let path = format!(
+        "{}/tests/explain_cases/spec_explain.out",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let listing = std::fs::read_to_string(path).unwrap();
+    let example = block_after("\n### Explain\n", "```");
+    assert!(
+        example.starts_with("feature add_to_total (line 1)\n"),
+        "{example}"
+    );
+    assert!(example.contains("add price to total"), "{example}");
+    assert!(
+        example.lines().count() < 25,
+        "the example is too long: {example}"
+    );
+    assert!(
+        listing.contains(&example),
+        "the spec's example is not a run of lines of spec_explain.out"
+    );
+}
