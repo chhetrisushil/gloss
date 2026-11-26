@@ -7,8 +7,6 @@ use crate::lower::spell_invisible;
 use crate::source::Source;
 use std::ops::Range;
 
-// Task 3 lays out the boxes by shape.
-#[cfg_attr(not(test), expect(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Shape {
     Start,
@@ -18,8 +16,6 @@ pub(crate) enum Shape {
     Decision,
 }
 
-// Task 3 sizes the boxes from the labels.
-#[cfg_attr(not(test), expect(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Node {
     pub shape: Shape,
@@ -48,8 +44,6 @@ pub(crate) struct Arrow {
 }
 
 impl ArrowKind {
-    // Task 4 draws the labels.
-    #[cfg_attr(not(test), expect(dead_code))]
     /// The word written on the arrow, if it has one.
     pub fn label(self) -> Option<&'static str> {
         match self {
@@ -63,8 +57,6 @@ impl ArrowKind {
 }
 
 impl Arrow {
-    // Task 4 routes the back arrows.
-    #[cfg_attr(not(test), expect(dead_code))]
     /// Whether the arrow goes back to an earlier (or the same) node, as a loop does.
     pub fn is_back(&self) -> bool {
         self.to <= self.from
@@ -72,7 +64,6 @@ impl Arrow {
 }
 
 /// A block of the feature, as ranges of node indices, for placing nodes in columns.
-#[cfg_attr(not(test), expect(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Region {
     /// A loop: its decision and the nodes of its body.
@@ -86,7 +77,6 @@ pub(crate) enum Region {
 
 impl Region {
     /// The index of the first node of the block.
-    #[cfg_attr(not(test), expect(dead_code))]
     pub fn start(&self) -> usize {
         match self {
             Self::Loop(span) => span.start,
@@ -95,8 +85,6 @@ impl Region {
     }
 }
 
-// Task 3 lays the graph out.
-#[cfg_attr(not(test), expect(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Graph {
     pub nodes: Vec<Node>,
@@ -104,8 +92,6 @@ pub(crate) struct Graph {
     pub regions: Vec<Region>,
 }
 
-// Task 7 builds the graph for each feature.
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn graph(feature: &FeatureDecl, src: &Source) -> Graph {
     let (mut label, mut end) = label_at(src, feature.line);
     for input in &feature.needs {
