@@ -12,8 +12,13 @@ use run_support::TempDir;
 
 include!("explain_sweep.inc");
 
+fn blessing() -> bool {
+    std::env::var_os("GLOSS_BLESS").is_some_and(|v| v == "1")
+}
+
 fn cases() -> Vec<PathBuf> {
-    explain_sweep(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/explain_cases")).unwrap()
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/explain_cases");
+    explain_sweep(&dir, blessing()).unwrap()
 }
 
 /// The text `<name>.out` holds for the listing `full` of the program `name.gloss`.
@@ -57,23 +62,34 @@ fn the_explain_sweep_rejects_stray_files() {
     let dir = TempDir::new("explain-sweep");
     std::fs::write(dir.0.join("a.gloss"), "").unwrap();
     std::fs::write(dir.0.join("a.out"), "").unwrap();
-    assert_eq!(explain_sweep(&dir.0).unwrap().len(), 1);
+    assert_eq!(explain_sweep(&dir.0, false).unwrap().len(), 1);
+    std::fs::write(dir.0.join(".DS_Store"), "").unwrap();
+    assert_eq!(explain_sweep(&dir.0, false).unwrap().len(), 1);
     for stray in ["x.out", "a.trace", "b.GLOSS", "a.txt", "notes"] {
         std::fs::write(dir.0.join(stray), "").unwrap();
-        let err = explain_sweep(&dir.0).unwrap_err();
+        let err = explain_sweep(&dir.0, false).unwrap_err();
         assert!(err.contains(stray), "{err}");
         std::fs::remove_file(dir.0.join(stray)).unwrap();
     }
     std::fs::create_dir(dir.0.join("a.in")).unwrap();
-    assert!(explain_sweep(&dir.0).unwrap_err().contains("a.in"));
+    assert!(explain_sweep(&dir.0, false).unwrap_err().contains("a.in"));
 }
 
 #[test]
 fn a_case_without_an_out_is_reported() {
     let dir = TempDir::new("explain-sweep-missing");
     std::fs::write(dir.0.join("a.gloss"), "").unwrap();
-    let err = explain_sweep(&dir.0).unwrap_err();
+    let err = explain_sweep(&dir.0, false).unwrap_err();
     assert!(err.contains("no .out"), "{err}");
+}
+
+#[test]
+fn blessing_accepts_a_program_without_an_out() {
+    let dir = TempDir::new("explain-sweep-bless");
+    std::fs::write(dir.0.join("a.gloss"), "").unwrap();
+    assert_eq!(explain_sweep(&dir.0, true).unwrap().len(), 1);
+    std::fs::write(dir.0.join("x.out"), "").unwrap();
+    assert!(explain_sweep(&dir.0, true).unwrap_err().contains("x.out"));
 }
 
 #[test]
@@ -89,7 +105,7 @@ fn the_golden_text_keeps_the_listing_and_names_the_routines() {
 fn every_explain_case_matches() {
     let found = cases();
     assert!(found.len() >= MIN_EXPLAIN_CASES, "too few explain cases");
-    let bless = std::env::var_os("GLOSS_BLESS").is_some_and(|v| v == "1");
+    let bless = blessing();
     for case in &found {
         let got = explained(case);
         let out = case.with_extension("out");
