@@ -1,4 +1,5 @@
 use super::inst::{AluOp, Cc, Mem, R, Sym, X, text};
+use super::program::assemble;
 use crate::ir::{
     Data, Function, Global, Inst, Reg, TEST_STATE_BYTES, TRACE_STATE_BYTES, function_text,
 };
@@ -230,4 +231,69 @@ fn a_program_without_trace_state_has_the_same_layout() {
         size(module(Global::TraceState)),
         m4 + TRACE_STATE_BYTES as u64
     );
+}
+
+fn small_module() -> crate::ir::Module {
+    let (_, checked) = crate::check_program("feature start\n  show 1 + 2\n");
+    let c = checked.unwrap();
+    crate::lower::lower(&c.program, &c.types, &c.src).unwrap()
+}
+
+#[test]
+fn assembly_lists_every_function_then_the_helpers() {
+    let m = small_module();
+    let names: Vec<String> = assemble(&m)
+        .unwrap()
+        .routines
+        .into_iter()
+        .map(|r| r.name)
+        .collect();
+    let mut want: Vec<String> = m.functions.iter().map(|f| f.name.clone()).collect();
+    want.extend(super::arith::ENTRIES.map(String::from));
+    // The helpers' inner labels (`x86_64.multiply_low`, ...) do not start routines.
+    assert_eq!(
+        &want[want.len() - 3..],
+        [
+            "x86_64.multiply_number",
+            "x86_64.divide_number",
+            "x86_64.remainder_number"
+        ]
+    );
+    assert_eq!(names, want);
+}
+
+#[test]
+fn assembly_concatenated_is_what_executable_encodes() {
+    let m = small_module();
+    let xs = assemble(&m).unwrap().code();
+    let expected = super::program::image(&m, &xs).unwrap();
+    assert_eq!(super::program::executable(&m).unwrap(), expected);
+    // Another order gives another executable, so `executable` must use `assemble`'s order.
+    let mut routines = assemble(&m).unwrap().routines;
+    routines.reverse();
+    let reversed: Vec<X> = routines.into_iter().flat_map(|r| r.code).collect();
+    assert_ne!(super::program::image(&m, &reversed).unwrap(), expected);
+}
+
+#[test]
+fn each_routine_starts_with_its_own_label() {
+    for r in assemble(&small_module()).unwrap().routines {
+        assert_eq!(r.code.first(), Some(&X::Label(r.name.clone())));
+    }
+}
+
+#[test]
+fn routines_do_not_contain_each_others_labels() {
+    let routines = assemble(&small_module()).unwrap().routines;
+    let names: Vec<&String> = routines.iter().map(|r| &r.name).collect();
+    for r in &routines {
+        for x in &r.code[1..] {
+            if let X::Label(l) = x {
+                assert!(!names.contains(&l), "{} holds the label of {l}", r.name);
+            }
+        }
+    }
+    for h in routines.iter().filter(|r| r.name.starts_with("x86_64.")) {
+        assert!(h.code.len() > 1, "{} is only its label", h.name);
+    }
 }
