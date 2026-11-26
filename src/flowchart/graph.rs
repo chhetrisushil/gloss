@@ -5,6 +5,7 @@ use crate::ast::stmt::{Stmt, StmtKind};
 use crate::ast::{Expr, ExprKind, walk};
 use crate::lower::spell_invisible;
 use crate::source::Source;
+use std::ops::Range;
 
 // Task 3 lays out the boxes by shape.
 #[cfg_attr(not(test), expect(dead_code))]
@@ -70,12 +71,37 @@ impl Arrow {
     }
 }
 
+/// A block of the feature, as ranges of node indices, for placing nodes in columns.
+#[cfg_attr(not(test), expect(dead_code))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Region {
+    /// A loop: its decision and the nodes of its body.
+    Loop(Range<usize>),
+    /// An if chain: each condition with its body, then the `otherwise` body (empty if none).
+    If {
+        branches: Vec<Range<usize>>,
+        otherwise: Range<usize>,
+    },
+}
+
+impl Region {
+    /// The index of the first node of the block.
+    #[cfg_attr(not(test), expect(dead_code))]
+    pub fn start(&self) -> usize {
+        match self {
+            Self::Loop(span) => span.start,
+            Self::If { branches, .. } => branches[0].start,
+        }
+    }
+}
+
 // Task 3 lays the graph out.
 #[cfg_attr(not(test), expect(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Graph {
     pub nodes: Vec<Node>,
     pub arrows: Vec<Arrow>,
+    pub regions: Vec<Region>,
 }
 
 // Task 7 builds the graph for each feature.
@@ -102,6 +128,7 @@ pub(crate) fn graph(feature: &FeatureDecl, src: &Source) -> Graph {
         open: vec![(0, ArrowKind::Next)],
         loops: vec![],
         gives: vec![],
+        regions: vec![],
     };
     builder.block(&feature.body);
     let line = builder.body_end(src.line(feature.line));
@@ -116,6 +143,7 @@ pub(crate) fn graph(feature: &FeatureDecl, src: &Source) -> Graph {
     Graph {
         nodes: builder.nodes,
         arrows: builder.arrows,
+        regions: builder.regions,
     }
 }
 
@@ -136,6 +164,7 @@ struct Builder<'a> {
     loops: Vec<Loop>,
     /// The `give` nodes, which get an arrow to the end node.
     gives: Vec<usize>,
+    regions: Vec<Region>,
 }
 
 impl Builder<'_> {
@@ -153,16 +182,24 @@ impl Builder<'_> {
                 otherwise,
             } => {
                 let mut out = Vec::new();
+                let mut ranges = Vec::new();
                 for (i, (cond, body)) in branches.iter().enumerate() {
+                    let first = self.nodes.len();
                     let c = self.push(Shape::Decision, if i == 0 { stmt.line } else { cond.line });
                     self.open = vec![(c, ArrowKind::Yes)];
                     self.block(body);
                     out.append(&mut self.open);
                     self.open = vec![(c, ArrowKind::No)];
+                    ranges.push(first..self.nodes.len());
                 }
+                let first = self.nodes.len();
                 if let Some(body) = otherwise {
                     self.block(body);
                 }
+                self.regions.push(Region::If {
+                    branches: ranges,
+                    otherwise: first..self.nodes.len(),
+                });
                 out.append(&mut self.open);
                 self.open = out;
             }
@@ -186,6 +223,7 @@ impl Builder<'_> {
                 for (from, kind) in std::mem::take(&mut self.open) {
                     self.arrow(from, d, kind);
                 }
+                self.regions.push(Region::Loop(d..self.nodes.len()));
                 let lp = self.loops.pop().expect("the loop pushed above");
                 self.open = vec![(d, leave)];
                 self.open.extend(lp.stops);
