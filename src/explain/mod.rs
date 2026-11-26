@@ -1,5 +1,7 @@
 //! The listing `gloss explain` prints: each feature's inferred names and its code.
 
+mod comment;
+
 use crate::check::{FeatureInfo, TypeInfo};
 use crate::lower::{FunctionNotes, Notes};
 use crate::source::Source;

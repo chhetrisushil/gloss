@@ -24,7 +24,7 @@ pub(crate) struct Fail {
 
 /// `text` with each invisible character written `\u{XXXX}`, the same set and form as the
 /// text of failure 5, so the source in a message cannot reorder or hide anything (M2-R30).
-pub(super) fn spell_invisible(text: &str) -> String {
+pub(crate) fn spell_invisible(text: &str) -> String {
     let spell = |c: char| match crate::chars::unshowable(c) {
         true => format!("\\u{{{:04X}}}", c as u32),
         false => c.to_string(),
