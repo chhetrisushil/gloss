@@ -217,6 +217,8 @@ mod tests {
         );
         // Each track beyond the first adds 10px to its gap.
         assert_eq!(stack(&[36, 36], &[3]), (vec![16, 96], vec![0, 52], 148));
+        // A gap with no track is as tall as one with a single track.
+        assert_eq!(stack(&[36, 36], &[0]), (vec![16, 76], vec![0, 52], 128));
     }
 
     #[test]
