@@ -1,7 +1,8 @@
 //! Placing the flowchart's nodes: a row each, in branch columns with loop lanes (D62, D63).
 
 use super::graph::{Graph, Node, Region, Shape};
-use std::collections::BTreeMap;
+use super::route;
+use std::collections::{BTreeMap, BTreeSet};
 
 const MARGIN: i32 = 16;
 
@@ -29,7 +30,9 @@ pub(crate) struct Layout {
     pub give_lane: i32,
     /// The y of the top of the gap above each row; `gaps[0]` is 0 and unused (row 0 has no gap).
     pub gaps: Vec<i32>,
-    /// Filled by Task 4.
+    /// Decision of an `if` condition -> the column its `no` arrow runs down.
+    pub no_cols: BTreeMap<usize, usize>,
+    /// One polyline per arrow, start first: every segment is horizontal or vertical.
     pub routes: Vec<Vec<(i32, i32)>>,
 }
 
@@ -87,6 +90,7 @@ fn place(g: &Graph, (lo, hi): (usize, usize), col: usize, out: &mut Columns) -> 
                 for b in branches {
                     out.column[b.start] = c;
                     c = place(g, (b.start + 1, b.end), c, out) + 1;
+                    out.no_cols.insert(b.start, c);
                 }
                 last = last.max(place(g, (otherwise.start, otherwise.end), c, out));
                 i = otherwise.end;
@@ -102,6 +106,7 @@ fn place(g: &Graph, (lo, hi): (usize, usize), col: usize, out: &mut Columns) -> 
 
 struct Columns {
     column: Vec<usize>,
+    no_cols: BTreeMap<usize, usize>,
     /// Each loop's decision, first column and last column.
     spans: Vec<(usize, usize, usize)>,
 }
@@ -109,14 +114,23 @@ struct Columns {
 pub(crate) fn layout(g: &Graph) -> Layout {
     let sizes: Vec<(i32, i32)> = g.nodes.iter().map(size).collect();
     let heights: Vec<i32> = sizes.iter().map(|s| s.1).collect();
-    let tracks = vec![1; heights.len().saturating_sub(1)];
-    let (ys, gaps, height) = stack(&heights, &tracks);
     let mut cols = Columns {
         column: vec![0; sizes.len()],
+        no_cols: BTreeMap::new(),
         spans: vec![],
     };
     let count = place(g, (0, sizes.len()), 0, &mut cols) + 1;
-    let Columns { column, mut spans } = cols;
+    let Columns {
+        column,
+        no_cols,
+        mut spans,
+    } = cols;
+    // Each gap is as tall as the tracks that cross it need.
+    let sets = route::tracks(g, &column, &no_cols);
+    let tracks: Vec<usize> = (1..sizes.len())
+        .map(|gap| sets.get(&gap).map_or(0, BTreeSet::len))
+        .collect();
+    let (ys, gaps, height) = stack(&heights, &tracks);
     spans.sort();
     let mut widths = vec![0; count];
     for (&c, s) in column.iter().zip(&sizes) {
@@ -149,7 +163,7 @@ pub(crate) fn layout(g: &Graph) -> Layout {
             h,
         })
         .collect();
-    Layout {
+    let mut layout = Layout {
         width: give_lane + MARGIN,
         height,
         boxes,
@@ -158,8 +172,11 @@ pub(crate) fn layout(g: &Graph) -> Layout {
         loops,
         give_lane,
         gaps,
+        no_cols,
         routes: vec![],
-    }
+    };
+    layout.routes = route::route(g, &layout);
+    layout
 }
 
 #[cfg(test)]
