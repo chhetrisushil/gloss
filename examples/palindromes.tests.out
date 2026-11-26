@@ -1,0 +1,5 @@
+pass  reversing swaps the first and last digits
+pass  reversing drops trailing zeros
+pass  a palindrome reads the same reversed
+
+3 passed, 0 failed

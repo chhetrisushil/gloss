@@ -9,3 +9,10 @@ feature start
   show "square root of 2 is ", (square_root with 2)
   show "square root of 10 is ", (square_root with 10) as text with 2 places
   show "square root of 144 is ", (square_root with 144)
+
+test "the square root of a perfect square is exact"
+  expect square_root with 144 is 12
+
+test "the square root of 2 is close to 1.4142"
+  expect square_root with 2 is at least 1.4142
+  expect square_root with 2 is less than 1.4143

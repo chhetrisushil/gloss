@@ -1,0 +1,6 @@
+pass  the total adds every price
+pass  only unpaid purchases are still to pay
+pass  saved purchases load back into the report
+pass  a missing file gives an empty report
+
+4 passed, 0 failed

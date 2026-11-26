@@ -14,3 +14,12 @@ feature start
       show i
       add 1 to found
   show found, " palindromes from 100 to 200"
+
+test "reversing swaps the first and last digits"
+  expect reversed with 123 is 321
+
+test "reversing drops trailing zeros"
+  expect reversed with 120 is 21
+
+test "a palindrome reads the same reversed"
+  expect reversed with 121 is 121

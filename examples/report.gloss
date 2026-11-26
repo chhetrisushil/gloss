@@ -5,14 +5,45 @@ record Purchase
 
 table purchases of Purchase in "report.csv"
 
-feature start
-  load purchases
+feature total_price
   set total to 0
-  set owed to 0
   for each purchase in purchases
     add price of purchase to total
+  give total
+
+feature still_to_pay
+  set owed to 0
+  for each purchase in purchases
     if not paid of purchase
       add price of purchase to owed
+  give owed
+
+feature start
+  load purchases
   show "Items: ", count of purchases
-  show "Total: ", total
-  show "Still to pay: ", owed
+  show "Total: ", total_price
+  show "Still to pay: ", still_to_pay
+
+test "the total adds every price"
+  append Purchase with product "Tea", price 2.5, paid yes to purchases
+  append Purchase with product "Jam", price 5, paid no to purchases
+  expect total_price is 7.5
+
+test "only unpaid purchases are still to pay"
+  append Purchase with product "Tea", price 2.5, paid yes to purchases
+  append Purchase with product "Jam", price 5, paid no to purchases
+  append Purchase with product "Cheese", price 9.75, paid no to purchases
+  expect still_to_pay is 14.75
+
+test "saved purchases load back into the report"
+  append Purchase with product "Bread", price 4, paid no to purchases
+  save purchases
+  clear purchases
+  run start
+  expect first of shown is "Items: 1"
+  expect last of shown is "Still to pay: 4"
+
+test "a missing file gives an empty report"
+  run start
+  expect first of shown is "Items: 0"
+  expect total_price is 0
