@@ -4,6 +4,9 @@ pub mod chars;
 pub mod check;
 pub mod cli;
 pub mod diag;
+// Nothing calls the listing until `Checked::explanation`; Task 8 removes this allow.
+#[allow(dead_code)]
+pub(crate) mod explain;
 pub mod format;
 pub mod ir;
 #[cfg(test)]
