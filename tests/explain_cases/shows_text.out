@@ -1,0 +1,40 @@
+Explain shows_text.gloss for x86-64 Linux
+
+feature start (line 1)
+
+    push rbp
+    mov rbp, rsp
+    sub rsp, 8
+    mov [rbp-8], rcx
+line 2: show "hello"
+    lea rax, [rip+text_0]           ; "hello"
+    push rax
+    call out_text
+    add rsp, 8
+    lea rax, [rip+text_1]           ; "\u{000A}"
+    push rax
+    call out_text
+    add rsp, 8
+    mov rcx, [rbp-8]
+    mov rsp, rbp
+    pop rbp
+    ret
+
+runtime
+
+permissions_text
+tables_init
+out_text
+out_bytes
+buf_bytes
+write_all
+write_loop
+flush
+_start
+args_check
+stack_init
+stack_limit
+heap_init
+x86_64.multiply_number
+x86_64.divide_number
+x86_64.remainder_number
