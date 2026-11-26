@@ -52,3 +52,19 @@ feature start
   show "whole root of 1000000 is ", (whole_root with 1000000)
   show "whole root of 99 is ", (whole_root with 99)
   show "whole root of 2 is ", (whole_root with 2)
+
+test "a secret in the middle is found in a few steps"
+  expect steps_to_find with 37, 100 is 3
+
+test "the smallest and largest secrets are found"
+  expect steps_to_find with 1, 100 is 6
+  expect steps_to_find with 100, 100 is 7
+
+test "a secret outside the range is not found"
+  expect steps_to_find with 0, 100 is -1
+  expect steps_to_find with 101, 100 is -1
+
+test "the whole root rounds down"
+  expect whole_root with 99 is 9
+  expect whole_root with 100 is 10
+  expect whole_root with 0 is 0

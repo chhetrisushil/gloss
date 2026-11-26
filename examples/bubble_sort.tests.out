@@ -1,0 +1,6 @@
+pass  a list is sorted from smallest to largest
+pass  sorting leaves the original list alone
+pass  a shuffled list needs three passes
+pass  an empty list needs one pass
+
+4 passed, 0 failed
