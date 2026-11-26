@@ -13,6 +13,9 @@ mod encode_flow_tests;
 mod encode_tests;
 pub mod inst;
 pub mod linux;
+pub mod listing;
+#[cfg(test)]
+mod listing_tests;
 pub mod lower;
 #[cfg(test)]
 mod lower_tests;
