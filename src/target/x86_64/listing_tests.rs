@@ -2,7 +2,7 @@
 
 use super::inst::{X, text};
 use super::listing::*;
-use super::program::assemble;
+use super::program::{Assembled, Assembly, assemble};
 use crate::ir::Module;
 use crate::ir::{Function, Inst, Label};
 use crate::target::listing::Item;
@@ -80,5 +80,92 @@ fn line_markers_and_local_labels() {
             text: "jmp .L1".to_string(),
             refs: vec![]
         }
+    );
+}
+
+#[test]
+fn helper_labels_stay_as_they_are() {
+    let m = module("feature start\n  show 1\n");
+    let routines = listing(&assemble(&m).unwrap(), &m).unwrap();
+    let helpers = routines.iter().filter(|r| r.name.starts_with("x86_64."));
+    let labels: Vec<&Item> = helpers
+        .flat_map(|r| &r.items)
+        .filter(|i| matches!(i, Item::Label { .. }))
+        .collect();
+    assert!(labels.contains(&&Item::Label {
+        text: "x86_64.number_finish".to_string(),
+        local: None
+    }));
+    assert!(
+        labels
+            .iter()
+            .all(|i| matches!(i, Item::Label { local: None, .. }))
+    );
+}
+
+#[test]
+fn an_unknown_comment_is_an_error() {
+    let a = Assembly {
+        routines: vec![Assembled {
+            name: "f".to_string(),
+            code: vec![X::Label("f".to_string()), X::Comment("hi".to_string())],
+        }],
+    };
+    let m = Module {
+        functions: vec![],
+        texts: vec![],
+        descs: vec![],
+    };
+    assert!(listing(&a, &m).unwrap_err().contains("unexpected comment"));
+}
+
+#[test]
+fn only_a_routines_own_numbered_labels_are_local() {
+    assert_eq!(local("f_a", "Lf_a_3"), Some(3));
+    assert_eq!(local("f_a", "Lf_a_b_3"), None);
+    assert_eq!(local("f_a", "Lf_a_"), None);
+    assert_eq!(local("f_a", "Lf_a3"), None);
+    assert_eq!(local("f_a", "Lf_b_3"), None);
+}
+
+#[test]
+fn conditional_jumps_are_renamed_and_calls_are_not() {
+    let items = one(vec![
+        Inst::Mark(Label(2)),
+        Inst::Compare,
+        Inst::JumpIf(crate::ir::Cond::Eq, Label(2)),
+    ]);
+    assert!(items.contains(&Item::Inst {
+        text: "je .L2".to_string(),
+        refs: vec![]
+    }));
+    let m = module("feature start\n  show 1\n");
+    let routines = listing(&assemble(&m).unwrap(), &m).unwrap();
+    let calls = routines
+        .iter()
+        .flat_map(|r| &r.items)
+        .filter_map(|i| match i {
+            Item::Inst { text, .. } if text.starts_with("call ") => Some(text),
+            _ => None,
+        });
+    assert!(calls.clone().count() > 0);
+    assert!(calls.into_iter().all(|t| !t.starts_with("call .L")));
+}
+
+#[test]
+fn system_call_labels_in_runtime_routines_stay_as_they_are() {
+    let m = module("feature start\n  set xs to list of 1, 2\n  show xs\n");
+    let routines = listing(&assemble(&m).unwrap(), &m).unwrap();
+    let mapped: Vec<&Item> = routines
+        .iter()
+        .filter(|r| !r.name.starts_with("x86_64."))
+        .flat_map(|r| &r.items)
+        .filter(|i| matches!(i, Item::Label { text, .. } if text.ends_with("_mapped")))
+        .collect();
+    assert!(!mapped.is_empty());
+    assert!(
+        mapped
+            .iter()
+            .all(|i| matches!(i, Item::Label { local: None, .. }))
     );
 }

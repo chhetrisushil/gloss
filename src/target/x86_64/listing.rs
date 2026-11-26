@@ -6,7 +6,7 @@ use crate::ir::Module;
 use crate::target::listing::{Item, Routine};
 
 /// The routine's own label `L<name>_<n>` as its number `n`.
-fn local(name: &str, label: &str) -> Option<u32> {
+pub(super) fn local(name: &str, label: &str) -> Option<u32> {
     let digits = label
         .strip_prefix('L')?
         .strip_prefix(name)?
