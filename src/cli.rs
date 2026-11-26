@@ -242,9 +242,11 @@ fn handle_line(
     err: &mut dyn Write,
     state: &mut TraceState,
 ) -> std::io::Result<()> {
-    let written = file
-        .write_all(line.as_bytes())
-        .and_then(|()| file.write_all(b"\n"));
+    // One write for the line and its newline, flushed at once: a Ctrl-C keeps every line so far.
+    let mut bytes = Vec::with_capacity(line.len() + 1);
+    bytes.extend_from_slice(line.as_bytes());
+    bytes.push(b'\n');
+    let written = file.write_all(&bytes).and_then(|()| file.flush());
     written.map_err(|e| {
         std::io::Error::new(e.kind(), format!("{} cannot be written: {e}", state.label))
     })?;
@@ -678,6 +680,36 @@ mod tests {
             let pending = std::mem::take(&mut self.pending);
             self.on_disk.extend(pending);
             Ok(())
+        }
+    }
+
+    #[test]
+    fn each_line_is_on_disk_as_soon_as_it_is_handled() {
+        let mut file = Staged::default();
+        let (_, checked) = crate::check_program("feature start\n  show \"hi\"\n");
+        let checked = checked.unwrap();
+        let mut narrator = crate::trace::narrate::Narrator::new(checked.program());
+        let mut state = TraceState {
+            label: "t.trace".into(),
+            failed: false,
+            unreadable: None,
+        };
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        for (n, line) in [SHOW, SHOW, FAIL].iter().enumerate() {
+            handle_line(
+                line,
+                &mut file,
+                &mut narrator,
+                &mut out,
+                &mut err,
+                &mut state,
+            )
+            .unwrap();
+            assert!(file.pending.is_empty(), "line {n} is still buffered");
+            let want = [SHOW, SHOW, FAIL][..=n]
+                .iter()
+                .fold(String::new(), |a, l| a + l + "\n");
+            assert_eq!(String::from_utf8(file.on_disk.clone()).unwrap(), want);
         }
     }
 
