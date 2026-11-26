@@ -5,6 +5,7 @@ pub mod check;
 pub mod cli;
 pub mod diag;
 pub(crate) mod explain;
+pub(crate) mod flowchart;
 pub mod format;
 pub mod ir;
 #[cfg(test)]
