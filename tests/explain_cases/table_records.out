@@ -1,0 +1,123 @@
+Explain table_records.gloss for x86-64 Linux
+
+feature start (line 7)
+  product: Product, loop variable on line 9, at [rbp-8]
+
+line 7: feature start
+    push rbp
+    mov rbp, rsp
+    sub rsp, 40
+    mov [rbp-40], rcx
+    xor rdx, rdx
+    mov [rbp-8], rdx                ; product
+    mov [rbp-16], rdx
+    mov [rbp-24], rdx
+    mov [rbp-32], rdx
+line 8: load products
+    lea rax, [rip+text_0]           ; "products.csv\u{0000}"
+    push rax
+    lea rax, [rip+text_1]           ; "products.csv"
+    push rax
+    lea rax, [rip+desc_2]
+    push rax
+    movabs rax, 8
+    push rax
+    call table_read
+    add rsp, 32
+    mov [rbp-16], rax
+    lea rax, [rip+tables]
+    mov rax, [rax+0]
+    mov rcx, [rbp-16]
+    mov [rax+0], rcx
+    movabs rcx, 1
+    mov [rax+8], rcx
+line 9: for each product in products
+    lea rax, [rip+tables]
+    mov rax, [rax+0]
+    mov rax, [rax+0]
+    mov [rbp-24], rax
+    movabs rax, 0
+    mov [rbp-32], rax
+  .L0:
+    mov rax, [rbp-32]
+    mov rcx, [rbp-24]
+    mov rcx, [rcx+0]
+    cmp rax, rcx
+    jge .L2
+    shl rax, 3
+    mov rcx, [rbp-24]
+    mov rcx, [rcx+16]
+    add rax, rcx
+    mov rax, [rax+0]
+    mov [rbp-8], rax                ; product
+line 10: show price of product
+    mov rax, [rbp-8]                ; product
+    mov rax, [rax+8]
+    push rax
+    call out_number
+    add rsp, 8
+    lea rax, [rip+text_2]           ; "\u{000A}"
+    push rax
+    call out_text
+    add rsp, 8
+line 9: for each product in products (continued)
+  .L1:
+    mov rax, [rbp-32]
+    add rax, 1
+    mov [rbp-32], rax
+    jmp .L0
+line 7: feature start (continued)
+  .L2:
+    mov rcx, [rbp-40]
+    mov rsp, rbp
+    pop rbp
+    ret
+
+runtime
+
+permissions_text
+tables_init
+list_new
+alloc
+fail_memory
+fail_end
+err_text
+write_all
+write_loop
+fail_begin
+err_int
+flush
+out_text
+out_bytes
+buf_bytes
+out_number
+number_format
+table_read
+fail_row
+list_push
+table_record
+cell_truth
+err_shown
+err_flush
+err_put
+text_equal
+cell_number
+parse_number
+csv_next
+csv_read_cell
+grow_text
+csv_byte
+csv_header
+csv_cursor
+csv_builder
+file_bytes
+read_fail
+utf8_valid_up_to
+_start
+args_check
+stack_init
+stack_limit
+heap_init
+x86_64.multiply_number
+x86_64.divide_number
+x86_64.remainder_number
