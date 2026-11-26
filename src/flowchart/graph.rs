@@ -26,8 +26,6 @@ pub(crate) struct Node {
     pub line: u32,
 }
 
-// Task 2b builds the skip, stop and give arrows.
-#[allow(dead_code)]
 /// How an arrow leaves its node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ArrowKind {
@@ -102,18 +100,29 @@ pub(crate) fn graph(feature: &FeatureDecl, src: &Source) -> Graph {
         end,
         arrows: vec![],
         open: vec![(0, ArrowKind::Next)],
+        loops: vec![],
+        gives: vec![],
     };
     builder.block(&feature.body);
     let line = builder.body_end(src.line(feature.line));
-    builder.add(Node {
+    let end_node = builder.add(Node {
         shape: Shape::End,
         label: vec!["end".to_string()],
         line,
     });
+    for from in std::mem::take(&mut builder.gives) {
+        builder.arrow(from, end_node, ArrowKind::Give);
+    }
     Graph {
         nodes: builder.nodes,
         arrows: builder.arrows,
     }
+}
+
+/// A loop being built: its decision, and the `stop` exits that leave it.
+struct Loop {
+    decision: usize,
+    stops: Vec<(usize, ArrowKind)>,
 }
 
 struct Builder<'a> {
@@ -124,6 +133,9 @@ struct Builder<'a> {
     arrows: Vec<Arrow>,
     /// The arrows that still need a target: the next node pushed takes them.
     open: Vec<(usize, ArrowKind)>,
+    loops: Vec<Loop>,
+    /// The `give` nodes, which get an arrow to the end node.
+    gives: Vec<usize>,
 }
 
 impl Builder<'_> {
@@ -165,17 +177,49 @@ impl Builder<'_> {
                     (ArrowKind::Each, ArrowKind::Done)
                 };
                 self.open = vec![(d, enter)];
+                self.loops.push(Loop {
+                    decision: d,
+                    stops: vec![],
+                });
                 self.block(body);
+                // An empty body gives the arrow (d, d, Each): a back arrow that Task 4 routes.
                 for (from, kind) in std::mem::take(&mut self.open) {
                     self.arrow(from, d, kind);
                 }
+                let lp = self.loops.pop().expect("the loop pushed above");
                 self.open = vec![(d, leave)];
+                self.open.extend(lp.stops);
             }
             kind => {
                 let mut exprs = Vec::new();
                 walk::parts(kind, &mut exprs, &mut Vec::new());
                 let calls = matches!(kind, StmtKind::Run { .. }) || exprs.into_iter().any(has_call);
-                self.push(if calls { Shape::Call } else { Shape::Step }, stmt.line);
+                let n = self.push(if calls { Shape::Call } else { Shape::Step }, stmt.line);
+                match kind {
+                    StmtKind::Skip => {
+                        self.open.clear();
+                        // The checker rejects a skip outside a loop, so one always encloses it.
+                        let lp = self.loops.last();
+                        debug_assert!(lp.is_some(), "skip outside a loop");
+                        if let Some(lp) = lp {
+                            self.arrow(n, lp.decision, ArrowKind::Skip);
+                        }
+                    }
+                    StmtKind::Stop => {
+                        self.open.clear();
+                        // The checker rejects a stop outside a loop, so one always encloses it.
+                        let lp = self.loops.last_mut();
+                        debug_assert!(lp.is_some(), "stop outside a loop");
+                        if let Some(lp) = lp {
+                            lp.stops.push((n, ArrowKind::Stop));
+                        }
+                    }
+                    StmtKind::Give(_) => {
+                        self.open.clear();
+                        self.gives.push(n);
+                    }
+                    _ => {}
+                }
             }
         }
     }
@@ -537,6 +581,142 @@ mod tests {
                 (1, 4, Done)
             ]
         );
+    }
+
+    #[test]
+    fn jumps() {
+        let text = "feature f\n  for each i from 1 to 5\n    if i is 1\n      skip\n    if i is 2\n      stop\n    show i\n  show 9\n  give 1\n  show 8\n\nfeature start\n  show f\n";
+        let arrows = arrows_of(text);
+        assert_eq!(
+            arrows,
+            [
+                (0, 1, Next),
+                (1, 2, Each),
+                (2, 3, Yes),
+                (3, 1, Skip),
+                (2, 4, No),
+                (4, 5, Yes),
+                (4, 6, No),
+                (6, 1, Next),
+                (1, 7, Done),
+                (5, 7, Stop),
+                (7, 8, Next),
+                (9, 10, Next),
+                (8, 10, Give)
+            ]
+        );
+        assert!(arrows.iter().all(|&(_, to, _)| to != 9));
+    }
+
+    #[test]
+    fn nested_loops() {
+        let text = "feature start\n  for each i from 1 to 3\n    for each j from 1 to 3\n      if j is 2\n        stop\n      show j\n    show i\n  show 0\n";
+        assert_eq!(
+            arrows_of(text),
+            [
+                (0, 1, Next),
+                (1, 2, Each),
+                (2, 3, Each),
+                (3, 4, Yes),
+                (3, 5, No),
+                (5, 2, Next),
+                (2, 6, Done),
+                (4, 6, Stop),
+                (6, 1, Next),
+                (1, 7, Done),
+                (7, 8, Next)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_skip_goes_to_the_inner_loop() {
+        let text = "feature start\n  for each i from 1 to 3\n    for each j from 1 to 3\n      if j is 2\n        skip\n      show j\n    show i\n";
+        assert_eq!(
+            arrows_of(text),
+            [
+                (0, 1, Next),
+                (1, 2, Each),
+                (2, 3, Each),
+                (3, 4, Yes),
+                (4, 2, Skip),
+                (3, 5, No),
+                (5, 2, Next),
+                (2, 6, Done),
+                (6, 1, Next),
+                (1, 7, Done)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_stop_ends_a_body_with_no_back_arrow() {
+        let text = "feature start\n  for each i from 1 to 3\n    show i\n    stop\n  show 0\n";
+        assert_eq!(
+            arrows_of(text),
+            [
+                (0, 1, Next),
+                (1, 2, Each),
+                (2, 3, Next),
+                (1, 4, Done),
+                (3, 4, Stop),
+                (4, 5, Next)
+            ]
+        );
+    }
+
+    #[test]
+    fn give_in_a_loop_and_an_if_goes_to_the_end() {
+        let text = "feature f\n  for each i from 1 to 3\n    if i is 2\n      give i\n    show i\n  give 0\n\nfeature start\n  show f\n";
+        assert_eq!(
+            arrows_of(text),
+            [
+                (0, 1, Next),
+                (1, 2, Each),
+                (2, 3, Yes),
+                (2, 4, No),
+                (4, 1, Next),
+                (1, 5, Done),
+                (3, 6, Give),
+                (5, 6, Give)
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_bodies_leave_their_exits_open() {
+        let text = "feature start\n  if 1 is 1\n    note nothing\n  show 1\n";
+        assert_eq!(
+            arrows_of(text),
+            [(0, 1, Next), (1, 2, Yes), (1, 2, No), (2, 3, Next)]
+        );
+        // The empty loop body makes a self arrow, a back arrow.
+        let text = "feature start\n  for each i from 1 to 3\n    note nothing\n  show 1\n";
+        assert_eq!(
+            arrows_of(text),
+            [(0, 1, Next), (1, 1, Each), (1, 2, Done), (2, 3, Next)]
+        );
+    }
+
+    #[test]
+    fn an_if_whose_branches_all_jump_has_no_way_into_the_next_node() {
+        let text = "feature start\n  for each i from 1 to 3\n    if i is 1\n      skip\n    otherwise\n      stop\n    show i\n  show 0\n";
+        let arrows = arrows_of(text);
+        assert_eq!(
+            arrows,
+            [
+                (0, 1, Next),
+                (1, 2, Each),
+                (2, 3, Yes),
+                (3, 1, Skip),
+                (2, 4, No),
+                (5, 1, Next),
+                (1, 6, Done),
+                (4, 6, Stop),
+                (6, 7, Next)
+            ]
+        );
+        assert!(arrows.iter().all(|&(_, to, _)| to != 5));
     }
 
     #[test]
