@@ -1,6 +1,6 @@
 //! Tests of the assembly listing.
 
-use super::inst::{R, X, text};
+use super::inst::{Mem, R, X, text};
 use super::listing::*;
 use super::program::{Assembled, Assembly, assemble};
 use crate::ir::Module;
@@ -184,6 +184,41 @@ fn refs_of(items: &[Item], prefix: &str) -> Vec<Ref> {
         .unwrap_or_else(|| panic!("no instruction {prefix}"))
 }
 
+/// The refs of each instruction of routine `f`, which has `params` and `slots`.
+fn memory_refs(params: u32, slots: u32, code: Vec<X>) -> Vec<Vec<Ref>> {
+    let f = Function {
+        name: "f".to_string(),
+        params,
+        slots,
+        body: vec![],
+    };
+    let m = Module {
+        functions: vec![f],
+        texts: vec![],
+        descs: vec![],
+    };
+    let mut all = vec![X::Label("f".to_string())];
+    all.extend(code);
+    let a = Assembly {
+        routines: vec![Assembled {
+            name: "f".to_string(),
+            code: all,
+        }],
+    };
+    let items = listing(&a, &m).unwrap().remove(0).items;
+    items
+        .into_iter()
+        .filter_map(|i| match i {
+            Item::Inst { refs, .. } => Some(refs),
+            _ => None,
+        })
+        .collect()
+}
+
+fn at(r: R, d: i32) -> Mem {
+    Mem::Base(r, d)
+}
+
 #[test]
 fn slot_and_input_refs() {
     use crate::ir::Reg;
@@ -200,6 +235,97 @@ fn slot_and_input_refs() {
     assert_eq!(refs_of(&items, "mov rax, [rbp+24]"), vec![Ref::Input(1)]);
     // The saved `b` word, `[rbp-32]`, is not a slot.
     assert_eq!(refs_of(&items, "mov rcx, [rbp-32]"), vec![]);
+}
+
+#[test]
+fn slot_and_input_bounds() {
+    let load = |m| X::MovRM(R::Rax, m);
+    let got = memory_refs(
+        2,
+        3,
+        vec![
+            load(at(R::Rbp, -8)),  // first slot
+            load(at(R::Rbp, -24)), // last slot
+            load(at(R::Rbp, -32)), // saved b
+            load(at(R::Rbp, -4)),  // misaligned
+            load(at(R::Rbp, 0)),   // saved rbp
+            load(at(R::Rbp, 8)),   // return address
+            load(at(R::Rbp, 16)),  // input 2
+            load(at(R::Rbp, 24)),  // input 1
+            load(at(R::Rbp, 32)),  // past the inputs
+            load(at(R::Rbp, 20)),  // misaligned
+        ],
+    );
+    let none: Vec<Ref> = vec![];
+    assert_eq!(
+        got,
+        vec![
+            vec![Ref::Slot(1)],
+            vec![Ref::Slot(3)],
+            none.clone(),
+            none.clone(),
+            none.clone(),
+            none.clone(),
+            vec![Ref::Input(2)],
+            vec![Ref::Input(1)],
+            none.clone(),
+            none,
+        ]
+    );
+}
+
+#[test]
+fn only_rbp_memory_has_slot_and_input_refs() {
+    let got = memory_refs(
+        1,
+        1,
+        vec![
+            X::MovRM(R::Rax, at(R::Rax, -8)),
+            X::MovRM(R::Rax, at(R::Rcx, 16)),
+            X::MovRM(R::Rax, at(R::Rsp, -8)),
+        ],
+    );
+    assert_eq!(got, vec![vec![]; 3]);
+}
+
+#[test]
+fn byte_loads_stores_and_lea_have_refs() {
+    let got = memory_refs(
+        1,
+        1,
+        vec![
+            X::MovzxRM8(R::Rax, at(R::Rbp, -8)),
+            X::MovM8R(at(R::Rbp, 16), R::Rax),
+            X::Lea(R::Rax, at(R::Rbp, -8)),
+            X::MovMR(at(R::Rbp, -8), R::Rax),
+        ],
+    );
+    assert_eq!(
+        got,
+        vec![
+            vec![Ref::Slot(1)],
+            vec![Ref::Input(1)],
+            vec![Ref::Slot(1)],
+            vec![Ref::Slot(1)]
+        ]
+    );
+}
+
+#[test]
+fn jumps_to_other_labels_have_no_jump_ref() {
+    let m = module("feature start\n  show 1\n");
+    let routines = listing(&assemble(&m).unwrap(), &m).unwrap();
+    let mut jumps = 0;
+    for i in routines.iter().flat_map(|r| &r.items) {
+        if let Item::Inst { text, refs } = i
+            && (text.starts_with('j'))
+            && !text.contains(".L")
+        {
+            jumps += 1;
+            assert!(refs.is_empty(), "{text}");
+        }
+    }
+    assert!(jumps > 0);
 }
 
 #[test]
