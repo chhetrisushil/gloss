@@ -6,6 +6,7 @@ mod count;
 mod expr;
 mod fail;
 mod list;
+mod notes;
 mod record;
 mod stmt;
 mod table;
@@ -22,6 +23,8 @@ use crate::diag::Diagnostic;
 use crate::ir::{Data, Function, Global, Inst, Label, Module, Reg};
 use crate::runtime;
 use crate::source::Source;
+
+pub use notes::{FailNote, FunctionNotes, Notes};
 
 /// What a lowering is for: the program as it runs, the test executable `gloss test` builds
 /// (line stores, the driver, pretend files and the test statements `expect`, `input`,
@@ -192,6 +195,7 @@ fn lower_feature(
     context: (&Source, &Program, &TypeInfo),
     feature: &FeatureDecl,
     called: &mut Vec<String>,
+    notes: Option<&mut Notes>,
 ) -> Result<Function, Diagnostic> {
     let types = context.2;
     let info = types.features.get(&feature.name);
@@ -204,9 +208,22 @@ fn lower_feature(
     } else {
         l.emit(Inst::Return);
     }
+    let name = function_name(&feature.name);
+    if let Some(notes) = notes {
+        notes.functions.insert(
+            name.clone(),
+            FunctionNotes {
+                feature: feature.name.clone(),
+                line: feature.line,
+                slots: l.slots.iter().map(|(n, k)| (*k, n.clone())).collect(),
+                inputs: l.inputs.clone(),
+                fails: BTreeMap::new(),
+            },
+        );
+    }
     let (slots, body) = l.finish(called);
     Ok(Function {
-        name: function_name(&feature.name),
+        name,
         params: feature.needs.len() as u32,
         slots,
         body,
@@ -287,7 +304,18 @@ fn permissions_text(text: u32) -> Function {
 
 /// Lowers a checked program to an IR module, with the runtime it reaches.
 pub fn lower(program: &Program, types: &TypeInfo, src: &Source) -> Result<Module, Diagnostic> {
-    lower_program(program, types, src, Mode::Real)
+    lower_explained(program, types, src).map(|(m, _)| m)
+}
+
+/// `lower`, and the names `gloss explain` shows: each feature's slots and inputs.
+pub fn lower_explained(
+    program: &Program,
+    types: &TypeInfo,
+    src: &Source,
+) -> Result<(Module, Notes), Diagnostic> {
+    let mut notes = Notes::default();
+    let module = lower_program(program, types, src, Mode::Real, Some(&mut notes))?;
+    Ok((module, notes))
 }
 
 /// Lowers a checked program for `gloss test`: every feature, and each test body as `t_<i>`.
@@ -296,7 +324,7 @@ pub fn lower_tests(
     types: &TypeInfo,
     src: &Source,
 ) -> Result<Module, Diagnostic> {
-    lower_program(program, types, src, Mode::Test)
+    lower_program(program, types, src, Mode::Test, None)
 }
 
 /// Lowers a checked program for `gloss trace`: the real program, with a `_start` of its own.
@@ -305,7 +333,7 @@ pub fn lower_trace(
     types: &TypeInfo,
     src: &Source,
 ) -> Result<Module, Diagnostic> {
-    lower_program(program, types, src, Mode::Trace)
+    lower_program(program, types, src, Mode::Trace, None)
 }
 
 fn lower_program(
@@ -313,6 +341,7 @@ fn lower_program(
     types: &TypeInfo,
     src: &Source,
     mode: Mode,
+    mut notes: Option<&mut Notes>,
 ) -> Result<Module, Diagnostic> {
     let mut module = Module::default();
     // A test or trace build has its own `_start`, put in before the runtime's would be.
@@ -322,7 +351,13 @@ fn lower_program(
     };
     let context = (src, program, types);
     for feature in program.features() {
-        let f = lower_feature((&mut module, mode), context, feature, &mut called)?;
+        let f = lower_feature(
+            (&mut module, mode),
+            context,
+            feature,
+            &mut called,
+            notes.as_deref_mut(),
+        )?;
         module.functions.push(f);
     }
     match mode {
