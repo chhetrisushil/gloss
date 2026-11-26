@@ -5,7 +5,7 @@ use super::listing::*;
 use super::program::{Assembled, Assembly, assemble};
 use crate::ir::Module;
 use crate::ir::{Function, Inst, Label};
-use crate::target::listing::Item;
+use crate::target::listing::{Item, Ref};
 
 fn module(src: &str) -> Module {
     let (_, checked) = crate::check_program(src);
@@ -41,10 +41,14 @@ fn the_listing_has_one_instruction_per_assembled_instruction() {
 }
 
 fn one(body: Vec<Inst>) -> Vec<Item> {
+    shaped(0, 0, body)
+}
+
+fn shaped(params: u32, slots: u32, body: Vec<Inst>) -> Vec<Item> {
     let f = Function {
         name: "f".to_string(),
-        params: 0,
-        slots: 0,
+        params,
+        slots,
         body,
     };
     let m = Module {
@@ -78,7 +82,7 @@ fn line_markers_and_local_labels() {
         items[at + 2],
         Item::Inst {
             text: "jmp .L1".to_string(),
-            refs: vec![]
+            refs: vec![Ref::Jump(1)]
         }
     );
 }
@@ -137,7 +141,7 @@ fn conditional_jumps_are_renamed_and_calls_are_not() {
     ]);
     assert!(items.contains(&Item::Inst {
         text: "je .L2".to_string(),
-        refs: vec![]
+        refs: vec![Ref::Jump(2)]
     }));
     let m = module("feature start\n  show 1\n");
     let routines = listing(&assemble(&m).unwrap(), &m).unwrap();
@@ -168,4 +172,45 @@ fn system_call_labels_in_runtime_routines_stay_as_they_are() {
             .iter()
             .all(|i| matches!(i, Item::Label { local: None, .. }))
     );
+}
+
+fn refs_of(items: &[Item], prefix: &str) -> Vec<Ref> {
+    items
+        .iter()
+        .find_map(|i| match i {
+            Item::Inst { text, refs } if text.starts_with(prefix) => Some(refs.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no instruction {prefix}"))
+}
+
+#[test]
+fn slot_and_input_refs() {
+    use crate::ir::Reg;
+    let items = shaped(
+        2,
+        3,
+        vec![
+            Inst::LoadSlot(Reg::A, 2),
+            Inst::LoadArg(Reg::A, 1),
+            Inst::Return,
+        ],
+    );
+    assert_eq!(refs_of(&items, "mov rax, [rbp-16]"), vec![Ref::Slot(2)]);
+    assert_eq!(refs_of(&items, "mov rax, [rbp+24]"), vec![Ref::Input(1)]);
+    // The saved `b` word, `[rbp-32]`, is not a slot.
+    assert_eq!(refs_of(&items, "mov rcx, [rbp-32]"), vec![]);
+}
+
+#[test]
+fn text_and_jump_refs() {
+    use crate::ir::{Data, Reg};
+    let items = one(vec![
+        Inst::Mark(Label(2)),
+        Inst::AddressOf(Reg::A, Data::Text(4)),
+        Inst::Compare,
+        Inst::JumpIf(crate::ir::Cond::Eq, Label(2)),
+    ]);
+    assert_eq!(refs_of(&items, "lea rax"), vec![Ref::Text(4)]);
+    assert_eq!(refs_of(&items, "je "), vec![Ref::Jump(2)]);
 }

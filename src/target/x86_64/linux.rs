@@ -50,6 +50,27 @@ const PERMISSION_BITS: i32 = 0o777;
 /// The kernel reports an error as a result in `-4095..=-1`.
 const FIRST_ERROR: i32 = -4096;
 
+/// The name of a system call `system` emits.
+pub fn syscall_name(n: i64) -> Option<&'static str> {
+    Some(match n {
+        READ => "read",
+        WRITE => "write",
+        MMAP => "mmap",
+        GETRLIMIT => "getrlimit",
+        EXIT_GROUP => "exit_group",
+        CLOSE => "close",
+        FSYNC => "fsync",
+        FSTAT => "fstat",
+        FORK => "fork",
+        WAIT4 => "wait4",
+        RT_SIGACTION => "rt_sigaction",
+        FCHMOD => "fchmod",
+        RENAMEAT => "renameat",
+        OPENAT2 => "openat2",
+        _ => return None,
+    })
+}
+
 /// Lowers one primitive. `unique` makes this function's labels distinct from every other.
 pub fn system(prim: Prim, unique: &str, out: &mut Vec<X>) {
     match prim {
