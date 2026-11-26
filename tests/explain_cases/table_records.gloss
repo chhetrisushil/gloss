@@ -1,0 +1,10 @@
+record Product
+  name as text
+  price as number
+
+table products of Product in "products.csv"
+
+feature start
+  load products
+  for each product in products
+    show price of product
