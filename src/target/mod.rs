@@ -1,12 +1,14 @@
 //! Code generation targets.
 
 pub mod elf;
+pub mod listing;
 pub mod x86_64;
 
 /// A machine the compiler can produce an executable for.
 pub trait Target {
     fn name(&self) -> &'static str;
     fn executable(&self, m: &crate::ir::Module) -> Result<Vec<u8>, String>;
+    fn listing(&self, m: &crate::ir::Module) -> Result<Vec<listing::Routine>, String>;
 }
 
 struct X86_64Linux;
@@ -18,6 +20,10 @@ impl Target for X86_64Linux {
 
     fn executable(&self, m: &crate::ir::Module) -> Result<Vec<u8>, String> {
         x86_64::program::executable(m)
+    }
+
+    fn listing(&self, m: &crate::ir::Module) -> Result<Vec<listing::Routine>, String> {
+        x86_64::listing::listing(&x86_64::program::assemble(m)?, m)
     }
 }
 
