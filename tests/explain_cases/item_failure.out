@@ -60,11 +60,11 @@ line 3: show item 7 of xs
     mov [rbp-40], rax
     movabs rcx, 1
     cmp rax, rcx
-    jl .L1                          ; failure 2: there is no item … in xs; it has … items
+    jl .L1                          ; failure 2: there is no item … in xs; it has …
     mov rcx, [rbp-24]
     mov rcx, [rcx+0]
     cmp rax, rcx
-    jg .L1                          ; failure 2: there is no item … in xs; it has … items
+    jg .L1                          ; failure 2: there is no item … in xs; it has …
     mov rax, [rbp-40]
     add rax, -1
     shl rax, 3
