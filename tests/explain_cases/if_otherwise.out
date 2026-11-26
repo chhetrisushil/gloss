@@ -35,8 +35,8 @@ line 4: show "one"
     call out_text
     add rsp, 8
     jmp .L0
-  .L1:
 line 5: otherwise if n is 2
+  .L1:
     mov rax, [rbp-8]                ; n
     push rax
     movabs rax, 20000
@@ -58,8 +58,8 @@ line 6: show "two"
     call out_text
     add rsp, 8
     jmp .L0
-  .L2:
 line 8: show "many"
+  .L2:
     lea rax, [rip+text_3]           ; "many"
     push rax
     call out_text
@@ -68,8 +68,8 @@ line 8: show "many"
     push rax
     call out_text
     add rsp, 8
-  .L0:
 line 1: feature start (continued)
+  .L0:
     mov rcx, [rbp-16]
     mov rsp, rbp
     pop rbp
