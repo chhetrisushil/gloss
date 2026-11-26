@@ -1,0 +1,192 @@
+Explain item_failure.gloss for x86-64 Linux
+
+feature start (line 1)
+  xs: list of number, created on line 2, at [rbp-8]
+
+    push rbp
+    mov rbp, rsp
+    sub rsp, 48
+    mov [rbp-48], rcx
+    xor rdx, rdx
+    mov [rbp-8], rdx                ; xs
+    mov [rbp-16], rdx
+    mov [rbp-24], rdx
+    mov [rbp-32], rdx
+    mov [rbp-40], rdx
+line 2: set xs to list of 4, 9, 2
+    movabs rax, 4
+    push rax
+    movabs rax, 2
+    push rax
+    call list_new
+    add rsp, 16
+    mov [rbp-16], rax
+    movabs rax, 40000
+    mov rcx, rax
+    mov rax, [rbp-16]
+    mov rax, [rax+16]
+    mov [rax+0], rcx
+    movabs rax, 90000
+    mov rcx, rax
+    mov rax, [rbp-16]
+    mov rax, [rax+16]
+    mov [rax+8], rcx
+    movabs rax, 20000
+    mov rcx, rax
+    mov rax, [rbp-16]
+    mov rax, [rax+16]
+    mov [rax+16], rcx
+    movabs rcx, 3
+    mov rax, [rbp-16]
+    mov [rax+0], rcx
+    mov [rbp-8], rax                ; xs
+line 3: show item 7 of xs
+    mov rax, [rbp-8]                ; xs
+    mov [rbp-24], rax
+    movabs rax, 70000
+    mov [rbp-32], rax
+    mov rcx, rax
+    cqo
+    movabs rsi, 10000
+    idiv rsi
+    imul rax, rsi
+    cmp rax, rcx
+    jne .L0                         ; failure 3: an item position must be whole (7 is …)
+    mov rax, [rbp-32]
+    movabs rcx, 10000
+    cqo
+    idiv rcx
+    mov [rbp-40], rax
+    movabs rcx, 1
+    cmp rax, rcx
+    jl .L1                          ; failure 2: there is no item … in xs; it has … items
+    mov rcx, [rbp-24]
+    mov rcx, [rcx+0]
+    cmp rax, rcx
+    jg .L1                          ; failure 2: there is no item … in xs; it has … items
+    mov rax, [rbp-40]
+    add rax, -1
+    shl rax, 3
+    mov rcx, [rbp-24]
+    mov rcx, [rcx+16]
+    add rax, rcx
+    mov rax, [rax+0]
+    push rax
+    call out_number
+    add rsp, 8
+    lea rax, [rip+text_0]           ; "\u{000A}"
+    push rax
+    call out_text
+    add rsp, 8
+    mov rcx, [rbp-48]
+    mov rsp, rbp
+    pop rbp
+    ret
+failure 3, line 3
+  .L0:
+    movabs rax, 3
+    push rax
+    movabs rax, 3
+    push rax
+    call fail_begin
+    add rsp, 16
+    lea rax, [rip+text_1]           ; "an item position must be whole…"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_2]           ; "7"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_3]           ; " is "
+    push rax
+    call err_text
+    add rsp, 8
+    mov rax, [rbp-32]
+    push rax
+    call err_number
+    add rsp, 8
+    lea rax, [rip+text_4]           ; ")"
+    push rax
+    call err_text
+    add rsp, 8
+    call fail_end
+failure 2, line 3
+  .L1:
+    movabs rax, 3
+    push rax
+    movabs rax, 2
+    push rax
+    call fail_begin
+    add rsp, 16
+    lea rax, [rip+text_5]           ; "there is no item "
+    push rax
+    call err_text
+    add rsp, 8
+    mov rax, [rbp-32]
+    push rax
+    call err_number
+    add rsp, 8
+    lea rax, [rip+text_6]           ; " in "
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_7]           ; "xs"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_8]           ; "; it has "
+    push rax
+    call err_text
+    add rsp, 8
+    mov rax, [rbp-24]
+    mov rax, [rax+0]
+    push rax
+    call err_int
+    add rsp, 8
+    mov rax, [rbp-24]
+    mov rax, [rax+0]
+    movabs rcx, 1
+    cmp rax, rcx
+    jne .L2
+    lea rax, [rip+text_9]           ; " item"
+    push rax
+    call err_text
+    add rsp, 8
+    jmp .L3
+  .L2:
+    lea rax, [rip+text_10]          ; " items"
+    push rax
+    call err_text
+    add rsp, 8
+  .L3:
+    call fail_end
+
+runtime
+
+permissions_text
+tables_init
+err_int
+write_all
+write_loop
+fail_end
+err_text
+err_number
+number_format
+fail_begin
+flush
+out_text
+out_bytes
+buf_bytes
+out_number
+list_new
+alloc
+fail_memory
+_start
+args_check
+stack_init
+stack_limit
+heap_init
+x86_64.multiply_number
+x86_64.divide_number
+x86_64.remainder_number
