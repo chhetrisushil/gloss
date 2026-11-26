@@ -1,6 +1,6 @@
 //! Tests of the assembly listing.
 
-use super::inst::{X, text};
+use super::inst::{R, X, text};
 use super::listing::*;
 use super::program::{Assembled, Assembly, assemble};
 use crate::ir::Module;
@@ -213,4 +213,152 @@ fn text_and_jump_refs() {
     ]);
     assert_eq!(refs_of(&items, "lea rax"), vec![Ref::Text(4)]);
     assert_eq!(refs_of(&items, "je "), vec![Ref::Jump(2)]);
+}
+
+#[test]
+fn every_syscall_is_named() {
+    let src = "record Item\n  name as text\n  stock as number\n\ntable inventory of Item in \"inventory.csv\"\n\nfeature start\n  load inventory\n  ask \"Q\" into s\n  show s\n  save inventory\n";
+    let m = module(src);
+    let routines = listing(&assemble(&m).unwrap(), &m).unwrap();
+    let mut seen = std::collections::BTreeSet::new();
+    for i in routines.iter().flat_map(|r| &r.items) {
+        if let Item::Inst { text, refs } = i
+            && text == "syscall"
+        {
+            let names: Vec<&str> = refs
+                .iter()
+                .filter_map(|r| match r {
+                    Ref::System(n) => Some(*n),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(names.len(), 1);
+            seen.insert(names[0]);
+        }
+    }
+    for n in ["write", "read", "openat2", "renameat", "exit_group"] {
+        assert!(seen.contains(n), "{n} not in {seen:?}");
+    }
+}
+
+#[test]
+fn syscall_names_cover_system() {
+    use crate::ir::{OpenMode, Prim};
+    let prims = [
+        Prim::Write,
+        Prim::Read,
+        Prim::Map,
+        Prim::Exit,
+        Prim::StackSize,
+        Prim::Open(OpenMode::Read),
+        Prim::Open(OpenMode::Folder),
+        Prim::Open(OpenMode::Create),
+        Prim::Open(OpenMode::Probe),
+        Prim::Close,
+        Prim::Sync,
+        Prim::Mode,
+        Prim::SetMode,
+        Prim::Rename,
+        Prim::Fork,
+        Prim::Wait,
+        Prim::DefaultChildSignal,
+    ];
+    let want = [
+        "write",
+        "read",
+        "mmap",
+        "exit_group",
+        "getrlimit",
+        "openat2",
+        "openat2",
+        "openat2",
+        "openat2",
+        "close",
+        "fsync",
+        "fstat",
+        "fchmod",
+        "renameat",
+        "fork",
+        "wait4",
+        "rt_sigaction",
+    ];
+    let functions = prims
+        .iter()
+        .enumerate()
+        .map(|(i, p)| Function {
+            name: format!("p{i}"),
+            params: 0,
+            slots: 0,
+            body: vec![Inst::System(*p)],
+        })
+        .collect();
+    let m = Module {
+        functions,
+        texts: vec![],
+        descs: vec![],
+    };
+    let routines = listing(&assemble(&m).unwrap(), &m).unwrap();
+    for (i, want) in want.iter().enumerate() {
+        let r = routines.iter().find(|r| r.name == format!("p{i}")).unwrap();
+        let got: Vec<&Ref> = r
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Inst { refs, .. } => Some(refs),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        assert_eq!(got, vec![&Ref::System(want)], "{:?}", prims[i]);
+    }
+}
+
+#[test]
+fn an_unnamed_syscall_is_an_error() {
+    let m = Module {
+        functions: vec![],
+        texts: vec![],
+        descs: vec![],
+    };
+    let a = Assembly {
+        routines: vec![Assembled {
+            name: "f".to_string(),
+            code: vec![
+                X::Label("f".to_string()),
+                X::MovRI(R::Rax, 9999),
+                X::Syscall,
+            ],
+        }],
+    };
+    let e = listing(&a, &m).unwrap_err();
+    assert!(e.contains("has no name") && e.contains('f'), "{e}");
+    let a = Assembly {
+        routines: vec![Assembled {
+            name: "g".to_string(),
+            code: vec![X::Label("g".to_string()), X::Syscall],
+        }],
+    };
+    let e = listing(&a, &m).unwrap_err();
+    assert!(e.contains("has no name") && e.contains("in g "), "{e}");
+}
+
+#[test]
+fn a_syscall_does_not_reuse_an_earlier_number() {
+    let m = Module {
+        functions: vec![],
+        texts: vec![],
+        descs: vec![],
+    };
+    let a = Assembly {
+        routines: vec![Assembled {
+            name: "f".to_string(),
+            code: vec![
+                X::Label("f".to_string()),
+                X::MovRI(R::Rax, 1),
+                X::Syscall,
+                X::Syscall,
+            ],
+        }],
+    };
+    assert!(listing(&a, &m).unwrap_err().contains("has no name"));
 }
