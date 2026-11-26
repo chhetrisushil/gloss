@@ -4,8 +4,6 @@ pub mod chars;
 pub mod check;
 pub mod cli;
 pub mod diag;
-// Nothing calls the listing until `Checked::explanation`; Task 8 removes this allow.
-#[allow(dead_code)]
 pub(crate) mod explain;
 pub mod format;
 pub mod ir;
@@ -107,6 +105,22 @@ impl Checked {
     /// The program `trace_executable` encodes, before encoding.
     pub fn trace_module(&self) -> Result<ir::Module, Diagnostic> {
         lower::lower_trace(&self.program, &self.types, &self.src)
+    }
+
+    /// The listing `gloss explain` prints for the program, named `name`.
+    pub fn explanation(&self, name: &str) -> Result<String, Diagnostic> {
+        let (module, notes) = lower::lower_explained(&self.program, &self.types, &self.src)?;
+        let routines = target::x86_64_linux()
+            .listing(&module)
+            .map_err(Diagnostic::program)?;
+        Ok(explain::listing(
+            name,
+            &self.src,
+            &self.types,
+            &notes,
+            &routines,
+            &module.texts,
+        ))
     }
 
     /// How many tests the program has.
