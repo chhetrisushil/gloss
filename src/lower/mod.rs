@@ -217,7 +217,11 @@ fn lower_feature(
                 line: feature.line,
                 slots: l.slots.iter().map(|(n, k)| (*k, n.clone())).collect(),
                 inputs: l.inputs.clone(),
-                fails: BTreeMap::new(),
+                fails: l
+                    .fails
+                    .iter()
+                    .map(|f| (f.label_number(), f.note()))
+                    .collect(),
             },
         );
     }

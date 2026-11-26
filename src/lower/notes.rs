@@ -17,7 +17,7 @@ pub struct FunctionNotes {
     pub slots: BTreeMap<u32, String>,
     /// In order; input k is `inputs[k - 1]`.
     pub inputs: Vec<String>,
-    /// Filled in by the failure notes (a later task).
+    /// By label number: what each failure block reports.
     pub fails: BTreeMap<u32, FailNote>,
 }
 
@@ -57,7 +57,12 @@ mod tests {
             [(1, "total".to_string()), (2, "price".to_string())].into()
         );
         assert_eq!(f.inputs, ["prices"]);
-        assert!(f.fails.is_empty());
+        let fails: Vec<_> = f.fails.values().map(|n| (n.code, n.line)).collect();
+        assert_eq!(fails, [(4, 5)]);
+        assert_eq!(
+            f.fails.values().next().unwrap().message,
+            "a number went out of range (add price to total)"
+        );
         let s = &notes.functions["f_start"];
         assert_eq!((s.line, s.feature.as_str()), (8, "start"));
         assert!(s.inputs.is_empty());
@@ -81,5 +86,32 @@ mod tests {
             seen += 1;
         }
         assert!(seen >= 12, "only {seen} examples");
+    }
+
+    #[test]
+    fn failure_notes_say_the_message() {
+        let (_, notes) = explained(
+            "feature start\n  set xs to list of 1, 2\n  set n to 3\n  set t to \"x\"\n  \
+             set a to 9 / n\n  show (item n of xs)\n  show (t as number)\n  \
+             show n * 1000000000000\n",
+        );
+        let got: Vec<_> = notes.functions["f_start"]
+            .fails
+            .values()
+            .map(|f| (f.code, f.line, f.message.as_str()))
+            .collect();
+        let want = [
+            (1, 5, "dividing by zero (n is 0)"),
+            (4, 5, "a number went out of range (9 / n)"),
+            (3, 6, "an item position must be whole (n is \u{2026})"),
+            (
+                2,
+                6,
+                "there is no item \u{2026} in xs; it has \u{2026} items",
+            ),
+            (5, 7, "\"\u{2026}\" is not a number (t as number)"),
+            (4, 8, "a number went out of range (n * 1000000000000)"),
+        ];
+        assert_eq!(got, want);
     }
 }

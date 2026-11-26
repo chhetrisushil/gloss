@@ -1,5 +1,6 @@
 //! Failure blocks: one per failing instruction, emitted after the function's `Return`.
 use super::Lowerer;
+use super::notes::FailNote;
 use crate::ir::{Cond, Inst, Label, Reg};
 
 /// A run-time failure to report: the line, the failure number and the message pieces.
@@ -29,6 +30,34 @@ pub(super) fn spell_invisible(text: &str) -> String {
         false => c.to_string(),
     };
     text.chars().map(spell).collect()
+}
+
+impl Fail {
+    /// The label number the failure block is marked with.
+    pub(super) fn label_number(&self) -> u32 {
+        self.label.0
+    }
+
+    /// The message this block writes, with `\u{2026}` for what is known only at run time
+    /// (mirrors `emit_fails` and `item_message`).
+    pub(super) fn note(&self) -> FailNote {
+        assert!(!self.expect, "an expect in a real build");
+        let [before, source, after] = &self.parts;
+        let message = if self.item.is_some() {
+            format!("{before}\u{2026} in {source}; it has \u{2026} items")
+        } else if self.value.is_some() {
+            format!("{before}{source} is \u{2026}{after}")
+        } else if self.shown.is_some() {
+            format!("\"\u{2026}{before}{source}{after}")
+        } else {
+            format!("{before}{source}{after}")
+        };
+        FailNote {
+            code: self.code,
+            line: self.line,
+            message,
+        }
+    }
 }
 
 impl Lowerer<'_> {
