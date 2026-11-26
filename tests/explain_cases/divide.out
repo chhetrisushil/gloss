@@ -28,6 +28,7 @@ line 4: divide a by n
     test rdx, rdx
     jne .L0                         ; failure 4: a number went out of range (divide a by n)
     mov [rbp-8], rax                ; a
+line 1: feature start (continued)
     mov rcx, [rbp-24]
     mov rsp, rbp
     pop rbp

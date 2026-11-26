@@ -184,6 +184,14 @@ mod tests {
     }
 
     #[test]
+    fn a_features_implicit_return_lists_as_the_feature_continued() {
+        let out = explain("feature start\n  show 1\n");
+        let want = "    add rsp, 8\nline 1: feature start (continued)\n    mov rcx, [rbp-8]\n    \
+            mov rsp, rbp\n    pop rbp\n    ret\n";
+        assert!(out.contains(want), "{out}");
+    }
+
+    #[test]
     fn a_features_end_guard_lists_as_the_feature_continued() {
         let out = explain(PROGRAM);
         let want = "    ret\nline 1: feature total_of (continued)\n    call flush\n";
