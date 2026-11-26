@@ -80,6 +80,13 @@ Non-goals (and why):
 | D56 | What does `gloss explain x.gloss` do? | Checks the program (errors: printed as `build` prints them, status 3; warnings printed, run continues), then prints the listing on standard output and exits 0. It asks for no approval, writes no file, runs nothing, and works on any host. Test blocks are left out, as in `build`. `--allow` is a usage error. A failed write to standard output is `cannot write the explanation` and status 3. | Explain only reads the program. Owner, 2026-11-26. |
 | D57 | How is M6 tested? | `tests/explain_cases/<name>.gloss` with `<name>.out`: the listing up to and including the `runtime` line, then the names of its routines, one per line (the routine bodies are not golden). A sweep floor `MIN_EXPLAIN_CASES`. Invariant tests: `executable(m)` equals the ELF of `encode(assemble(m))`; the listing's instruction lines equal the text of every assembled instruction, in order (labels renamed by D55's rule); every function label in the encoded code has a `routine` or `feature` header. Spec §10's example is a case, pinned by `tests/spec_examples.rs`. | Golden routine bodies would rewrite every case on every runtime change; the invariants cover them. Owner, 2026-11-26. |
 | D58 | Spec §10's example shows idealised code (`add [rbp-8], rax`). | Replace it with real output from the `spec_explain` case, and note the change in the spec's design-changes table. | D51. Owner, 2026-11-26. |
+| D59 | What does `gloss flowchart x.gloss` do? | Checks the program (errors: printed as `build` prints them, status 3, no file written; warnings printed, run continues). Then, for each feature in source order, writes `x.<feature>.svg` beside the source through `write_atomically` with mode 0644 and prints `Wrote x.<feature>.svg`. Exits 0. A file that cannot be written prints `x.<feature>.svg cannot be written: <reason>` and exits 3 at once; files already written stay. It asks for no approval, runs nothing, and works on any host. `--allow` is a usage error. A failed write to standard output is ignored, as `build`'s messages are. | Spec §11 and §15. One line per file tells a person and a script what was made. Owner, 2026-11-27 (one line per file over silent). |
+| D60 | What is charted, and what are the labels? | Every feature, in source order, including features nothing calls. Tests are not charted. `note` statements are not nodes. A node's label is its statement's source lines (the first line and any continuation lines), each with its indentation removed and each invisible character spelled `\u{XXXX}` (`lower::fail::spell_invisible`). | Spec §15: one chart per feature, and the labels are the source lines themselves. |
+| D61 | What shapes and arrow labels? | A rounded **start** box whose label is the feature's line and its `needs` lines. A rounded **end** box labelled `end`, which receives the fall-off path and every `give`. A rectangle for each other statement, with double side bars when the statement calls a feature (`run`, or a `Call` in one of its own expressions). A **decision** (a box with pointed left and right ends) for `if`, `otherwise if`, `for each` and `repeat while`, labelled with that line. Arrows out of `if`, `otherwise if` and `repeat while` are labelled `yes` and `no`; out of `for each`, `next` and `done`. `otherwise` is not a node. `skip`, `stop` and `give` are rectangles whose one arrow goes to the loop's decision, past the loop, and to the end box. | Owner, 2026-11-27 (start and end boxes, so `give` has a target). |
+| D62 | How is a chart laid out? | Top to bottom, **one node per row, in source order**, so no two nodes share a row. A block stays in one column. In an `if` chain, each body is in its condition's column, and the next condition is one column to the right of everything before it, on the row after the previous body: yes goes down, no goes right. An `if` with no `otherwise` gets an empty last column for its `no` path. The ends of all branches run down their own columns and join in the gap above the next node. | Owner, 2026-11-27 (yes down and no right; one row per node over compact columns). A horizontal arrow then never crosses a box, and the layout has invariants a test can check. |
+| D63 | How do loops and jumps route? | Every arrow is made of horizontal and vertical segments. Horizontal segments run in the gap between two rows, on one track per target in that gap, or along a node's own row. Each loop has a **back lane** left of its span and a **done lane** right of it. The back arrow and every `skip` run up the back lane into the decision's left point. The `done` arrow and every `stop` run down the done lane to the gap above the node after the loop. The feature has one **give lane**, right of everything, which every `give` runs down to the end box. A node that nothing reaches (after a jump; the checker warns about it) is drawn with no incoming arrow. | Spec §15: every arrow goes forward in an enclosing block or back to an enclosing loop's condition, so lanes nest with the blocks. |
+| D64 | How is the SVG written? | By `gloss` itself, with no crate (D3) and no drawing tool. Black lines on a white background, no colours. Monospace text at 15px, with each character assumed to be 9px wide (no font metrics). Every coordinate is a whole pixel, and the same program always gives the same bytes. The file has a `<title>` that names the source and the feature. | Spec §15's v0 limits: one fixed layout, no options. |
+| D65 | How is M7 tested? | `tests/flowchart_cases/<case>.gloss` with the expected `<case>.<feature>.svg` files, a sweep floor `MIN_FLOWCHART_CASES`, and `GLOSS_BLESS=1` as in M6. Unit tests on the graph (nodes, labels, arrows, targets) and the layout. Invariant tests over every case and every example: no two boxes overlap, no segment passes through a box, two arrows share a segment only when they have the same target, every statement other than `note` is exactly one node, and every SVG is well-formed XML (a small checker in the tests). The controller renders the examples' charts and looks at them before the final review. | Golden SVG alone would pass a chart that is drawn wrong; the invariants say what "drawn right" means. |
 
 ## 3. Rejected alternatives
 
@@ -104,6 +111,11 @@ Non-goals (and why):
 | Explain prints the IR | It is not the machine's instructions (spec §10, §12) | n/a |
 | Peephole improvements so Explain matches the spec's first example | Optimisation, which v0 forbids, and a wider milestone (D51, D58) | v0.1 allows optimisation |
 | Golden files for whole runtime routines | Every runtime change would rewrite every case (D57) | n/a |
+| Compact columns: the bodies of an `if` chain side by side from the same row | A `skip`, `stop` or `give` in a right-hand branch then needs a router to avoid crossing other branches (D62) | Charts of real programs prove too tall |
+| Emitting Graphviz DOT, or any drawing tool | Spec §15: the compiler writes the SVG itself | n/a |
+| Charting test blocks | Spec §15 charts features | Owner asks |
+| Merging straight-line statements into one box | Spec §15: statements are boxes | n/a |
+| Real font metrics for text width | Needs font files or a crate (D3); a fixed monospace width is exact enough for monospace text (D64) | Wide characters (CJK) prove common in labels |
 
 ## 4. Design
 
@@ -129,7 +141,7 @@ Non-goals (and why):
 | `irsim` | Test-only IR interpreter (D21) | M2 |
 | `trace` | The narrator: JSON events to sentences (§4.9) | M5 |
 | `explain` | The listing: features, lines, comments, runtime (§4.10) | M6 |
-| `flowchart` | The remaining mode | M7 |
+| `flowchart` | The flowchart: AST to a graph, a layout and SVG text (§4.11) | M7 |
 
 ### 4.2 Pipeline
 
@@ -399,6 +411,24 @@ Every sentence is indented 2 spaces per open call below `start`; `start` has no 
 **Testing (D57).** `tests/explain_cases/` with a sweep (`MIN_EXPLAIN_CASES`), run on any host. Unit tests in `src/explain/` for headers, `(continued)`, failure headers, label renaming and each comment rule. Invariants in `src/target/x86_64/` (assembly equals what is encoded) and, as built, in `src/explain/` unit tests (the printed instruction lines of every example and case equal the assembled instruction texts; every routine is listed in layout order), because `assemble` and the instruction text are crate-private. `tests/cli.rs` covers statuses and messages.
 
 **Reviews.** The `assemble` split (it sits on the path of every executable) gets its first review on the top tier; the rest on the default tier.
+
+### 4.11 Milestone 7: flowchart
+
+**Scope.** `gloss flowchart x.gloss` (D59) writes one SVG chart per feature (D60 to D64). Nothing runs; the work is a reader of the checked AST plus a layout and an SVG writer. No change to lowering or the target.
+
+**Pipeline.** check → for each `FeatureDecl`: `graph` (nodes and arrows from the AST and the source lines) → `layout` (rows, columns, lanes, routes) → `svg` (text). `Checked::flowcharts(&self, stem: &str) -> Vec<(String, String)>` returns `(file name, svg)` pairs in source order; the CLI writes them.
+
+**The graph (`src/flowchart/graph.rs`).** `Graph { nodes: Vec<Node>, arrows: Vec<Arrow> }`. A `Node` is `{ shape: Shape, label: Vec<String>, line: u32 }` with `Shape::{Start, End, Step, Call, Decision}`; nodes are in source order, start first and end last, so a node's index is its row. An `Arrow` is `{ from: usize, to: usize, kind: ArrowKind }` with `ArrowKind::{Next, Yes, No, Each, Done, Skip, Stop, Give}`; the kind says how the arrow leaves its node and gives its label (`yes`, `no`, `next` for `Each`, `done`), and an arrow to an earlier node is a back arrow. The builder walks each block keeping its open exits (the arrows still looking for a target) and the innermost loop; a jump closes its exit with its own arrow; a block's open exits go to the next node; a loop body's open exits go back to the loop's decision.
+
+**The layout (`src/flowchart/layout.rs`).** Columns come from the block structure (D62); lanes from the loops and the feature (D63). Sizes: a label line is 20px high and 9px per character wide; a box adds 12px each side and 8px top and bottom; a decision adds half its height at each pointed end. Rows are stacked with a gap between them; a gap is 24px plus 10px per track beyond the first. Columns are placed left to right, each as wide as its widest node, with lanes 16px apart between them. `Layout { width, height, boxes: Vec<Rect>, routes: Vec<Vec<(i32, i32)>> }`, with one route (a polyline, start point first) per arrow.
+
+**The SVG (`src/flowchart/svg.rs`).** `<svg xmlns="http://www.w3.org/2000/svg" width=W height=H viewBox="0 0 W H">`, a `<title>`, a white `<rect>` background, one `<marker>` arrowhead, then each node as `<rect>` (rounded with `rx` for start and end; two extra `<line>`s for a call) or `<polygon>` (decision) with one `<text>` per label line, then each arrow as a `<polyline>` with the marker and, when labelled, a `<text>` beside its first segment. Text is escaped (`&`, `<`, `>`, `"`). Elements are written in node order, then arrow order, one per line.
+
+**The CLI (D59).** `flowchart` takes exactly one `.gloss` file, as `explain` does. It shares `build`'s diagnostics step and never calls `approve`. Files are named from the source's stem and written beside it.
+
+**Testing (D65).** Unit tests in `src/flowchart/` for each node kind, label rule, arrow kind and lane. `tests/flowchart_cases/` with a sweep, run on any host. The layout invariants are checked in a unit test over every case and every example. `tests/cli.rs` covers statuses, messages and file names.
+
+**Reviews.** All tasks are reviewed on the default tier. The layout and routing tasks (the core of the milestone) get their first review on the top tier.
 
 ## 5. Open questions for the owner
 
