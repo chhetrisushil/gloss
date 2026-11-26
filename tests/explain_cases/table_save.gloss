@@ -1,0 +1,9 @@
+record Item
+  name as text
+
+table items of Item in "items.csv"
+
+feature start
+  clear items
+  append Item with name "a" to items
+  save items

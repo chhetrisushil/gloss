@@ -1,0 +1,143 @@
+Explain table_save.gloss for x86-64 Linux
+
+feature start (line 6)
+
+line 6: feature start
+    push rbp
+    mov rbp, rsp
+    sub rsp, 40
+    mov [rbp-40], rcx
+    xor rdx, rdx
+    mov [rbp-8], rdx
+    mov [rbp-16], rdx
+    mov [rbp-24], rdx
+    mov [rbp-32], rdx
+line 7: clear items
+    movabs rax, 4
+    push rax
+    movabs rax, 7
+    push rax
+    call list_new
+    add rsp, 16
+    mov [rbp-8], rax
+    lea rax, [rip+tables]
+    mov rax, [rax+0]
+    mov rcx, [rbp-8]
+    mov [rax+0], rcx
+    movabs rcx, 1
+    mov [rax+8], rcx
+line 8: append Item with name "a" to items
+    movabs rax, 8
+    push rax
+    movabs rax, 8
+    push rax
+    call alloc
+    add rsp, 16
+    mov [rbp-24], rax
+    lea rax, [rip+text_0]           ; "a"
+    mov rcx, rax
+    mov rax, [rbp-24]
+    mov [rax+0], rcx
+    mov rax, [rbp-24]
+    mov [rbp-16], rax
+    lea rax, [rip+tables]
+    mov rax, [rax+0]
+    mov rax, [rax+0]
+    mov [rbp-32], rax
+    mov rax, [rbp-32]
+    push rax
+    mov rax, [rbp-16]
+    push rax
+    movabs rax, 8
+    push rax
+    call list_push
+    add rsp, 24
+line 9: save items
+    lea rax, [rip+tables]
+    mov rax, [rax+0]
+    mov rax, [rax+8]
+    movabs rcx, 0
+    cmp rax, rcx
+    je .L0                          ; failure 8: items is saved here but was not loaded or cleared first
+    lea rax, [rip+tables]
+    mov rax, [rax+0]
+    mov rax, [rax+0]
+    push rax
+    lea rax, [rip+desc_1]
+    push rax
+    lea rax, [rip+text_1]           ; ".\u{0000}"
+    push rax
+    lea rax, [rip+text_2]           ; "items.csv\u{0000}"
+    push rax
+    lea rax, [rip+text_3]           ; "items.csv.gloss-new\u{0000}"
+    push rax
+    lea rax, [rip+text_4]           ; "items.csv"
+    push rax
+    lea rax, [rip+text_5]           ; "."
+    push rax
+    movabs rax, 9
+    push rax
+    call table_save
+    add rsp, 64
+line 6: feature start (continued)
+    mov rcx, [rbp-40]
+    mov rsp, rbp
+    pop rbp
+    ret
+failure 8, line 9
+  .L0:
+    movabs rax, 9
+    push rax
+    movabs rax, 8
+    push rax
+    call fail_begin
+    add rsp, 16
+    lea rax, [rip+text_6]           ; ""
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_7]           ; "items"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_8]           ; " is saved here but was not loa…"
+    push rax
+    call err_text
+    add rsp, 8
+    call fail_end
+
+runtime
+
+permissions_text
+tables_init
+list_new
+alloc
+fail_memory
+fail_end
+err_text
+write_all
+write_loop
+fail_begin
+err_int
+flush
+table_save
+save_fail
+file_write
+csv_text
+csv_byte
+grow_text
+csv_add
+csv_cell
+number_format
+list_push
+_start
+args_check
+out_text
+out_bytes
+buf_bytes
+stack_init
+stack_limit
+heap_init
+x86_64.multiply_number
+x86_64.divide_number
+x86_64.remainder_number
