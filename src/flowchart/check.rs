@@ -362,6 +362,62 @@ mod tests {
     }
 
     #[test]
+    fn two_targets_on_one_column_line_break_rule_3() {
+        // Arrow 0 goes down x = 300 and arrow 1 comes back up it, over y = 65 to 70.
+        broken("rule 3", |_, l| {
+            let (s0, e0) = (l.routes[0][0], l.routes[0][1]);
+            let (s1, e1) = (l.routes[1][0], l.routes[1][1]);
+            l.width = 1000;
+            l.routes[0] = vec![s0, (s0.0, 60), (300, 60), (300, 70), (e0.0, 70), e0];
+            l.routes[1] = vec![
+                s1,
+                (s1.0, 124),
+                (300, 124),
+                (300, 65),
+                (310, 65),
+                (310, 130),
+                (e1.0, 130),
+                e1,
+            ];
+        });
+    }
+
+    #[test]
+    fn a_route_through_its_own_target_breaks_rule_2() {
+        broken("rule 2", |_, l| {
+            let (s, e) = (l.routes[0][0], l.routes[0][1]);
+            l.routes[0] = vec![s, (e.0, e.1 + 18), e];
+        });
+    }
+
+    #[test]
+    fn grazing_a_foreign_box_breaks_rule_2() {
+        // Out to the right, along the very top edge of box 3 to its corner, and back.
+        broken("rule 2", |_, l| {
+            let (s, e, b) = (l.routes[0][0], l.routes[0][1], l.boxes[3]);
+            let r = b.x + b.w + 10;
+            l.routes[0] = vec![
+                s,
+                (s.0, 64),
+                (r, 64),
+                (r, b.y),
+                (b.x + b.w, b.y),
+                (r, b.y),
+                (r, 70),
+                (e.0, 70),
+                e,
+            ];
+        });
+    }
+
+    #[test]
+    fn a_missing_route_is_caught() {
+        broken("route count", |_, l| {
+            l.routes.pop();
+        });
+    }
+
+    #[test]
     fn a_route_that_starts_elsewhere_is_caught() {
         broken("route ends", |_, l| l.routes[0][0].1 -= 1);
     }
