@@ -1,0 +1,6 @@
+feature f
+  show "inner"
+  give "x"
+
+feature start
+  show "a", f

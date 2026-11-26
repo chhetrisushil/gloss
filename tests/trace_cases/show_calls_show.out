@@ -1,0 +1,4 @@
+line 6: calling f
+inner
+line 6: f gives "x"
+ax
