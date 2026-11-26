@@ -1,0 +1,85 @@
+Explain loop_continued.gloss for x86-64 Linux
+
+feature start (line 1)
+  n: number, created on line 2, at [rbp-8]
+
+    push rbp
+    mov rbp, rsp
+    sub rsp, 16
+    mov [rbp-16], rcx
+    xor rdx, rdx
+    mov [rbp-8], rdx                ; n
+line 2: set n to 0
+    movabs rax, 0
+    mov [rbp-8], rax                ; n
+  .L0:
+line 3: repeat while n is less than 2
+    mov rax, [rbp-8]                ; n
+    push rax
+    movabs rax, 20000
+    mov rcx, rax
+    pop rax
+    cmp rax, rcx
+    setl al
+    and rax, 255
+    movabs rcx, 0
+    cmp rax, rcx
+    je .L1
+line 4: add 1 to n
+    movabs rax, 10000
+    mov rcx, rax
+    mov rax, [rbp-8]                ; n
+    add rax, rcx
+    jo .L2                          ; failure 4: a number went out of range (add 1 to n)
+    mov [rbp-8], rax                ; n
+line 3: repeat while n is less than 2 (continued)
+    jmp .L0
+  .L1:
+    mov rcx, [rbp-16]
+    mov rsp, rbp
+    pop rbp
+    ret
+failure 4, line 4
+  .L2:
+    movabs rax, 4
+    push rax
+    movabs rax, 4
+    push rax
+    call fail_begin
+    add rsp, 16
+    lea rax, [rip+text_0]           ; "a number went out of range ("
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_1]           ; "add 1 to n"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_2]           ; ")"
+    push rax
+    call err_text
+    add rsp, 8
+    call fail_end
+
+runtime
+
+permissions_text
+tables_init
+fail_end
+err_text
+write_all
+write_loop
+fail_begin
+err_int
+flush
+_start
+args_check
+out_text
+out_bytes
+buf_bytes
+stack_init
+stack_limit
+heap_init
+x86_64.multiply_number
+x86_64.divide_number
+x86_64.remainder_number
