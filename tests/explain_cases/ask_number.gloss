@@ -1,0 +1,4 @@
+feature start
+  ask "How many? " into answer
+  set n to answer as number
+  show n
