@@ -196,7 +196,7 @@ line 6: total becomes 150
 
 - The program's own output is in the story where it happens: shown lines are printed as they are, and a call is `line 6: calling double with n = 21`, then `line 6: double gives 42`, indented as the caller is.
 - The run is also written, one event per line, to `spec_trace.trace` beside the source. Each line is a JSON object (section 10 of the spec has the keys) and is what a viewer will replay.
-- A run-time failure prints its usual message on standard error and exits **2**. A run that ends any other way prints `the traced run ended without finishing (status N)` and exits 2.
+- A run-time failure prints its usual message on standard error and exits **2**. A run that starts and then ends any other way prints `the traced run ended without finishing (status N)` and exits 2. The exit statuses are listed under Commands.
 - `gloss trace` asks for approval of the program's files like `build`, and takes `--allow`. It needs x86-64 Linux, and elsewhere prints `gloss trace runs programs on Linux only` and exits 3.
 - There is no limit on the number of events: a long loop gives a long story, and Ctrl-C stops it.
 
