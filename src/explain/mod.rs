@@ -108,11 +108,16 @@ fn names(out: &mut String, info: &FeatureInfo, notes: &FunctionNotes) {
 /// The items in the order they print: labels directly followed by a `Line` print after that
 /// line's header, so a jump to the label lands under the line it belongs to. A label encodes
 /// nothing, so the order is equivalent (as built, M6 final review).
-fn in_print_order(items: &[Item]) -> Vec<&Item> {
+/// A failure label (`is_fail`) is never moved: its `failure` header belongs right before it.
+fn in_print_order(items: &[Item], is_fail: impl Fn(u32) -> bool) -> Vec<&Item> {
     let mut out = Vec::with_capacity(items.len());
     let mut labels: Vec<&Item> = Vec::new();
     for item in items {
         match item {
+            Item::Label { local: Some(n), .. } if is_fail(*n) => {
+                out.append(&mut labels);
+                out.push(item);
+            }
             Item::Label { .. } => labels.push(item),
             Item::Line(_) => {
                 out.push(item);
@@ -153,7 +158,8 @@ fn items(
         printed.push(n);
         current = Some(n);
     }
-    for item in in_print_order(&routine.items) {
+    let is_fail = |n: u32| notes.is_some_and(|f| f.fails.contains_key(&n));
+    for item in in_print_order(&routine.items, is_fail) {
         match item {
             Item::Line(n) => {
                 if current != Some(*n) {
@@ -718,5 +724,16 @@ mod tests {
         );
         assert_eq!(own_labels("jmp .L12", "f_a"), "jmp Lf_a_12");
         assert_eq!(own_labels("call x86_64.L1x", "f_a"), "call x86_64.L1x");
+    }
+
+    #[test]
+    fn a_failure_label_is_not_moved_past_a_line() {
+        let label = |n| Item::Label {
+            text: format!(".L{n}"),
+            local: Some(n),
+        };
+        let items = [label(1), label(2), Item::Line(3)];
+        let order = super::in_print_order(&items, |n| n == 1);
+        assert_eq!(order, [&items[0], &items[2], &items[1]]);
     }
 }
