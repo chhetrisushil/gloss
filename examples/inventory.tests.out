@@ -1,0 +1,6 @@
+pass  a sale lowers the stock of that item
+pass  a sale of more than is in stock is refused
+pass  the stock value adds stock times price
+pass  start sells, adds honey and saves the table
+
+4 passed, 0 failed

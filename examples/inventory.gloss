@@ -1,0 +1,69 @@
+record Item
+  name as text
+  stock as number
+  price as number
+
+table inventory of Item in "inventory.csv"
+
+feature stock_of
+  needs wanted as text
+  for each entry in inventory
+    if name of entry is wanted
+      give stock of entry
+  give 0
+
+feature sell
+  needs wanted as text, quantity as number
+  for each entry in inventory
+    if name of entry is wanted
+      if stock of entry is less than quantity
+        give no
+      subtract quantity from stock of entry
+      give yes
+  give no
+
+feature stock_value
+  set total to 0
+  for each entry in inventory
+    add stock of entry * price of entry to total
+  give total
+
+feature start
+  load inventory
+  if sell with "Tea", 3
+    show "Sold 3 Tea"
+  append Item with name "Honey", stock 6, price 8 to inventory
+  save inventory
+  show "Items: ", count of inventory
+  show "Tea left: ", (stock_of with "Tea")
+  show "Stock value: ", stock_value
+
+test "a sale lowers the stock of that item"
+  append Item with name "Tea", stock 10, price 2.5 to inventory
+  append Item with name "Jam", stock 8, price 5 to inventory
+  expect sell with "Tea", 3
+  expect stock_of with "Tea" is 7
+  expect stock_of with "Jam" is 8
+
+test "a sale of more than is in stock is refused"
+  append Item with name "Bread", stock 2, price 4 to inventory
+  expect not (sell with "Bread", 5)
+  expect stock_of with "Bread" is 2
+  expect not (sell with "Cake", 1)
+
+test "the stock value adds stock times price"
+  append Item with name "Tea", stock 10, price 2.5 to inventory
+  append Item with name "Jam", stock 2, price 5 to inventory
+  expect stock_value is 35
+
+test "start sells, adds honey and saves the table"
+  append Item with name "Tea", stock 10, price 2.5 to inventory
+  save inventory
+  clear inventory
+  run start
+  clear inventory
+  load inventory
+  expect count of inventory is 2
+  expect stock_of with "Tea" is 7
+  expect stock_of with "Honey" is 6
+  expect last of shown is "Stock value: 65.5"
