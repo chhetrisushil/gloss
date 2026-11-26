@@ -1,0 +1,98 @@
+Explain divide.gloss for x86-64 Linux
+
+feature start (line 1)
+  a: number, created on line 2, at [rbp-8]
+  n: number, created on line 3, at [rbp-16]
+
+    push rbp
+    mov rbp, rsp
+    sub rsp, 24
+    mov [rbp-24], rcx
+    xor rdx, rdx
+    mov [rbp-8], rdx                ; a
+    mov [rbp-16], rdx               ; n
+line 2: set a to 1
+    movabs rax, 10000
+    mov [rbp-8], rax                ; a
+line 3: set n to 0
+    movabs rax, 0
+    mov [rbp-16], rax               ; n
+line 4: divide a by n
+    mov rax, [rbp-16]               ; n
+    mov rcx, rax
+    mov rax, [rbp-8]                ; a
+    call x86_64.divide_number
+    cmp rdx, 2
+    je .L1                          ; failure 1: dividing by zero (n is 0)
+    test rdx, rdx
+    jne .L0                         ; failure 4: a number went out of range (divide a by n)
+    mov [rbp-8], rax                ; a
+    mov rcx, [rbp-24]
+    mov rsp, rbp
+    pop rbp
+    ret
+failure 4, line 4
+  .L0:
+    movabs rax, 4
+    push rax
+    movabs rax, 4
+    push rax
+    call fail_begin
+    add rsp, 16
+    lea rax, [rip+text_0]           ; "a number went out of range ("
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_1]           ; "divide a by n"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_2]           ; ")"
+    push rax
+    call err_text
+    add rsp, 8
+    call fail_end
+failure 1, line 4
+  .L1:
+    movabs rax, 4
+    push rax
+    movabs rax, 1
+    push rax
+    call fail_begin
+    add rsp, 16
+    lea rax, [rip+text_3]           ; "dividing by zero ("
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_4]           ; "n"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_5]           ; " is 0)"
+    push rax
+    call err_text
+    add rsp, 8
+    call fail_end
+
+runtime
+
+permissions_text
+tables_init
+fail_end
+err_text
+write_all
+write_loop
+fail_begin
+err_int
+flush
+_start
+args_check
+out_text
+out_bytes
+buf_bytes
+stack_init
+stack_limit
+heap_init
+x86_64.multiply_number
+x86_64.divide_number
+x86_64.remainder_number
