@@ -105,6 +105,29 @@ fn names(out: &mut String, info: &FeatureInfo, notes: &FunctionNotes) {
     }
 }
 
+/// The items in the order they print: labels directly followed by a `Line` print after that
+/// line's header, so a jump to the label lands under the line it belongs to. A label encodes
+/// nothing, so the order is equivalent (as built, M6 final review).
+fn in_print_order(items: &[Item]) -> Vec<&Item> {
+    let mut out = Vec::with_capacity(items.len());
+    let mut labels: Vec<&Item> = Vec::new();
+    for item in items {
+        match item {
+            Item::Label { .. } => labels.push(item),
+            Item::Line(_) => {
+                out.push(item);
+                out.append(&mut labels);
+            }
+            Item::Inst { .. } => {
+                out.append(&mut labels);
+                out.push(item);
+            }
+        }
+    }
+    out.append(&mut labels);
+    out
+}
+
 /// A source line as a header shows it: trimmed, with invisible characters spelled as the
 /// diagnostics and the comments spell them.
 fn header(src: &Source, n: u32) -> String {
@@ -130,7 +153,7 @@ fn items(
         printed.push(n);
         current = Some(n);
     }
-    for item in &routine.items {
+    for item in in_print_order(&routine.items) {
         match item {
             Item::Line(n) => {
                 if current != Some(*n) {
@@ -337,6 +360,63 @@ mod tests {
         let text = "feature start\n  set n to 0\n  repeat while n is less than 3\n    add 1 to n\n  show n\n";
         let loop_line = "line 3: repeat while n is less than 3";
         assert_continued(text, loop_line, "line 4: add 1 to n");
+    }
+
+    #[test]
+    fn a_repeat_while_top_label_lists_under_the_loops_line() {
+        let text = "feature start\n  set n to 0\n  repeat while n is less than 3\n    add 1 to n\n  show n\n";
+        let out = explain(text);
+        let at = out
+            .find("line 3: repeat while n is less than 3\n")
+            .expect("header");
+        let label = out.find("  .L0:\n").expect("top label");
+        let jump = out.find("    jmp .L0").expect("back edge");
+        assert!(at < label && label < jump, "{out}");
+        // Nothing of line 2 sits between the header and the label.
+        assert!(!out[at..label].contains("[rbp-"), "{out}");
+    }
+
+    #[test]
+    fn an_ifs_end_label_lists_under_the_next_statement() {
+        let text = "feature start\n  set n to 1\n  if n is 1\n    show 1\n  show 2\n";
+        let out = explain(text);
+        let header = out.find("line 5: show 2\n").expect("next header");
+        let label = out.find("  .L0:\n").expect("end label");
+        assert!(header < label, "{out}");
+        assert!(out[label..].starts_with("  .L0:\n    "), "{out}");
+    }
+
+    #[test]
+    fn labels_before_a_line_print_after_its_header() {
+        let src = Source::new("feature a\n  show 1\n  show 2\n");
+        let inst = || Item::Inst {
+            text: "nop".into(),
+            refs: vec![],
+        };
+        let label = |n: u32| Item::Label {
+            text: format!(".L{n}"),
+            local: Some(n),
+        };
+        let items = vec![
+            Item::Line(2),
+            inst(),
+            label(1),
+            label(2),
+            Item::Line(3),
+            inst(),
+            label(3),
+            Item::Line(3),
+            inst(),
+        ];
+        let routine = Routine {
+            name: "f_a".into(),
+            items,
+        };
+        let mut out = String::new();
+        super::items(&mut out, &src, &routine, None, &[]);
+        let want =
+            "line 2: show 1\n    nop\nline 3: show 2\n  .L1:\n  .L2:\n    nop\n  .L3:\n    nop\n";
+        assert_eq!(out, want);
     }
 
     #[test]

@@ -13,8 +13,8 @@ line 1: feature start
 line 2: set n to 0
     movabs rax, 0
     mov [rbp-8], rax                ; n
-  .L0:
 line 3: repeat while n is less than 2
+  .L0:
     mov rax, [rbp-8]                ; n
     push rax
     movabs rax, 20000
@@ -35,8 +35,8 @@ line 4: add 1 to n
     mov [rbp-8], rax                ; n
 line 3: repeat while n is less than 2 (continued)
     jmp .L0
-  .L1:
 line 1: feature start (continued)
+  .L1:
     mov rcx, [rbp-16]
     mov rsp, rbp
     pop rbp
