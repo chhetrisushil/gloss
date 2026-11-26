@@ -73,7 +73,7 @@ Non-goals (and why):
 | D49 | Accepted risk: a run with millions of events. | Trace narrates every event; there is no limit. Ctrl-C stops it. | Nothing is hidden, and a cap would need a policy nobody has asked for yet. Owner, 2026-11-25. |
 | D50 | How is M5 tested? | `tests/trace_cases/<name>.gloss` with the expected `<name>.trace`, run as a real executable and under `irsim` (the two must agree, as D13 and D39), with a sweep floor `MIN_TRACE_CASES`. The narrator has golden tests from recorded `.trace` files to `.out` sentences, which run on any host. `tests/cli.rs` covers `gloss trace` on Linux. | Owner, 2026-11-25. |
 | D51 | What does Explain print, and from what? | The instructions of the real build (`lower`, `Backend::Real`), exactly as encoded. `target::x86_64::program` gets `assemble(&Module) -> Assembly` (each function's typed instructions, then the x86 helpers, in layout order); `executable` encodes that assembly and `explain` prints it. No cleaned-up or improved form. | What a reader sees is what runs (spec rule 6). The encoder's text already agrees with GNU objdump instruction by instruction (`tests/objdump.rs`), so printing the assembled list closes the chain. Owner, 2026-11-26 (real code over a cleaned-up view or peephole codegen). |
-| D52 | In what order are instructions printed? | Machine order. Each `Line` marker starts a header `line N: <source line>`; when a line's code resumes after another line's, its header is repeated with ` (continued)`. A failure block (after a feature's `Return`) starts a header `failure C, line N`. | Jumps and labels then read correctly top to bottom. Owner, 2026-11-26 (machine order over source order). |
+| D52 | In what order are instructions printed? | Machine order. Each `Line` marker starts a header `line N: <source line>`; when a line's code resumes after another line's, its header is repeated with ` (continued)`. A failure block (after a feature's `Return`) starts a header `failure C, line N`. As built (M6-R9, R10): the feature's entry code, its end guard and its implicit return are listed under the feature's line. | Jumps and labels then read correctly top to bottom. Owner, 2026-11-26 (machine order over source order). |
 | D53 | What does Explain comment? | Only what the instruction does not show: the variable or input a frame slot holds (`; total`), the text a read-only address points at (`; "Total: "`, cut at 30 characters with `…`), the failure a jump leads to (`; failure 4: a number went out of range (price * 1000000)`: the failure's message as lowering knows it, with any part known only at run time written `…`), and the Linux call a `syscall` makes (`; write`). Every other instruction is bare. Comments start in one column per function. | The comments carry names a reader cannot recover; a gloss on every instruction would be noise. Owner, 2026-11-26. |
 | D54 | Where are inferred types listed? | At the top of each feature, after its header `feature NAME (line N)`: each input (`rows: list of expense, input 1, at [rbp+24]`), then each variable (`total: number, created on line 13, at [rbp-8]`) and loop variable (`r: expense, loop variable on line 14, at [rbp-16]`), in the checker's order. | A reader knows what a slot holds before reading the code that uses it. Owner, 2026-11-26 (per feature over beside the line or one list). |
 | D55 | How is the runtime printed? | After the program, under `runtime`, every routine the executable contains, in layout order, each under `routine NAME`: the IR runtime (with its system calls, inline as in the executable) and the x86 helpers. Labels inside a function print as `.L<n>`. A routine has no comments other than D53's text, syscall and failure ones. | Spec §10: nothing the executable runs is left out. |
@@ -390,6 +390,7 @@ Every sentence is indented 2 spaces per open call below `start`; `start` has no 
 - Each feature function (`f_<name>`, in module order, which is source order): `feature NAME (line N)`, its inputs, variables and loop variables (D54; types as the checker describes them, the slot as `[rbp-8k]`, an input as `[rbp+16+8(p-k)]`), a blank line, then its instructions.
 - Instructions are 4 spaces in; a label (`X::Label`) is 2 spaces in and ends with `:`. `X::Comment("line N")` becomes a header (D52); a `Mark` of a failure label (from the notes) becomes `failure C, line N`. Local labels `L<f>_<n>` print as `.L<n>` in both labels and jumps.
 - Comments (D53) come from each instruction's refs: `Slot`/`Input` with a note (feature functions only), `Text(k)` (the module's text `k` in quotes, each `"` doubled, each character `chars::unshowable` spelled `\u{XXXX}`, cut after 30 characters with `…` inside the quotes), `Jump(n)` to a failure label in the notes, and `System(name)`. Several refs join with `, `. A comment starts at column 36 (counting from 0), or one space after the instruction when it is longer.
+- (As built, M6-R9/R10.) Code that belongs to the feature as a whole is listed under the feature's own line: the entry code before the first `Line`, and, as `(continued)`, the end guard and the implicit return of a feature that gives nothing. `otherwise` has no header of its own. A comment is cut after 30 characters of the decoded text (M6-R8).
 - Then a blank line, `runtime`, and every other function and helper in assembly order as `routine NAME` with its instructions (D55).
 
 **The CLI (D56).** `explain` takes exactly one `.gloss` file, as `format` does. It shares `build`'s diagnostics step; it never calls `approve`. It prints through one locked, buffered standard output and maps a write error to `cannot write the explanation` (status 3), so a closed pipe (`gloss explain x.gloss | head`) does not panic.
@@ -799,3 +800,68 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 - **Reviews:** tasks 2, 6, 7, 8 and 12 (the backend swaps, `ask`, the set events and the call-site events) had their first review on the top tier; every other task was reviewed by Sonnet or, for the small ones, by the controller.
 
 The milestone ledger (every ruling, review record and carry) is kept in `.superpowers/sdd/2026-11-25-compiler-m5-trace/progress.md`.
+
+### Milestone 6 (`gloss explain`), finished 2026-11-26, branches stacked on `main` @ b952692, not yet merged
+
+**What shipped:**
+- **The `assemble` split.** `program::executable` is now `assemble` (every function's instructions, then the arithmetic helpers) followed by the same encode and ELF steps. The bytes of every example executable are unchanged (sha256 checked by the controller at each step that touched lowering or the backend).
+- **The target-neutral listing.** `Target::listing` returns `Routine`, `Item` and `Ref` values (`src/target/listing.rs`); the x86-64 target fills in the refs (slots, inputs, texts, jumps, system call names). `src/explain/` never sees an instruction type.
+- **The notes.** `lower_explained` returns the module plus `Notes`: slot names, inputs, and each failure's code, line and message. `lower` drops them. A test shows that taking notes does not change the module.
+- **The printer.** `src/explain/` writes the header, the names block, line headers with `(continued)`, failure headers, comments at column 36, and then `runtime` with every other routine in layout order.
+- **The command.** `gloss explain FILE` shares `build`'s diagnostics, never asks for approval, runs on any host, and maps a write error to `cannot write the explanation` (status 3), so a closed pipe does not panic.
+- **The golden cases.** `tests/explain_cases/` with a bless switch; spec §10's example is the case `spec_explain`, and `tests/spec_examples.rs` pins the spec text to it.
+- **The spec.** `spec/v0.md` §10 and §11 describe the listing and its messages; the README has an Explain section.
+- **The examples amendment (owner, mid-milestone).** Every example now has `test` blocks and a `.tests.out`, and a new example, `inventory`, covers a table with pretend files in its tests.
+
+**Pull requests.** #568 (the plan); the work is stacked branches `m6/t01-assemble` ... `m6/t13-as-built`, each at most 200 changed lines and 10 files; PRs: listed at merge.
+
+| Task | What |
+|---|---|
+| 1 | `assemble` split (`m6/t01-assemble`) |
+| 2 | Listing items and their tests (`t02a`, `t02b`) |
+| E1 to E3 | Tests for every example; the `inventory` example (amendment 1) |
+| 3 | Refs: slots, inputs, texts, jumps, system calls |
+| 4 | `Notes` and `lower_explained` |
+| 5 | Failure notes |
+| 6 | Line headers and `(continued)`; loop line markers (`t06b`) |
+| 7 | Comments, failure headers and the comment column |
+| 8 | Runtime routines and the completeness test |
+| 9 | The `gloss explain` command |
+| 10, 11 | Case harness and the golden cases (`t10a` to `t11g`) |
+| 12 | Language spec §10, §11 and the `spec_explain` case |
+| 13 | README; this section |
+
+**Deviations from the decisions above** (rulings are numbered M6-R1 ... M6-R10 in the milestone ledger, written R1 ... R10 there):
+- **D51, helpers (R4):** the plan split the helpers at every `x86_64.` label. `arith` has inner labels with that prefix and a third entry the plan missed, so the split is at `arith::ENTRIES` = `multiply_number`, `divide_number`, `remainder_number`: three helpers, not two. Inner labels are listed with `local: None`.
+- **Plan sample (R6):** the plan's sample program used `to total_of with prices`, which is not Gloss. The tasks used `feature total_of` with `needs prices as list of number`. No effect on the design.
+- **D52, loops (R7):** lowering emitted no line marker before the step-and-test code of `for each`, counting loops and `repeat while`, so that code listed under the body's last line. Lowering now emits a bare `Inst::Line(loop line)` there. A line marker encodes nothing and `irsim` skips it; the controller checked that the example executables are byte-identical.
+- **D52, feature line (R9, R10):** code that belongs to the feature as a whole lists under the feature's header line. The printer heads instructions before the first `Line` with the feature's line, and lowering marks the end guard (`fall_off_end`) and the implicit return of a feature that gives nothing with a bare `Inst::Line(feature line)`, shown `(continued)`. Executables are unchanged (sha check).
+- **`otherwise` (R10):** it has no header of its own. Its jump belongs to the branch before it, and its statements carry their own lines.
+- **D53, text (R8):** a text comment is cut after 30 characters of the decoded text, counted before quote doubling and `\u{XXXX}` spelling. The cut never splits an escape or a doubled quote.
+- **D57, bless (R2):** the case harness gets `GLOSS_BLESS=1`, because the repo had no bless convention. A bless run can create a new case's `.out`, skips dotfiles in the sweep, and fails after blessing so it is never left on.
+- **Spec §10 example:** it is 21 lines and includes the entry code (the `line 1: feature add_to_total` block), where the plan expected the first source line.
+
+**Rulings** (R1 ... R10 in the ledger; the plan's P1 to P4 are in the plan):
+- R1: the overflow test compares the `jo` comment with `failure 4: ` plus the note's message, not a literal source text.
+- R2: `GLOSS_BLESS=1` on the explain_cases harness only.
+- R3: chain mode as M5: each branch is cut from the previous one, and the owner merges the chain at the end.
+- R4: three helpers at `arith::ENTRIES`.
+- R5: task 2 was over the cap and became `t02a` (code) and `t02b` (tests).
+- R6: the plan's sample syntax was wrong; real syntax used.
+- R7: loop line markers in lowering (`t06b-loop-lines`).
+- R8: text comments are cut at 30 characters.
+- R9: entry code and the end guard list under the feature's line.
+- R10: the implicit return does too; `otherwise` gets no header.
+
+**Tests:** the last gate, at `m6/t12-spec`, was 1062 passed, 0 failed (`CARGO_BUILD_JOBS=4 cargo test` on the Mac; 1002 at task 1). `MIN_EXPLAIN_CASES` is 8. `MIN_EXAMPLES` is 12 and so is `MIN_EXAMPLES_WITH_TESTS`. Invariants cover what the golden files do not: the listing has one instruction per encoded instruction, every routine is listed in layout order, and taking notes does not change the module. Linux (musl, in OrbStack) was run at task 1 and with the examples amendment. The controller took sha256 sums of the example executables before the work and after each step that touched lowering or the backend (tasks 1, 6, 10 and 11); all were identical.
+
+**Known limits and accepted risks:**
+- **The listing is long.** `gcd` is 1293 lines, almost all runtime.
+- **Runtime bodies are not golden.** The cases pin the program part and the routine names; the invariants cover the bodies (P4).
+- **Runtime routines have no slot names.** Only feature functions have notes.
+- **Comments come only from refs.** An instruction that refers to nothing has no comment.
+- **A flaky gate run.** At task 2 one run printed "855 passed, 2 failed"; the rerun was clean, and so were all later runs. The cause was not found. Watch for it.
+
+**Deferred:** `flowchart` (M7), the step-through viewer (v0.1).
+
+The milestone ledger (every ruling, review record and carry) is kept in `.superpowers/sdd/2026-11-26-compiler-m6-explain/progress.md`.
