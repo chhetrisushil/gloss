@@ -1,0 +1,6 @@
+feature start
+  set n to 3
+  repeat while n is greater than 0
+    show n
+    subtract 1 from n
+  show "done"
