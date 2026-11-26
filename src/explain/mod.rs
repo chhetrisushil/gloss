@@ -12,8 +12,9 @@ use crate::target::listing::{Item, Routine};
 /// The column the `;` of a comment starts in, counting from 0.
 const COLUMN: usize = 36;
 
-/// The listing for a program: a header, then each feature's names and code. `texts` are the program's
-/// texts, for the comments that show them.
+/// The listing for a program: a header, each feature's names and code, then every other
+/// routine under `runtime`, in layout order. `texts` are the program's texts, for the comments
+/// that show them.
 pub(crate) fn listing(
     name: &str,
     src: &Source,
@@ -37,6 +38,18 @@ pub(crate) fn listing(
         out.push('\n');
         items(&mut out, src, routine, Some(fnotes), texts);
         out.push('\n');
+    }
+    out.push_str("runtime\n\n");
+    let rest: Vec<&Routine> = routines
+        .iter()
+        .filter(|r| !notes.functions.contains_key(&r.name))
+        .collect();
+    for (k, routine) in rest.iter().enumerate() {
+        if k > 0 {
+            out.push('\n');
+        }
+        out.push_str(&format!("routine {}\n", routine.name));
+        items(&mut out, src, routine, None, texts);
     }
     out
 }
@@ -376,5 +389,68 @@ mod tests {
         };
         super::items(&mut out, &src, &routine, None, &[]);
         out
+    }
+
+    fn example_explanations() -> Vec<(String, String)> {
+        let mut dir: Vec<_> = std::fs::read_dir("examples")
+            .expect("examples")
+            .map(|e| e.expect("entry").path())
+            .filter(|p| p.extension().is_some_and(|e| e == "gloss"))
+            .collect();
+        dir.sort();
+        assert!(dir.len() >= 12);
+        dir.iter()
+            .map(|p| {
+                let text = std::fs::read_to_string(p).expect("reads");
+                let (diags, checked) = crate::check_program(&text);
+                let checked = checked.unwrap_or_else(|| panic!("{p:?}: {diags:?}"));
+                let out = checked.explanation("x.gloss").expect("explains");
+                (p.display().to_string(), out)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_routine_is_listed() {
+        for (path, out) in example_explanations() {
+            let text = std::fs::read_to_string(&path).expect("reads");
+            let (_, checked) = crate::check_program(&text);
+            let checked = checked.expect("checks");
+            let module = crate::lower::lower(&checked.program, &checked.types, &checked.src)
+                .expect("lowers");
+            let want: Vec<String> = crate::target::x86_64::program::assemble(&module)
+                .expect("assembles")
+                .routines
+                .into_iter()
+                .map(|r| r.name)
+                .collect();
+            let got: Vec<String> = out
+                .lines()
+                .filter_map(|l| {
+                    l.strip_prefix("routine ").map(String::from).or_else(|| {
+                        l.strip_prefix("feature ")
+                            .and_then(|r| r.split(" (line").next())
+                            .map(|f| format!("f_{f}"))
+                    })
+                })
+                .collect();
+            // Features come first in the module, so the listing keeps the layout order.
+            assert_eq!(got, want, "{path}");
+        }
+    }
+
+    #[test]
+    fn runtime_routines_have_no_slot_comments() {
+        let names: Vec<&str> = (0..=500)
+            .filter_map(crate::target::x86_64::linux::syscall_name)
+            .collect();
+        for (path, out) in example_explanations() {
+            let (_, runtime) = out.split_once("\nruntime\n").expect("has a runtime");
+            for line in runtime.lines().filter(|l| l.starts_with("    ")) {
+                if let Some((_, c)) = line.split_once("; ") {
+                    assert!(c.starts_with('"') || names.contains(&c), "{path}: {line}");
+                }
+            }
+        }
     }
 }
