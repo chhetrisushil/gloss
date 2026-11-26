@@ -15,7 +15,7 @@ use run_support::{DEADLINE, TempDir, run_case, skip};
 const MIN_EXAMPLES: usize = 11;
 
 /// Raised by every change that gives an example tests.
-const MIN_EXAMPLES_WITH_TESTS: usize = 4;
+const MIN_EXAMPLES_WITH_TESTS: usize = 8;
 
 fn examples() -> Vec<PathBuf> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");

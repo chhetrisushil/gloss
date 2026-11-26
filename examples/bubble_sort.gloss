@@ -49,3 +49,19 @@ feature start
   run report with (list of 3.5, -2, 0, 3.25)
   run report with (list of 42)
   run report with (empty list of number)
+
+test "a list is sorted from smallest to largest"
+  expect sorted with (list of 5, 1, 4, 2, 8) is (list of 1, 2, 4, 5, 8)
+
+test "sorting leaves the original list alone"
+  set numbers to list of 3, 2, 1
+  set result to sorted with numbers
+  expect first of numbers is 3
+  expect first of result is 1
+
+test "a shuffled list needs three passes"
+  expect passes_needed with (list of 5, 1, 4, 2, 8) is 3
+
+test "an empty list needs one pass"
+  expect passes_needed with (empty list of number) is 1
+  expect count of (sorted with (empty list of number)) is 0

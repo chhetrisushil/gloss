@@ -1,0 +1,6 @@
+pass  a secret in the middle is found in a few steps
+pass  the smallest and largest secrets are found
+pass  a secret outside the range is not found
+pass  the whole root rounds down
+
+4 passed, 0 failed

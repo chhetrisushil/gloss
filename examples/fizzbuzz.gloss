@@ -1,10 +1,26 @@
+feature word_for
+  needs i as number
+  if remainder of i by 15 is 0
+    give "FizzBuzz"
+  if remainder of i by 3 is 0
+    give "Fizz"
+  if remainder of i by 5 is 0
+    give "Buzz"
+  give i as text
+
 feature start
   for each i from 1 to 15
-    if remainder of i by 15 is 0
-      show "FizzBuzz"
-    otherwise if remainder of i by 3 is 0
-      show "Fizz"
-    otherwise if remainder of i by 5 is 0
-      show "Buzz"
-    otherwise
-      show i
+    show (word_for with i)
+
+test "multiples of three say Fizz"
+  expect word_for with 9 is "Fizz"
+
+test "multiples of five say Buzz"
+  expect word_for with 10 is "Buzz"
+
+test "multiples of both say FizzBuzz"
+  expect word_for with 15 is "FizzBuzz"
+  expect word_for with 30 is "FizzBuzz"
+
+test "other numbers are shown as themselves"
+  expect word_for with 7 is "7"
