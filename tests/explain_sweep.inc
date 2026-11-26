@@ -6,16 +6,20 @@ const MIN_EXPLAIN_CASES: usize = 7;
 
 /// The `.gloss` programs in `dir`, sorted; an error naming every file that is not part of a
 /// case: an extension other than gloss and out, no `<stem>.gloss`, or a folder. A `.gloss`
-/// with no `.out` is also an error, naming the program.
-fn explain_sweep(dir: &Path) -> Result<Vec<PathBuf>, String> {
+/// with no `.out` is also an error, naming the program, unless `bless` is set (the run then
+/// creates it). Dotfiles such as `.DS_Store` are ignored.
+fn explain_sweep(dir: &Path, bless: bool) -> Result<Vec<PathBuf>, String> {
     let mut programs = Vec::new();
     let mut orphans = Vec::new();
     for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
         let path = entry.map_err(|e| e.to_string())?.path();
+        if path.file_name().is_some_and(|n| n.as_encoded_bytes().starts_with(b".")) {
+            continue;
+        }
         let owned = path.with_extension("gloss").is_file();
         match path.extension().and_then(|x| x.to_str()) {
             Some("gloss") if path.is_file() => {
-                if !path.with_extension("out").is_file() {
+                if !bless && !path.with_extension("out").is_file() {
                     orphans.push(format!("{} has no .out", path.display()));
                 }
                 programs.push(path);
