@@ -270,4 +270,120 @@ mod tests {
         assert_eq!(l.column, [0; 5]);
         assert!(l.loops[&1].0 < l.loops[&2].0 && l.loops[&2].1 < l.loops[&1].1);
     }
+
+    /// The geometry rules of D62 and D63, checked on a finished layout.
+    fn check_geometry(g: &Graph, l: &Layout) -> Result<(), String> {
+        let right = |b: &Rect| b.x + b.w;
+        let (mut lanes, mut spans) = (vec![l.give_lane], vec![]);
+        for (n, a) in l.boxes.iter().enumerate() {
+            if a.x < MARGIN || right(a) > l.width - MARGIN || a.y < MARGIN {
+                return Err(format!("box {n} outside the margins"));
+            }
+            if a.y + a.h > l.height - MARGIN || a.x != l.centres[l.column[n]] - a.w / 2 {
+                return Err(format!(
+                    "box {n} outside the height or off its column centre"
+                ));
+            }
+            for (m, b) in l.boxes.iter().enumerate() {
+                if l.column[n] < l.column[m] && right(a) >= b.x {
+                    return Err(format!("boxes {n} and {m} overlap in x"));
+                }
+            }
+        }
+        for r in &g.regions {
+            match r {
+                Region::Loop(span) => {
+                    let (back, done) = l.loops[&span.start];
+                    lanes.extend([back, done]);
+                    spans.push((span.clone(), back, done));
+                    for b in &l.boxes[span.clone()] {
+                        if back >= b.x || right(b) >= done {
+                            return Err(format!("{span:?} lanes do not bracket the loop"));
+                        }
+                    }
+                }
+                Region::If {
+                    branches,
+                    otherwise,
+                } => {
+                    let mut earlier = 0;
+                    for b in branches.iter().chain([otherwise]).filter(|b| !b.is_empty()) {
+                        let left = l.boxes[b.clone()].iter().map(|r| r.x).min().unwrap();
+                        if left <= earlier {
+                            return Err(format!(
+                                "{b:?} does not start right of the branches before"
+                            ));
+                        }
+                        let lane = l.loops.range(b.clone()).map(|(_, v)| v.1);
+                        let edge = l.boxes[b.clone()].iter().map(right).chain(lane).max();
+                        earlier = earlier.max(edge.unwrap());
+                    }
+                }
+            }
+        }
+        if lanes.iter().any(|&x| x < MARGIN || x > l.give_lane) {
+            return Err("a lane is outside the chart".into());
+        }
+        let mut all = lanes.clone();
+        all.extend(&l.centres);
+        all.sort();
+        if all.windows(2).any(|w| w[0] == w[1]) {
+            return Err(format!("two lanes or centres coincide: {all:?}"));
+        }
+        for (inner, ib, id) in &spans {
+            for (outer, ob, od) in &spans {
+                if outer.start < inner.start && inner.end <= outer.end && (ob >= ib || id >= od) {
+                    return Err(format!("{inner:?} lanes are not inside {outer:?}"));
+                }
+            }
+            let first = l.column[inner.start];
+            let last = l.column[inner.clone()].iter().max().unwrap();
+            for (n, b) in l.boxes.iter().enumerate() {
+                let crosses = [ib, id].iter().any(|&&x| b.x <= x && x <= right(b));
+                let (c, in_span) = (l.column[n], inner.contains(&n));
+                if crosses && in_span || c < first && right(b) >= *ib || c > *last && b.x <= *id {
+                    return Err(format!("a lane of {inner:?} is out of its gap at box {n}"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn layouts_keep_to_the_geometry() {
+        let wide = "a".repeat(41);
+        let corpus = [
+            "feature start\n  set n to 0\n  if n is 1\n    for each i from 1 to 3\n      if i is 1\n        show i\n      otherwise if i is 2\n        show 2\n    show 5\n  otherwise if n is 2\n    show 3\n  otherwise\n    for each j from 1 to 2\n      show j\n  show n\n",
+            "feature start\n  if 1 is 1\n    show 1\n  otherwise if 2 is 2\n    for each i from 1 to 3\n      show i\n  show 2\n",
+            "feature start\n  for each i from 1 to 3\n    show i\n  for each j from 1 to 3\n    show j\n",
+            "feature start\n  if 1 is 1\n    note nothing\n  otherwise\n    note nothing\n  show 1\n",
+            "feature start\n  if 1 is 1\n    show 1\n  otherwise\n    for each i from 1 to 3\n      note nothing\n  show 2\n",
+            "feature start\n  for each i from 1 to 3\n    if i is 1\n      for each j from 1 to 3\n        if j is 1\n          for each k from 1 to 3\n            if k is 1\n              skip\n            otherwise\n              stop\n            show k\n        show j\n    show i\n",
+            "feature start\n  show \"WIDE\"\n  show 22\n  if 1 is 1\n    show 1\n",
+            "feature start\n  if 1 is 1\n    if 2 is 2\n      show 1\n    otherwise if 3 is 3\n      show 2\n  otherwise if 4 is 4\n    show 3\n  show 4\n",
+            "feature start\n  if 1 is 1\n    show 12\n  show 1\n",
+            "feature start\n  if 1 is 1\n    if 2 is 2\n      show 1\n    otherwise\n      show 2\n  otherwise\n    show 4\n  show 5\n",
+            "feature start\n  if 1 is 1\n    if 2 is 2\n      show 1\n    otherwise if 3 is 3\n      show 2\n    otherwise if 4 is 4\n      show 3\n  otherwise if 5 is 5\n    show 4\n  show 5\n",
+            // Two loops that end in the same column: their done lanes nest.
+            "feature start\n  for each i from 1 to 3\n    for each j from 1 to 3\n      show j\n  show 1\n",
+            CHAIN,
+            NESTED,
+        ];
+        for text in corpus {
+            let g = graph_of(&text.replace("WIDE", &wide));
+            check_geometry(&g, &layout(&g)).unwrap_or_else(|e| panic!("{e}\n{text}"));
+        }
+    }
+
+    #[test]
+    fn a_nested_if_then_a_loop_in_the_next_branch_has_exact_numbers() {
+        let text = "feature start\n  if 1 is 1\n    if 2 is 2\n      show 1\n  otherwise if 3 is 3\n    for each i from 1 to 3\n      show i\n";
+        let l = layout(&graph_of(text));
+        let xs: Vec<i32> = l.boxes.iter().map(|b| b.x).collect();
+        assert_eq!(l.column, [0, 0, 0, 0, 2, 2, 2, 0]);
+        assert_eq!(xs, [16, 16, 16, 47, 219, 205, 295, 61]);
+        assert_eq!(l.centres, [86, 173, 334, 495]);
+        assert_eq!(l.loops[&5], (189, 479));
+        assert_eq!((l.give_lane, l.width), (511, 527));
+    }
 }
