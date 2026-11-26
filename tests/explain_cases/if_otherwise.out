@@ -1,0 +1,93 @@
+Explain if_otherwise.gloss for x86-64 Linux
+
+feature start (line 1)
+  n: number, created on line 2, at [rbp-8]
+
+    push rbp
+    mov rbp, rsp
+    sub rsp, 16
+    mov [rbp-16], rcx
+    xor rdx, rdx
+    mov [rbp-8], rdx                ; n
+line 2: set n to 5
+    movabs rax, 50000
+    mov [rbp-8], rax                ; n
+line 3: if n is 1
+    mov rax, [rbp-8]                ; n
+    push rax
+    movabs rax, 10000
+    mov rcx, rax
+    pop rax
+    cmp rax, rcx
+    sete al
+    and rax, 255
+    movabs rcx, 0
+    cmp rax, rcx
+    je .L1
+line 4: show "one"
+    lea rax, [rip+text_0]           ; "one"
+    push rax
+    call out_text
+    add rsp, 8
+    lea rax, [rip+text_1]           ; "\u{000A}"
+    push rax
+    call out_text
+    add rsp, 8
+    jmp .L0
+  .L1:
+line 5: otherwise if n is 2
+    mov rax, [rbp-8]                ; n
+    push rax
+    movabs rax, 20000
+    mov rcx, rax
+    pop rax
+    cmp rax, rcx
+    sete al
+    and rax, 255
+    movabs rcx, 0
+    cmp rax, rcx
+    je .L2
+line 6: show "two"
+    lea rax, [rip+text_2]           ; "two"
+    push rax
+    call out_text
+    add rsp, 8
+    lea rax, [rip+text_1]           ; "\u{000A}"
+    push rax
+    call out_text
+    add rsp, 8
+    jmp .L0
+  .L2:
+line 8: show "many"
+    lea rax, [rip+text_3]           ; "many"
+    push rax
+    call out_text
+    add rsp, 8
+    lea rax, [rip+text_1]           ; "\u{000A}"
+    push rax
+    call out_text
+    add rsp, 8
+  .L0:
+    mov rcx, [rbp-16]
+    mov rsp, rbp
+    pop rbp
+    ret
+
+runtime
+
+permissions_text
+tables_init
+out_text
+out_bytes
+buf_bytes
+write_all
+write_loop
+flush
+_start
+args_check
+stack_init
+stack_limit
+heap_init
+x86_64.multiply_number
+x86_64.divide_number
+x86_64.remainder_number
