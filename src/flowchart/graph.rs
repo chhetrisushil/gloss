@@ -26,7 +26,7 @@ pub(crate) struct Node {
     pub line: u32,
 }
 
-// Task 2 builds the arrows; no variant but Next is built until then.
+// Task 2b builds the skip, stop and give arrows.
 #[allow(dead_code)]
 /// How an arrow leaves its node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,13 +41,26 @@ pub(crate) enum ArrowKind {
     Give,
 }
 
-// Task 2 builds the arrows.
-#[cfg_attr(not(test), expect(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Arrow {
     pub from: usize,
     pub to: usize,
     pub kind: ArrowKind,
+}
+
+impl ArrowKind {
+    // Task 4 draws the labels.
+    #[cfg_attr(not(test), expect(dead_code))]
+    /// The word written on the arrow, if it has one.
+    pub fn label(self) -> Option<&'static str> {
+        match self {
+            Self::Yes => Some("yes"),
+            Self::No => Some("no"),
+            Self::Each => Some("next"),
+            Self::Done => Some("done"),
+            _ => None,
+        }
+    }
 }
 
 impl Arrow {
@@ -59,7 +72,7 @@ impl Arrow {
     }
 }
 
-// Task 2 fills the arrows, and Task 3 lays the graph out.
+// Task 3 lays the graph out.
 #[cfg_attr(not(test), expect(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Graph {
@@ -87,17 +100,19 @@ pub(crate) fn graph(feature: &FeatureDecl, src: &Source) -> Graph {
         src,
         nodes: vec![start],
         end,
+        arrows: vec![],
+        open: vec![(0, ArrowKind::Next)],
     };
     builder.block(&feature.body);
-    let end = builder.body_end(src.line(feature.line));
-    builder.nodes.push(Node {
+    let line = builder.body_end(src.line(feature.line));
+    builder.add(Node {
         shape: Shape::End,
         label: vec!["end".to_string()],
-        line: end,
+        line,
     });
     Graph {
         nodes: builder.nodes,
-        arrows: vec![],
+        arrows: builder.arrows,
     }
 }
 
@@ -106,6 +121,9 @@ struct Builder<'a> {
     nodes: Vec<Node>,
     /// The last line of the last node pushed.
     end: u32,
+    arrows: Vec<Arrow>,
+    /// The arrows that still need a target: the next node pushed takes them.
+    open: Vec<(usize, ArrowKind)>,
 }
 
 impl Builder<'_> {
@@ -122,19 +140,36 @@ impl Builder<'_> {
                 branches,
                 otherwise,
             } => {
+                let mut out = Vec::new();
                 for (i, (cond, body)) in branches.iter().enumerate() {
-                    self.push(Shape::Decision, if i == 0 { stmt.line } else { cond.line });
+                    let c = self.push(Shape::Decision, if i == 0 { stmt.line } else { cond.line });
+                    self.open = vec![(c, ArrowKind::Yes)];
                     self.block(body);
+                    out.append(&mut self.open);
+                    self.open = vec![(c, ArrowKind::No)];
                 }
                 if let Some(body) = otherwise {
                     self.block(body);
                 }
+                out.append(&mut self.open);
+                self.open = out;
             }
             StmtKind::ForEachIn { body, .. }
             | StmtKind::ForEachRange { body, .. }
             | StmtKind::RepeatWhile { body, .. } => {
-                self.push(Shape::Decision, stmt.line);
+                let d = self.push(Shape::Decision, stmt.line);
+                let repeat = matches!(stmt.kind, StmtKind::RepeatWhile { .. });
+                let (enter, leave) = if repeat {
+                    (ArrowKind::Yes, ArrowKind::No)
+                } else {
+                    (ArrowKind::Each, ArrowKind::Done)
+                };
+                self.open = vec![(d, enter)];
                 self.block(body);
+                for (from, kind) in std::mem::take(&mut self.open) {
+                    self.arrow(from, d, kind);
+                }
+                self.open = vec![(d, leave)];
             }
             kind => {
                 let mut exprs = Vec::new();
@@ -145,10 +180,25 @@ impl Builder<'_> {
         }
     }
 
-    fn push(&mut self, shape: Shape, line: u32) {
+    /// Adds a node for the statement at `line`, takes the open exits, and returns its index.
+    fn push(&mut self, shape: Shape, line: u32) -> usize {
         let (label, last) = label_at(self.src, line);
         self.end = last;
-        self.nodes.push(Node { shape, label, line });
+        self.add(Node { shape, label, line })
+    }
+
+    fn add(&mut self, node: Node) -> usize {
+        let n = self.nodes.len();
+        self.nodes.push(node);
+        for (from, kind) in std::mem::take(&mut self.open) {
+            self.arrow(from, n, kind);
+        }
+        self.open = vec![(n, ArrowKind::Next)];
+        n
+    }
+
+    fn arrow(&mut self, from: usize, to: usize, kind: ArrowKind) {
+        self.arrows.push(Arrow { from, to, kind });
     }
 
     /// The last line of the feature's body: the last non-blank line before the next line
@@ -199,6 +249,7 @@ fn has_call(e: &Expr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ArrowKind::*;
     use Shape::*;
 
     fn graph_of(text: &str) -> Graph {
@@ -263,7 +314,6 @@ mod tests {
                 "end"
             ]
         );
-        assert!(g.arrows.is_empty());
         assert_eq!(g.nodes[1].line, 2);
         assert_eq!(g.nodes[4].line, 5);
         assert_eq!(g.nodes[10].line, 11);
@@ -396,6 +446,126 @@ mod tests {
             let kind = ArrowKind::Next;
             assert_eq!(Arrow { from, to, kind }.is_back(), back);
         }
+    }
+
+    fn arrows_of(text: &str) -> Vec<(usize, usize, ArrowKind)> {
+        let g = graph_of(text);
+        g.arrows.iter().map(|a| (a.from, a.to, a.kind)).collect()
+    }
+
+    #[test]
+    fn straight_line_arrows() {
+        assert_eq!(
+            arrows_of("feature start\n  set n to 1\n  show n\n"),
+            [(0, 1, Next), (1, 2, Next), (2, 3, Next)]
+        );
+    }
+
+    #[test]
+    fn an_if_chain_joins_below() {
+        let text = "feature start\n  set n to 1\n  if n is 1\n    set n to 2\n  otherwise if n is 2\n    set n to 5\n  otherwise\n    set n to 4\n  show n\n";
+        assert_eq!(
+            arrows_of(text),
+            [
+                (0, 1, Next),
+                (1, 2, Next),
+                (2, 3, Yes),
+                (2, 4, No),
+                (4, 5, Yes),
+                (4, 6, No),
+                (3, 7, Next),
+                (5, 7, Next),
+                (6, 7, Next),
+                (7, 8, Next)
+            ]
+        );
+    }
+
+    #[test]
+    fn an_if_without_otherwise_falls_through_on_no() {
+        let text = "feature start\n  if 1 is 1\n    show 1\n  show 2\n";
+        assert_eq!(
+            arrows_of(text),
+            [
+                (0, 1, Next),
+                (1, 2, Yes),
+                (2, 3, Next),
+                (1, 3, No),
+                (3, 4, Next)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_loop_goes_back_and_out() {
+        let each = "feature start\n  for each i from 1 to 3\n    show i\n    show i\n  show 0\n";
+        assert_eq!(
+            arrows_of(each),
+            [
+                (0, 1, Next),
+                (1, 2, Each),
+                (2, 3, Next),
+                (3, 1, Next),
+                (1, 4, Done),
+                (4, 5, Next)
+            ]
+        );
+        assert!(graph_of(each).arrows[3].is_back());
+        let repeat = "feature start\n  set n to 0\n  repeat while n is less than 3\n    add 1 to n\n    add 1 to n\n  show n\n";
+        assert_eq!(
+            arrows_of(repeat),
+            [
+                (0, 1, Next),
+                (1, 2, Next),
+                (2, 3, Yes),
+                (3, 4, Next),
+                (4, 2, Next),
+                (2, 5, No),
+                (5, 6, Next)
+            ]
+        );
+        // An if left open at the end of a body goes back on its No.
+        let open = "feature start\n  for each i from 1 to 3\n    if i is 1\n      show i\n";
+        assert_eq!(
+            arrows_of(open),
+            [
+                (0, 1, Next),
+                (1, 2, Each),
+                (2, 3, Yes),
+                (3, 1, Next),
+                (2, 1, No),
+                (1, 4, Done)
+            ]
+        );
+    }
+
+    #[test]
+    fn arrows_are_labelled_by_kind() {
+        use ArrowKind as K;
+        let labels = [
+            K::Next,
+            K::Yes,
+            K::No,
+            K::Each,
+            K::Done,
+            K::Skip,
+            K::Stop,
+            K::Give,
+        ]
+        .map(K::label);
+        assert_eq!(
+            labels,
+            [
+                None,
+                Some("yes"),
+                Some("no"),
+                Some("next"),
+                Some("done"),
+                None,
+                None,
+                None
+            ]
+        );
     }
 
     #[test]
