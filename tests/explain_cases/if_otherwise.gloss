@@ -1,0 +1,8 @@
+feature start
+  set n to 5
+  if n is 1
+    show "one"
+  otherwise if n is 2
+    show "two"
+  otherwise
+    show "many"
