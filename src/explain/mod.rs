@@ -2,20 +2,25 @@
 
 mod comment;
 
+use comment::comment;
+
 use crate::check::{FeatureInfo, TypeInfo};
 use crate::lower::{FunctionNotes, Notes};
 use crate::source::Source;
 use crate::target::listing::{Item, Routine};
 
-/// The listing for a program: a header, then each feature's names and code. `texts` is for
-/// the runtime section, which comes later.
+/// The column the `;` of a comment starts in, counting from 0.
+const COLUMN: usize = 36;
+
+/// The listing for a program: a header, then each feature's names and code. `texts` are the program's
+/// texts, for the comments that show them.
 pub(crate) fn listing(
     name: &str,
     src: &Source,
     types: &TypeInfo,
     notes: &Notes,
     routines: &[Routine],
-    _texts: &[Vec<u8>],
+    texts: &[Vec<u8>],
 ) -> String {
     let mut out = format!("Explain {name} for x86-64 Linux\n\n");
     for routine in routines {
@@ -30,7 +35,7 @@ pub(crate) fn listing(
             names(&mut out, info, fnotes);
         }
         out.push('\n');
-        items(&mut out, src, routine);
+        items(&mut out, src, routine, Some(fnotes), texts);
         out.push('\n');
     }
     out
@@ -83,7 +88,13 @@ fn names(out: &mut String, info: &FeatureInfo, notes: &FunctionNotes) {
     }
 }
 
-fn items(out: &mut String, src: &Source, routine: &Routine) {
+fn items(
+    out: &mut String,
+    src: &Source,
+    routine: &Routine,
+    notes: Option<&FunctionNotes>,
+    texts: &[Vec<u8>],
+) {
     let mut current: Option<u32> = None;
     let mut printed: Vec<u32> = Vec::new();
     for item in &routine.items {
@@ -100,8 +111,21 @@ fn items(out: &mut String, src: &Source, routine: &Routine) {
                     current = Some(*n);
                 }
             }
-            Item::Label { text, .. } => out.push_str(&format!("  {text}:\n")),
-            Item::Inst { text, .. } => out.push_str(&format!("    {text}\n")),
+            Item::Label { text, local } => {
+                let fail = local.and_then(|n| notes?.fails.get(&n));
+                if let Some(f) = fail {
+                    out.push_str(&format!("failure {}, line {}\n", f.code, f.line));
+                }
+                out.push_str(&format!("  {text}:\n"));
+            }
+            Item::Inst { text, refs } => {
+                out.push_str(&format!("    {text}"));
+                if let Some(c) = comment(refs, notes, texts) {
+                    let pad = COLUMN.saturating_sub(4 + text.chars().count()).max(1);
+                    out.push_str(&format!("{:pad$}; {c}", ""));
+                }
+                out.push('\n');
+            }
         }
     }
 }
@@ -111,6 +135,7 @@ mod tests {
     use crate::check::check;
     use crate::lower::lower_explained;
     use crate::source::Source;
+    use crate::target::listing::{Item, Ref, Routine};
 
     const PROGRAM: &str = "feature total_of\n  needs prices as list of number\n  set total to 0\n  \
          for each price in prices\n    add price to total\n  give total\n\n\
@@ -124,7 +149,7 @@ mod tests {
         let routines = crate::target::x86_64_linux()
             .listing(&module)
             .expect("lists");
-        super::listing("x.gloss", &src, &types, &notes, &routines, &[])
+        super::listing("x.gloss", &src, &types, &notes, &routines, &module.texts)
     }
 
     #[test]
@@ -147,8 +172,14 @@ mod tests {
                     b: number, input 2, at [rbp+24]\n  c: number, input 3, at [rbp+16]\n\n";
         assert!(out.contains(want), "{out}");
         // The instructions use the same forms.
-        for at in ["[rbp+32]", "[rbp+24]", "[rbp+16]"] {
-            assert!(out.contains(&format!("    mov rax, {at}\n")), "{out}");
+        for (at, name) in [("[rbp+32]", "a"), ("[rbp+24]", "b"), ("[rbp+16]", "c")] {
+            let line = out
+                .lines()
+                .find(|l| l.starts_with(&format!("    mov rax, {at}")));
+            assert!(
+                line.is_some_and(|l| l.ends_with(&format!("; {name}"))),
+                "{out}"
+            );
         }
     }
 
@@ -224,7 +255,6 @@ mod tests {
 
     #[test]
     fn an_immediate_repeat_of_a_line_prints_nothing() {
-        use crate::target::listing::{Item, Routine};
         let src = Source::new("feature a\n  show 1\n  show 2\n");
         let inst = || Item::Inst {
             text: "nop".into(),
@@ -232,14 +262,119 @@ mod tests {
         };
         let items = vec![Item::Line(2), Item::Line(2), inst(), Item::Line(3), inst()];
         let mut out = String::new();
-        super::items(
-            &mut out,
-            &src,
-            &Routine {
-                name: "f_a".into(),
-                items,
-            },
-        );
+        let routine = Routine {
+            name: "f_a".into(),
+            items,
+        };
+        super::items(&mut out, &src, &routine, None, &[]);
         assert_eq!(out, "line 2: show 1\n    nop\nline 3: show 2\n    nop\n");
+    }
+
+    const OVERFLOW: &str = "feature bump\n  needs price as number\n  set total to 0\n  add price to total\n  give total\n\n\
+         feature start\n  show (bump with 1)\n";
+
+    #[test]
+    fn an_overflow_jump_names_its_failure() {
+        let src = Source::new(OVERFLOW);
+        let program = crate::parse_source(&src).expect("parses");
+        let types = check(&program, &src).types.expect("checks clean");
+        let (_, notes) = lower_explained(&program, &types, &src).expect("lowers");
+        let fails = &notes.functions["f_bump"].fails;
+        let note = fails.values().find(|f| f.code == 4).expect("failure 4");
+        let out = explain(OVERFLOW);
+        let jo = out.lines().find(|l| l.contains(" jo ")).expect("jo line");
+        let want = format!("; failure 4: {}", note.message);
+        assert!(jo.ends_with(&want), "{out}");
+    }
+
+    #[test]
+    fn a_text_address_shows_the_text() {
+        let out = explain("feature start\n  show \"hi \"\"x\"\"\"\n");
+        let lea = out.lines().find(|l| l.contains("lea ")).expect("lea line");
+        assert!(lea.ends_with("; \"hi \"\"x\"\"\""), "{out}");
+    }
+
+    #[test]
+    fn a_failure_block_has_a_header() {
+        let out = explain(OVERFLOW);
+        assert!(out.contains("\nfailure 4, line 4\n  .L0:\n"), "{out}");
+    }
+
+    #[test]
+    fn the_comment_column() {
+        let out = explain(OVERFLOW);
+        let line = out.lines().find(|l| l.contains("; total")).expect("slot");
+        assert_eq!(line.find(';'), Some(36), "{out}");
+        // 31 and 32 characters of text make lines of 35 and 36 before the comment.
+        for (n, pad) in [(31, 1), (32, 1), (30, 2)] {
+            let got = commented(&"x".repeat(n), &[Ref::System("write")]);
+            let want = format!("    {}{}; write\n", "x".repeat(n), " ".repeat(pad));
+            assert_eq!(got, want);
+        }
+        let long = commented(&"x".repeat(40), &[Ref::System("write")]);
+        assert_eq!(long, format!("    {} ; write\n", "x".repeat(40)));
+    }
+
+    fn synthetic(items: Vec<Item>) -> String {
+        use crate::lower::{FailNote, FunctionNotes};
+        let mut notes = FunctionNotes {
+            feature: "a".into(),
+            line: 1,
+            slots: Default::default(),
+            inputs: vec![],
+            fails: Default::default(),
+        };
+        let note = FailNote {
+            code: 4,
+            line: 2,
+            message: "m".into(),
+        };
+        notes.fails.insert(5, note);
+        let src = Source::new("feature a\n  show 1\n");
+        let routine = Routine {
+            name: "f_a".into(),
+            items,
+        };
+        let mut out = String::new();
+        super::items(&mut out, &src, &routine, Some(&notes), &[]);
+        out
+    }
+
+    #[test]
+    fn a_jump_to_a_plain_label_has_no_comment() {
+        let items = vec![Item::Inst {
+            text: "jmp .L1".into(),
+            refs: vec![Ref::Jump(1)],
+        }];
+        assert_eq!(synthetic(items), "    jmp .L1\n");
+    }
+
+    #[test]
+    fn a_failure_label_has_its_header_without_a_jump() {
+        let label = |local| Item::Label {
+            text: ".L5".into(),
+            local,
+        };
+        assert_eq!(
+            synthetic(vec![label(Some(5))]),
+            "failure 4, line 2\n  .L5:\n"
+        );
+        assert_eq!(synthetic(vec![label(Some(6))]), "  .L5:\n");
+        assert_eq!(synthetic(vec![label(None)]), "  .L5:\n");
+    }
+
+    fn commented(text: &str, refs: &[Ref]) -> String {
+        let src = Source::new("feature a\n  show 1\n");
+        let mut out = String::new();
+        let item = Item::Inst {
+            text: text.into(),
+            refs: refs.to_vec(),
+        };
+        let routine = Routine {
+            name: "f_a".into(),
+            items: vec![item],
+        };
+        super::items(&mut out, &src, &routine, None, &[]);
+        out
     }
 }
