@@ -1,0 +1,113 @@
+Explain ask_number.gloss for x86-64 Linux
+
+feature start (line 1)
+  answer: text, created on line 2, at [rbp-8]
+  n: number, created on line 3, at [rbp-16]
+
+line 1: feature start
+    push rbp
+    mov rbp, rsp
+    sub rsp, 32
+    mov [rbp-32], rcx
+    xor rdx, rdx
+    mov [rbp-8], rdx                ; answer
+    mov [rbp-16], rdx               ; n
+    mov [rbp-24], rdx
+line 2: ask "How many? " into answer
+    lea rax, [rip+text_0]           ; "How many? "
+    push rax
+    movabs rax, 2
+    push rax
+    call ask
+    add rsp, 16
+    mov [rbp-8], rax                ; answer
+line 3: set n to answer as number
+    mov rax, [rbp-8]                ; answer
+    mov [rbp-24], rax
+    push rax
+    call parse_number
+    add rsp, 8
+    movabs rcx, 0
+    cmp rax, rcx
+    jne .L0                         ; failure 5: "…" is not a number (answer as number)
+    lea rax, [rip+num_buf]
+    mov rax, [rax+0]
+    mov [rbp-16], rax               ; n
+line 4: show n
+    mov rax, [rbp-16]               ; n
+    push rax
+    call out_number
+    add rsp, 8
+    lea rax, [rip+text_1]           ; "\u{000A}"
+    push rax
+    call out_text
+    add rsp, 8
+line 1: feature start (continued)
+    mov rcx, [rbp-32]
+    mov rsp, rbp
+    pop rbp
+    ret
+failure 5, line 3
+  .L0:
+    movabs rax, 3
+    push rax
+    movabs rax, 5
+    push rax
+    call fail_begin
+    add rsp, 16
+    lea rax, [rip+text_2]           ; """"
+    push rax
+    call err_text
+    add rsp, 8
+    mov rax, [rbp-24]
+    push rax
+    call err_shown
+    add rsp, 8
+    lea rax, [rip+text_3]           ; """ is not a number ("
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_4]           ; "answer as number"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_5]           ; ")"
+    push rax
+    call err_text
+    add rsp, 8
+    call fail_end
+
+runtime
+
+permissions_text
+tables_init
+fail_end
+err_text
+write_all
+write_loop
+err_shown
+err_flush
+err_put
+fail_begin
+err_int
+flush
+out_text
+out_bytes
+buf_bytes
+out_number
+number_format
+parse_number
+ask
+ask_read
+grow_text
+alloc
+fail_memory
+in_fill
+_start
+args_check
+stack_init
+stack_limit
+heap_init
+x86_64.multiply_number
+x86_64.divide_number
+x86_64.remainder_number
