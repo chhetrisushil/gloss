@@ -5,7 +5,7 @@ mod comment;
 use comment::comment;
 
 use crate::check::{FeatureInfo, TypeInfo};
-use crate::lower::{FunctionNotes, Notes};
+use crate::lower::{FunctionNotes, Notes, spell_invisible};
 use crate::source::Source;
 use crate::target::listing::{Item, Routine};
 
@@ -87,9 +87,13 @@ fn names(out: &mut String, info: &FeatureInfo, notes: &FunctionNotes) {
             ));
         }
     }
+    // A loop variable is listed once per (name, type): two loops may share a name and a slot
+    // but differ in type, and then each type is named.
+    let mut loops: Vec<(&str, String)> = Vec::new();
     for var in &info.loops {
-        if !seen.contains(&var.name.as_str()) {
-            seen.push(&var.name);
+        let pair = (var.name.as_str(), var.ty.describe());
+        if !seen.contains(&pair.0) && !loops.contains(&pair) {
+            loops.push(pair);
             out.push_str(&format!(
                 "  {}: {}, loop variable on line {}, at {}\n",
                 var.name,
@@ -99,6 +103,12 @@ fn names(out: &mut String, info: &FeatureInfo, notes: &FunctionNotes) {
             ));
         }
     }
+}
+
+/// A source line as a header shows it: trimmed, with invisible characters spelled as the
+/// diagnostics and the comments spell them.
+fn header(src: &Source, n: u32) -> String {
+    spell_invisible(src.line(n).trim())
 }
 
 fn items(
@@ -116,7 +126,7 @@ fn items(
         .iter()
         .find(|i| !matches!(i, Item::Label { .. }));
     if let (Some(n), Some(Item::Inst { .. })) = (notes.map(|n| n.line), first) {
-        out.push_str(&format!("line {n}: {}\n", src.line(n).trim()));
+        out.push_str(&format!("line {n}: {}\n", header(src, n)));
         printed.push(n);
         current = Some(n);
     }
@@ -129,7 +139,7 @@ fn items(
                     } else {
                         ""
                     };
-                    out.push_str(&format!("line {n}: {}{again}\n", src.line(*n).trim()));
+                    out.push_str(&format!("line {n}: {}{again}\n", header(src, *n)));
                     printed.push(*n);
                     current = Some(*n);
                 }
@@ -252,6 +262,36 @@ mod tests {
             out.contains("\n  x: number, loop variable on line 2, at [rbp-"),
             "{out}"
         );
+    }
+
+    #[test]
+    fn two_loops_with_one_name_and_two_types_list_both() {
+        let out = explain(
+            "feature start\n  for each x in (list of 1, 2)\n    show x\n  \
+             for each x in (list of \"a\", \"b\")\n    show x\n",
+        );
+        assert_eq!(out.matches("\n  x: ").count(), 2, "{out}");
+        let want = "\n  x: number, loop variable on line 2, at [rbp-";
+        assert!(out.contains(want), "{out}");
+        let want = "\n  x: text, loop variable on line 4, at [rbp-";
+        assert!(out.contains(want), "{out}");
+    }
+
+    #[test]
+    fn line_headers_spell_invisible_characters_as_comments_do() {
+        let out = explain("feature start\n  show \"a\u{202E}b\"\n");
+        assert!(out.contains("line 2: show \"a\\u{202E}b\"\n"), "{out}");
+        assert!(!out.contains('\u{202E}'), "{out}");
+        // The comment on the same code spells it the same way.
+        assert!(out.contains("; \"a\\u{202E}b\""), "{out}");
+    }
+
+    #[test]
+    fn a_header_spells_a_tab_as_unshowable_does() {
+        // `chars::unshowable` covers every control character, so a tab is spelled. A tab in a
+        // real program is a parse error, so this checks the header helper on a bare source.
+        let src = Source::new("a\tb\u{200B}\n");
+        assert_eq!(super::header(&src, 1), "a\\u{0009}b\\u{200B}");
     }
 
     #[test]
