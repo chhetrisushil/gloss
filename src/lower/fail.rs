@@ -44,7 +44,7 @@ impl Fail {
         assert!(!self.expect, "an expect in a real build");
         let [before, source, after] = &self.parts;
         let message = if self.item.is_some() {
-            format!("{before}\u{2026} in {source}; it has \u{2026} items")
+            format!("{before}\u{2026} in {source}; it has \u{2026}")
         } else if self.value.is_some() {
             format!("{before}{source} is \u{2026}{after}")
         } else if self.shown.is_some() {

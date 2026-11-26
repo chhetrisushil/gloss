@@ -104,11 +104,7 @@ mod tests {
             (1, 5, "dividing by zero (n is 0)"),
             (4, 5, "a number went out of range (9 / n)"),
             (3, 6, "an item position must be whole (n is \u{2026})"),
-            (
-                2,
-                6,
-                "there is no item \u{2026} in xs; it has \u{2026} items",
-            ),
+            (2, 6, "there is no item \u{2026} in xs; it has \u{2026}"),
             (5, 7, "\"\u{2026}\" is not a number (t as number)"),
             (4, 8, "a number went out of range (n * 1000000000000)"),
         ];
