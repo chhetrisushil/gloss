@@ -141,18 +141,31 @@ mod tests {
     }
 
     #[test]
-    fn a_decision_a_call_and_a_label() {
-        let s = chart(
-            "feature start\n  if 1 is 1\n    show (f with 2)\n\nfeature f\n  needs n as number\n  give n\n",
-        );
-        let has = |line: &str| assert!(s.lines().any(|l| l == line), "{line}\n{s}");
-        has(
-            "<polygon points=\"25,94 43,76 148,76 166,94 148,112 43,112\" fill=\"white\" stroke=\"black\"/>",
-        );
-        has("<text x=\"55\" y=\"99\">if 1 is 1</text>");
-        has("<line x1=\"22\" y1=\"136\" x2=\"22\" y2=\"172\" stroke=\"black\"/>");
-        has("<line x1=\"169\" y1=\"136\" x2=\"169\" y2=\"172\" stroke=\"black\"/>");
-        has("<text x=\"99\" y=\"124\" font-size=\"12\">yes</text>");
-        has("<text x=\"170\" y=\"106\" font-size=\"12\">no</text>");
+    fn a_decision_and_a_call_chart() {
+        let want = "\
+<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"205\" height=\"248\" viewBox=\"0 0 205 248\" font-family=\"monospace\" font-size=\"15\">
+<title>x.gloss: feature start</title>
+<defs><marker id=\"arrow\" viewBox=\"0 0 10 10\" refX=\"10\" refY=\"5\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto\"><path d=\"M0,0 L10,5 L0,10 z\"/></marker></defs>
+<rect width=\"100%\" height=\"100%\" fill=\"white\"/>
+<rect x=\"16\" y=\"16\" width=\"141\" height=\"36\" rx=\"12\" fill=\"white\" stroke=\"black\"/>
+<text x=\"28\" y=\"39\">feature start</text>
+<polygon points=\"16,94 34,76 139,76 157,94 139,112 34,112\" fill=\"white\" stroke=\"black\"/>
+<text x=\"46\" y=\"99\">if 1 is 1</text>
+<rect x=\"29\" y=\"136\" width=\"114\" height=\"36\" fill=\"white\" stroke=\"black\"/>
+<line x1=\"35\" y1=\"136\" x2=\"35\" y2=\"172\" stroke=\"black\"/>
+<line x1=\"137\" y1=\"136\" x2=\"137\" y2=\"172\" stroke=\"black\"/>
+<text x=\"41\" y=\"159\">run helper</text>
+<rect x=\"61\" y=\"196\" width=\"51\" height=\"36\" rx=\"12\" fill=\"white\" stroke=\"black\"/>
+<text x=\"73\" y=\"219\">end</text>
+<polyline points=\"86,52 86,76\" fill=\"none\" stroke=\"black\" marker-end=\"url(#arrow)\"/>
+<polyline points=\"86,112 86,136\" fill=\"none\" stroke=\"black\" marker-end=\"url(#arrow)\"/>
+<text x=\"90\" y=\"124\" font-size=\"12\">yes</text>
+<polyline points=\"86,172 86,196\" fill=\"none\" stroke=\"black\" marker-end=\"url(#arrow)\"/>
+<polyline points=\"157,94 173,94 173,184 86,184 86,196\" fill=\"none\" stroke=\"black\" marker-end=\"url(#arrow)\"/>
+<text x=\"161\" y=\"106\" font-size=\"12\">no</text>
+</svg>
+";
+        let text = "feature start\n  if 1 is 1\n    run helper\n\nfeature helper\n  show 2\n";
+        assert_eq!(chart(text), want);
     }
 }
