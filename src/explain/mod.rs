@@ -606,4 +606,117 @@ mod tests {
             }
         }
     }
+
+    /// Every `.gloss` program in `dir`, sorted, as its path and source text.
+    fn programs(dir: &str) -> Vec<(String, String)> {
+        let mut paths: Vec<_> = std::fs::read_dir(dir)
+            .expect("folder")
+            .map(|e| e.expect("entry").path())
+            .filter(|p| p.extension().is_some_and(|e| e == "gloss"))
+            .collect();
+        paths.sort();
+        assert!(!paths.is_empty(), "{dir}");
+        paths
+            .iter()
+            .map(|p| (p.display().to_string(), std::fs::read_to_string(p).unwrap()))
+            .collect()
+    }
+
+    /// An instruction line of the listing with its comment cut off: the comment starts at the
+    /// first `;` in column 36 or later (instruction text has no `;`, and a quoted text in a
+    /// comment may, so only the first counts).
+    fn without_comment(line: &str) -> &str {
+        let at = line
+            .char_indices()
+            .enumerate()
+            .find(|(col, (_, c))| *col >= 36 && *c == ';')
+            .map(|(_, (i, _))| i);
+        line[..at.unwrap_or(line.len())].trim_end()
+    }
+
+    /// `.L<n>` operands written back as the assembler's `L<routine>_<n>`.
+    fn own_labels(text: &str, routine: &str) -> String {
+        text.split(' ')
+            .map(|word| match word.strip_prefix(".L") {
+                Some(n) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => {
+                    format!("L{routine}_{n}")
+                }
+                _ => word.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// The printed listing's instruction lines, per routine, in order.
+    fn printed(out: &str) -> Vec<(String, Vec<String>)> {
+        let mut all: Vec<(String, Vec<String>)> = Vec::new();
+        for line in out.lines() {
+            let header = line.strip_prefix("routine ").map(String::from).or_else(|| {
+                line.strip_prefix("feature ")
+                    .and_then(|r| r.split(" (line ").next())
+                    .map(|f| format!("f_{f}"))
+            });
+            if let Some(name) = header {
+                all.push((name, Vec::new()));
+            } else if line.starts_with("    ") {
+                let (name, list) = all.last_mut().expect("an instruction under a header");
+                list.push(own_labels(without_comment(line).trim_start(), name));
+            }
+        }
+        all
+    }
+
+    #[test]
+    fn the_printed_instructions_are_the_assembled_ones() {
+        let mut dirs = programs("examples");
+        dirs.extend(programs("tests/explain_cases"));
+        for (path, text) in dirs {
+            let (diags, checked) = crate::check_program(&text);
+            let checked = checked.unwrap_or_else(|| panic!("{path}: {diags:?}"));
+            let out = checked.explanation("x.gloss").expect("explains");
+            let module = crate::lower::lower(&checked.program, &checked.types, &checked.src)
+                .expect("lowers");
+            let want: Vec<(String, Vec<String>)> =
+                crate::target::x86_64::program::assemble(&module)
+                    .expect("assembles")
+                    .routines
+                    .into_iter()
+                    .map(|r| {
+                        let texts = r
+                            .code
+                            .iter()
+                            .filter(|x| {
+                                !matches!(
+                                    x,
+                                    crate::target::x86_64::inst::X::Label(_)
+                                        | crate::target::x86_64::inst::X::Comment(_)
+                                )
+                            })
+                            .map(crate::target::x86_64::inst::text)
+                            .collect();
+                        (r.name, texts)
+                    })
+                    .collect();
+            let got = printed(&out);
+            let names =
+                |v: &[(String, Vec<String>)]| v.iter().map(|r| r.0.clone()).collect::<Vec<_>>();
+            assert_eq!(names(&got), names(&want), "{path}");
+            for (g, w) in got.iter().zip(&want) {
+                assert_eq!(g.1, w.1, "{path}: routine {}", g.0);
+            }
+        }
+    }
+
+    #[test]
+    fn a_comment_is_cut_at_its_semicolon_even_when_it_quotes_one() {
+        let line = "    mov [rbp-8], rax                ; \"a; b\"";
+        assert_eq!(without_comment(line), "    mov [rbp-8], rax");
+        let long = format!("    call {} ; x; y", "q".repeat(40));
+        assert_eq!(
+            without_comment(&long),
+            format!("    call {}", "q".repeat(40))
+        );
+        assert_eq!(own_labels("jmp .L12", "f_a"), "jmp Lf_a_12");
+        assert_eq!(own_labels("call x86_64.L1x", "f_a"), "call x86_64.L1x");
+    }
 }
