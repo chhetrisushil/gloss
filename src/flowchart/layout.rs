@@ -186,6 +186,7 @@ mod tests {
     use crate::source::Source;
 
     fn graph_of(text: &str) -> Graph {
+        super::super::check::program(text);
         let (_, checked) = crate::check_program(text);
         let checked = checked.expect("the program checks");
         let feature = checked.program().features().next().expect("a feature");

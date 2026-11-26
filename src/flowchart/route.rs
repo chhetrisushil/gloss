@@ -107,6 +107,7 @@ mod tests {
     use crate::source::Source;
 
     fn laid(text: &str) -> (Graph, Layout) {
+        super::super::check::program(text);
         let (_, checked) = crate::check_program(text);
         let checked = checked.expect("the program checks");
         let feature = checked.program().features().next().expect("a feature");
