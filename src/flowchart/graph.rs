@@ -70,12 +70,11 @@ pub(crate) struct Graph {
 // Task 7 builds the graph for each feature.
 #[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn graph(feature: &FeatureDecl, src: &Source) -> Graph {
-    let mut label = label_at(src, feature.line);
-    let mut end = feature.line + label.len() as u32 - 1;
+    let (mut label, mut end) = label_at(src, feature.line);
     for input in &feature.needs {
         if input.line > end {
-            let more = label_at(src, input.line);
-            end = input.line + more.len() as u32 - 1;
+            let (more, last) = label_at(src, input.line);
+            end = last;
             label.extend(more);
         }
     }
@@ -147,8 +146,8 @@ impl Builder<'_> {
     }
 
     fn push(&mut self, shape: Shape, line: u32) {
-        let label = label_at(self.src, line);
-        self.end = line + label.len() as u32 - 1;
+        let (label, last) = label_at(self.src, line);
+        self.end = last;
         self.nodes.push(Node { shape, label, line });
     }
 
@@ -175,16 +174,19 @@ fn indent(line: &str) -> usize {
     line.len() - line.trim_start().len()
 }
 
-/// The source lines of the statement written from `line`: each trimmed and with invisible
-/// characters spelled, and the next line too while one ends in a comma (F3).
-fn label_at(src: &Source, line: u32) -> Vec<String> {
+/// The source lines of the statement written from `line`, and the number of its last line:
+/// each trimmed and with invisible characters spelled, and the next line too while one ends
+/// in a comma (F3). Blank lines are ignored (spec §3), so they are not part of a label.
+fn label_at(src: &Source, line: u32) -> (Vec<String>, u32) {
     let mut label = Vec::new();
     let mut n = line;
     loop {
         let text = src.line(n).trim();
-        label.push(spell_invisible(text));
-        if !text.ends_with(',') || n >= src.line_count() {
-            return label;
+        if !text.is_empty() {
+            label.push(spell_invisible(text));
+        }
+        if !(text.is_empty() || text.ends_with(',')) || n >= src.line_count() {
+            return (label, n);
         }
         n += 1;
     }
@@ -276,6 +278,105 @@ mod tests {
         // A header with no trailing comma is not continued by its deeper body line.
         let g = graph_of("feature start\n  if 1 is 1\n    show 1\n");
         assert_eq!(g.nodes[1].label, ["if 1 is 1"]);
+    }
+
+    fn end_line(text: &str) -> u32 {
+        graph_of(text).nodes.last().expect("an end node").line
+    }
+
+    #[test]
+    fn the_end_line_takes_in_trailing_notes() {
+        assert_eq!(end_line("feature start\n  show 1\n  note tail\n"), 3);
+        let nested = "feature start\n  if 1 is 1\n    show 1\n    note n\n";
+        assert_eq!(end_line(nested), 4);
+        let block = "feature start\n  show 1\n  note\n    a\n\n    b\n";
+        assert_eq!(end_line(block), 6);
+        let nested_block = "feature start\n  if 1 is 1\n    show 1\n    note\n      a\n\n      b\n";
+        assert_eq!(end_line(nested_block), 7);
+        let two = "feature start\n  show 1\n  note t\n\nfeature other\n  show 2\n";
+        assert_eq!(end_line(two), 3);
+    }
+
+    #[test]
+    fn needs_lines_are_listed_once_each() {
+        let label = |text: &str| {
+            graph_of(&format!("{text}\nfeature start\n  show 1\n")).nodes[0]
+                .label
+                .clone()
+        };
+        let one_line = "feature f\n  needs x as number, y as number\n  show x, y\n";
+        assert_eq!(
+            label(one_line),
+            ["feature f", "needs x as number, y as number"]
+        );
+        let continued = "feature f\n  needs x as number,\n    y as number\n  show x, y\n";
+        assert_eq!(
+            label(continued),
+            ["feature f", "needs x as number,", "y as number"]
+        );
+        let noted = "feature f\n  note a\n  needs x as number\n  show x\n";
+        assert_eq!(label(noted), ["feature f", "needs x as number"]);
+        // A blank line after a trailing comma is ignored, in a needs line and in a statement.
+        let gap = "feature f\n  needs x as number,\n\n    y as number\n  show x,\n\n    y\n";
+        let g = graph_of(&format!("{gap}\nfeature start\n  show 1\n"));
+        assert_eq!(
+            g.nodes[0].label,
+            ["feature f", "needs x as number,", "y as number"]
+        );
+        assert_eq!(g.nodes[1].label, ["show x,", "y"]);
+        assert_eq!(g.nodes[2].line, 7);
+    }
+
+    #[test]
+    fn every_loop_form_is_a_decision_and_blocks_nest() {
+        let g = graph_of(
+            "feature start\n  set xs to list of 1, 2\n  for each x in xs\n    show x\n  for each i from 1 to 3\n    show i\n  set n to 0\n  repeat while n is less than 3\n    add 1 to n\n",
+        );
+        assert_eq!(
+            shapes(&g),
+            [
+                Start, Step, Decision, Step, Decision, Step, Step, Decision, Step, End
+            ]
+        );
+        assert_eq!(
+            firsts(&g),
+            [
+                "feature start",
+                "set xs to list of 1, 2",
+                "for each x in xs",
+                "show x",
+                "for each i from 1 to 3",
+                "show i",
+                "set n to 0",
+                "repeat while n is less than 3",
+                "add 1 to n",
+                "end"
+            ]
+        );
+        let deep = graph_of(
+            "feature start\n  set n to 0\n  for each i from 1 to 3\n    if i is 2\n      repeat while n is less than 2\n        add 1 to n\n",
+        );
+        assert_eq!(
+            shapes(&deep),
+            [Start, Step, Decision, Decision, Decision, Step, End]
+        );
+        assert_eq!(
+            firsts(&deep)[2..6],
+            [
+                "for each i from 1 to 3",
+                "if i is 2",
+                "repeat while n is less than 2",
+                "add 1 to n"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_call_inside_an_expression_makes_the_statement_a_call() {
+        let g = graph_of(
+            "feature start\n  set xs to list of 1, 2\n  show 1 + (total_of with xs)\n\nfeature total_of\n  needs xs as list of number\n  give 1\n",
+        );
+        assert_eq!(shapes(&g), [Start, Step, Call, End]);
     }
 
     #[test]
