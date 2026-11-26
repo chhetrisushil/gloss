@@ -213,6 +213,8 @@ impl Lowerer<'_> {
         let done = self.stmts(body);
         self.loops.pop();
         done?;
+        // The condition's line is the loop's line: the jump back lists under it.
+        self.emit(Inst::Line(cond.line));
         self.emit(Inst::Jump(top));
         self.emit(Inst::Mark(end));
         Ok(())

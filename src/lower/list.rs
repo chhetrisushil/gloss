@@ -389,6 +389,7 @@ impl Lowerer<'_> {
             self.loop_event(line, var, &item, turn);
         }
         self.loop_body(var, item, (next, exit), body)?;
+        self.emit(Inst::Line(line));
         self.emit(Inst::Mark(next));
         self.emit(Inst::LoadSlot(Reg::A, at));
         self.emit(Inst::AddImm(Reg::A, 1));

@@ -43,6 +43,7 @@ impl Lowerer<'_> {
             self.loop_event(line, var, &Ty::Number, turn);
         }
         self.loop_body(var, Ty::Number, (next, exit), body)?;
+        self.emit(Inst::Line(line));
         self.emit(Inst::Mark(next));
         self.compare_counter(counter, end, Cond::Eq, exit);
         self.emit(Inst::Const(Reg::B, SCALE));
