@@ -239,7 +239,7 @@ line 4: add price to total
 
 - The instructions are the real ones: the listing is made from the same list that `build` encodes. Nothing is tidied.
 - A comment after `;` names a variable or input, quotes a piece of text, or says what a system call or a failure jump does. A comment comes only from what the instruction refers to, so an instruction with nothing to name has none.
-- Instructions are in the order the machine runs them. A line whose code resumes after other code is headed again with `(continued)`; failure code is listed apart under `failure N, line L`.
+- A feature is called as `f_NAME`, as in `call f_sell`, so its name cannot clash with a runtime routine's. Instructions are in the order the machine runs them. A line whose code resumes after other code is headed again with `(continued)`; failure code is listed apart under `failure N, line L`.
 - After the program's features comes `runtime`, then every runtime routine the executable contains, as `routine NAME`. The listing is long: most of it is runtime.
 - Explain writes no file, asks for no approval and runs nothing, so it works on any host, not only x86-64 Linux.
 
@@ -254,7 +254,7 @@ line 4: add price to total
 | `gloss explain FILE` | Prints each source line beside the machine instructions it became, then the runtime routines. Works on any host. | Now |
 | `gloss flowchart FILE` | Writes one SVG flowchart per feature | Milestone 7 |
 
-Exit status is **0** on success, **1** when a test failed, **2** on a run-time failure (also from `gloss trace`), **3** on a compile error, wrong usage, or a test or trace run that could not be started or written, and **4** when file access was not approved. Warnings alone do not fail a build. The full set of statuses (including failed tests and run-time failures) is in section 11 of the spec.
+Exit status is **0** on success, **1** when a test failed, **2** on a run-time failure (also from `gloss trace`), **3** on a compile error, wrong usage, a test or trace run that could not be started or written, or an Explain listing that could not be written (`cannot write the explanation`), and **4** when file access was not approved. Warnings alone do not fail a build. The full set of statuses (including failed tests and run-time failures) is in section 11 of the spec.
 
 ## Working on the compiler
 
