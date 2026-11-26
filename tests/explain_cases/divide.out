@@ -4,6 +4,7 @@ feature start (line 1)
   a: number, created on line 2, at [rbp-8]
   n: number, created on line 3, at [rbp-16]
 
+line 1: feature start
     push rbp
     mov rbp, rsp
     sub rsp, 24

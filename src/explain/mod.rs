@@ -110,6 +110,16 @@ fn items(
 ) {
     let mut current: Option<u32> = None;
     let mut printed: Vec<u32> = Vec::new();
+    // A feature's entry code, before its first line, belongs to the feature's own line.
+    let first = routine
+        .items
+        .iter()
+        .find(|i| !matches!(i, Item::Label { .. }));
+    if let (Some(n), Some(Item::Inst { .. })) = (notes.map(|n| n.line), first) {
+        out.push_str(&format!("line {n}: {}\n", src.line(n).trim()));
+        printed.push(n);
+        current = Some(n);
+    }
     for item in &routine.items {
         match item {
             Item::Line(n) => {
@@ -163,6 +173,21 @@ mod tests {
             .listing(&module)
             .expect("lists");
         super::listing("x.gloss", &src, &types, &notes, &routines, &module.texts)
+    }
+
+    #[test]
+    fn a_features_entry_code_lists_under_its_own_line() {
+        let out = explain("feature start\n  show 1\n");
+        let want = "line 1: feature start\n    push rbp\n    mov rbp, rsp\n    sub rsp, 8\n    \
+            mov [rbp-8], rcx\nline 2: show 1\n";
+        assert!(out.contains(want), "{out}");
+    }
+
+    #[test]
+    fn a_features_end_guard_lists_as_the_feature_continued() {
+        let out = explain(PROGRAM);
+        let want = "    ret\nline 1: feature total_of (continued)\n    call flush\n";
+        assert!(out.contains(want), "{out}");
     }
 
     #[test]
@@ -359,7 +384,7 @@ mod tests {
             text: "jmp .L1".into(),
             refs: vec![Ref::Jump(1)],
         }];
-        assert_eq!(synthetic(items), "    jmp .L1\n");
+        assert_eq!(synthetic(items), "line 1: feature a\n    jmp .L1\n");
     }
 
     #[test]

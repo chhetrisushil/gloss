@@ -2,6 +2,7 @@ Explain shows_text.gloss for x86-64 Linux
 
 feature start (line 1)
 
+line 1: feature start
     push rbp
     mov rbp, rsp
     sub rsp, 8

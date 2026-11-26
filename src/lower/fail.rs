@@ -149,8 +149,9 @@ impl Lowerer<'_> {
     /// (plan ruling P2). If it is reached anyway, flush standard output, write
     /// `internal error: feature <name> ended without giving a value` and a newline (no
     /// `line N:` prefix: it is not a language failure, and the spec has no row for it) and
-    /// exit 2.
-    pub fn fall_off_end(&mut self, feature: &str) {
+    /// exit 2. The guard lists under the feature's own line, as continued (ruling R9).
+    pub fn fall_off_end(&mut self, feature: &str, line: u32) {
+        self.emit(Inst::Line(line));
         self.call("flush");
         let message = format!("internal error: feature {feature} ended without giving a value");
         self.push_text(message.as_bytes());
