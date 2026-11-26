@@ -1,0 +1,80 @@
+Explain add_overflow.gloss for x86-64 Linux
+
+feature start (line 1)
+  a: number, created on line 2, at [rbp-8]
+
+    push rbp
+    mov rbp, rsp
+    sub rsp, 16
+    mov [rbp-16], rcx
+    xor rdx, rdx
+    mov [rbp-8], rdx                ; a
+line 2: set a to 500000000000000
+    movabs rax, 5000000000000000000
+    mov [rbp-8], rax                ; a
+line 3: add a to a
+    mov rax, [rbp-8]                ; a
+    mov rcx, rax
+    mov rax, [rbp-8]                ; a
+    add rax, rcx
+    jo .L0                          ; failure 4: a number went out of range (add a to a)
+    mov [rbp-8], rax                ; a
+line 4: show a
+    mov rax, [rbp-8]                ; a
+    push rax
+    call out_number
+    add rsp, 8
+    lea rax, [rip+text_0]           ; "\u{000A}"
+    push rax
+    call out_text
+    add rsp, 8
+    mov rcx, [rbp-16]
+    mov rsp, rbp
+    pop rbp
+    ret
+failure 4, line 3
+  .L0:
+    movabs rax, 3
+    push rax
+    movabs rax, 4
+    push rax
+    call fail_begin
+    add rsp, 16
+    lea rax, [rip+text_1]           ; "a number went out of range ("
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_2]           ; "add a to a"
+    push rax
+    call err_text
+    add rsp, 8
+    lea rax, [rip+text_3]           ; ")"
+    push rax
+    call err_text
+    add rsp, 8
+    call fail_end
+
+runtime
+
+permissions_text
+tables_init
+fail_end
+err_text
+write_all
+write_loop
+fail_begin
+err_int
+flush
+out_text
+out_bytes
+buf_bytes
+out_number
+number_format
+_start
+args_check
+stack_init
+stack_limit
+heap_init
+x86_64.multiply_number
+x86_64.divide_number
+x86_64.remainder_number

@@ -1,0 +1,4 @@
+feature start
+  set a to 500000000000000
+  add a to a
+  show a
