@@ -1,0 +1,12 @@
+feature start
+  run greet with 3
+  set n to (double with 4)
+  show n
+
+feature greet
+  needs times as number
+  show times
+
+feature double
+  needs x as number
+  give x * 2
