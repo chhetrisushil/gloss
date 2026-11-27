@@ -2,7 +2,7 @@
 // `std::path::{Path, PathBuf}` in scope.
 
 /// Raised by every change that adds cases.
-const MIN_FLOWCHART_CASES: usize = 1;
+const MIN_FLOWCHART_CASES: usize = 2;
 
 /// The `.gloss` programs in `dir`, sorted; an error naming every file that is not part of a
 /// case: an extension other than gloss and svg, a `.svg` that is not `<case>.<feature>.svg`
