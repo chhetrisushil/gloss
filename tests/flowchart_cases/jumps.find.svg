@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="402" height="638" viewBox="0 0 402 638" font-family="monospace" font-size="15">
+<title>jumps.gloss: feature find</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>
+<rect width="100%" height="100%" fill="white"/>
+<rect x="32" y="16" width="258" height="56" rx="12" fill="white" stroke="black"/>
+<text x="44" y="39">feature find</text>
+<text x="44" y="59">needs xs as list of number</text>
+<polygon points="59,114 77,96 245,96 263,114 245,132 77,132" fill="white" stroke="black"/>
+<text x="89" y="119">for each x in xs</text>
+<polygon points="91,174 109,156 214,156 232,174 214,192 109,192" fill="white" stroke="black"/>
+<text x="121" y="179">if x is 1</text>
+<rect x="131" y="216" width="60" height="36" fill="white" stroke="black"/>
+<text x="143" y="239">skip</text>
+<polygon points="91,294 109,276 214,276 232,294 214,312 109,312" fill="white" stroke="black"/>
+<text x="121" y="299">if x is 2</text>
+<rect x="131" y="336" width="60" height="36" fill="white" stroke="black"/>
+<text x="143" y="359">stop</text>
+<polygon points="91,414 109,396 214,396 232,414 214,432 109,432" fill="white" stroke="black"/>
+<text x="121" y="419">if x is 3</text>
+<rect x="122" y="456" width="78" height="36" fill="white" stroke="black"/>
+<text x="134" y="479">give x</text>
+<rect x="122" y="526" width="78" height="36" fill="white" stroke="black"/>
+<text x="134" y="549">give 0</text>
+<rect x="136" y="586" width="51" height="36" rx="12" fill="white" stroke="black"/>
+<text x="148" y="609">end</text>
+<polyline points="161,72 161,96" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="161,132 161,156" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<text x="165" y="144" font-size="12">next</text>
+<polyline points="161,192 161,216" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<text x="165" y="204" font-size="12">yes</text>
+<polyline points="131,234 16,234 16,114 59,114" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="232,174 330,174 330,264 161,264 161,276" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<text x="236" y="186" font-size="12">no</text>
+<polyline points="161,312 161,336" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<text x="165" y="324" font-size="12">yes</text>
+<polyline points="232,294 330,294 330,384 161,384 161,396" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<text x="236" y="306" font-size="12">no</text>
+<polyline points="161,432 161,456" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<text x="165" y="444" font-size="12">yes</text>
+<polyline points="232,414 330,414 330,504 16,504 16,114 59,114" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<text x="236" y="426" font-size="12">no</text>
+<polyline points="263,114 370,114 370,514 161,514 161,526" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<text x="267" y="126" font-size="12">done</text>
+<polyline points="191,354 370,354 370,514 161,514 161,526" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="200,474 386,474 386,574 161,574 161,586" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="200,544 386,544 386,574 161,574 161,586" fill="none" stroke="black" marker-end="url(#arrow)"/>
+</svg>
