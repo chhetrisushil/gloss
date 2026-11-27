@@ -124,6 +124,12 @@ impl Checked {
         ))
     }
 
+    /// The flowcharts `gloss flowchart` writes for the program, named `name`: a file name and
+    /// the SVG for each feature, in source order.
+    pub fn flowcharts(&self, name: &str) -> Vec<(String, String)> {
+        flowchart::charts(&self.program, &self.src, name)
+    }
+
     /// How many tests the program has.
     pub fn test_count(&self) -> usize {
         self.program.tests().count()

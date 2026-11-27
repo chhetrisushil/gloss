@@ -11,8 +11,6 @@ use crate::ast::program::Program;
 use crate::source::Source;
 
 /// One `(file name, svg)` pair per feature, in source order; the stem is `name` without `.gloss`.
-// Task 7 calls this from the CLI.
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn charts(program: &Program, src: &Source, name: &str) -> Vec<(String, String)> {
     let stem = name.strip_suffix(".gloss").unwrap_or(name);
     program
