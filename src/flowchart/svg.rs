@@ -12,6 +12,17 @@ fn escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Two vertical bars from `y` down `h`, the mark of a statement that calls a feature.
+fn bars(o: &mut String, xs: [i32; 2], y: i32, h: i32) {
+    for x in xs {
+        let _ = writeln!(
+            o,
+            "<line x1=\"{x}\" y1=\"{y}\" x2=\"{x}\" y2=\"{}\" stroke=\"black\"/>",
+            y + h
+        );
+    }
+}
+
 pub(crate) fn svg(title: &str, g: &Graph, l: &Layout) -> String {
     let (w, h) = (l.width, l.height);
     let mut o = String::new();
@@ -41,6 +52,9 @@ pub(crate) fn svg(title: &str, g: &Graph, l: &Layout) -> String {
                     x + e,
                     y + h
                 );
+                if node.calls {
+                    bars(&mut o, [x + e, x + w - e], y, h);
+                }
             }
             shape => {
                 let round = matches!(shape, Shape::Start | Shape::End);
@@ -49,14 +63,8 @@ pub(crate) fn svg(title: &str, g: &Graph, l: &Layout) -> String {
                     o,
                     "<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\"{rx} fill=\"white\" stroke=\"black\"/>"
                 );
-                if shape == Shape::Call {
-                    for lx in [x + 6, x + w - 6] {
-                        let _ = writeln!(
-                            o,
-                            "<line x1=\"{lx}\" y1=\"{y}\" x2=\"{lx}\" y2=\"{}\" stroke=\"black\"/>",
-                            y + h
-                        );
-                    }
+                if node.calls {
+                    bars(&mut o, [x + 6, x + w - 6], y, h);
                 }
             }
         }
@@ -98,7 +106,7 @@ mod tests {
         let (_, checked) = crate::check_program(text);
         let checked = checked.expect("the program checks");
         let f = checked.program().features().next().unwrap();
-        let g = super::super::graph::graph(f, &crate::source::Source::new(text));
+        let g = super::super::graph::graph(f, &crate::source::Source::new(text), &checked.types);
         svg(
             "x.gloss: feature start",
             &g,
@@ -167,5 +175,21 @@ mod tests {
 ";
         let text = "feature start\n  if 1 is 1\n    run helper\n\nfeature helper\n  show 2\n";
         assert_eq!(chart(text), want);
+    }
+
+    #[test]
+    fn a_decision_that_calls_keeps_its_shape_and_gets_bars_at_its_shoulders() {
+        let text = "feature start\n  if helper\n    show 1\n\nfeature helper\n  give 1 is 1\n";
+        let want = "\
+<polygon points=\"16,94 34,76 139,76 157,94 139,112 34,112\" fill=\"white\" stroke=\"black\"/>
+<line x1=\"34\" y1=\"76\" x2=\"34\" y2=\"112\" stroke=\"black\"/>
+<line x1=\"139\" y1=\"76\" x2=\"139\" y2=\"112\" stroke=\"black\"/>
+<text x=\"46\" y=\"99\">if helper</text>
+";
+        let s = chart(text);
+        assert!(s.contains(want), "{s}");
+        // The same decision with no call has the polygon and no bars.
+        let plain = chart("feature start\n  if 1 is 1\n    show 1\n");
+        assert!(!plain.contains("<line"), "{plain}");
     }
 }

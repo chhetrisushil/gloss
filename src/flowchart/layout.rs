@@ -196,7 +196,7 @@ mod tests {
         let (_, checked) = crate::check_program(text);
         let checked = checked.expect("the program checks");
         let feature = checked.program().features().next().expect("a feature");
-        super::super::graph::graph(feature, &Source::new(text))
+        super::super::graph::graph(feature, &Source::new(text), &checked.types)
     }
 
     fn node(shape: Shape, label: &[&str]) -> Node {
@@ -205,6 +205,7 @@ mod tests {
             shape,
             label,
             line: 1,
+            calls: false,
         }
     }
 
@@ -212,7 +213,7 @@ mod tests {
     fn sizes() {
         let ten = "x".repeat(10);
         assert_eq!(size(&node(Shape::Step, &[&ten])), (114, 36));
-        assert_eq!(size(&node(Shape::Call, &[&ten, "ab"])), (114, 56));
+        assert_eq!(size(&node(Shape::Step, &[&ten, "ab"])), (114, 56));
         assert_eq!(size(&node(Shape::Decision, &[&ten])), (114 + 36, 36));
     }
 
