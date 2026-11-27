@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="647" height="548" viewBox="0 0 647 548" font-family="monospace" font-size="15">
+<title>if_chain.gloss: feature start</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>
+<rect width="100%" height="100%" fill="white"/>
+<rect x="16" y="16" width="141" height="36" rx="12" fill="white" stroke="black"/>
+<text x="28" y="39">feature start</text>
+<rect x="29" y="76" width="114" height="36" fill="white" stroke="black"/>
+<text x="41" y="99">set n to 5</text>
+<polygon points="16,154 34,136 139,136 157,154 139,172 34,172" fill="white" stroke="black"/>
+<text x="46" y="159">if n is 1</text>
+<rect x="29" y="196" width="114" height="36" fill="white" stroke="black"/>
+<text x="41" y="219">show &quot;one&quot;</text>
+<polygon points="197,274 215,256 410,256 428,274 410,292 215,292" fill="white" stroke="black"/>
+<text x="227" y="279">otherwise if n is 2</text>
+<rect x="255" y="316" width="114" height="36" fill="white" stroke="black"/>
+<text x="267" y="339">show &quot;two&quot;</text>
+<rect x="468" y="376" width="123" height="36" fill="white" stroke="black"/>
+<text x="480" y="399">show &quot;many&quot;</text>
+<rect x="25" y="436" width="123" height="36" fill="white" stroke="black"/>
+<text x="37" y="459">show &quot;done&quot;</text>
+<rect x="61" y="496" width="51" height="36" rx="12" fill="white" stroke="black"/>
+<text x="73" y="519">end</text>
+<polyline points="86,52 86,76" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="86,112 86,136" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="86,172 86,196" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<text x="90" y="184" font-size="12">yes</text>
+<polyline points="157,154 312,154 312,256" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<text x="161" y="166" font-size="12">no</text>
+<polyline points="312,292 312,316" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<text x="316" y="304" font-size="12">yes</text>
+<polyline points="428,274 529,274 529,376" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<text x="432" y="286" font-size="12">no</text>
+<polyline points="86,232 86,436" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="312,352 312,424 86,424 86,436" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="529,412 529,424 86,424 86,436" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="86,472 86,496" fill="none" stroke="black" marker-end="url(#arrow)"/>
+</svg>

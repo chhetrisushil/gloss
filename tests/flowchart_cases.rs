@@ -1,9 +1,14 @@
 //! Every `tests/flowchart_cases/<case>.gloss` is charted, and each `(file, svg)` that
 //! `Checked::flowcharts` returns must equal the file of that name beside it, `<case>.<feature>.svg`.
 //! An expected `.svg` the program does not produce fails, and so does a produced one with no
-//! expected file. `GLOSS_BLESS=1` rewrites and creates the `.svg` files, then fails on purpose.
+//! expected file. Run with `GLOSS_BLESS=1` to rewrite and create the `.svg` files; the test then
+//! fails, so a bless run never passes silently.
+
+mod run_support;
 
 use std::path::{Path, PathBuf};
+
+use run_support::TempDir;
 
 include!("flowchart_sweep.inc");
 
@@ -72,6 +77,73 @@ fn the_sweep_finds_the_flowchart_cases() {
     assert!(
         found.len() >= MIN_FLOWCHART_CASES,
         "too few flowchart cases"
+    );
+}
+
+#[test]
+fn the_flowchart_sweep_rejects_stray_files() {
+    let dir = TempDir::new("flowchart-sweep");
+    std::fs::write(dir.0.join("a.gloss"), "").unwrap();
+    std::fs::write(dir.0.join("a.start.svg"), "").unwrap();
+    assert_eq!(flowchart_sweep(&dir.0, false).unwrap().len(), 1);
+    std::fs::write(dir.0.join(".DS_Store"), "").unwrap();
+    assert_eq!(flowchart_sweep(&dir.0, false).unwrap().len(), 1);
+    for stray in ["x.start.svg", "a.svg", "a.out", "b.GLOSS", "notes"] {
+        std::fs::write(dir.0.join(stray), "").unwrap();
+        let err = flowchart_sweep(&dir.0, false).unwrap_err();
+        assert!(err.contains(stray), "{err}");
+        std::fs::remove_file(dir.0.join(stray)).unwrap();
+    }
+    std::fs::create_dir(dir.0.join("a.in")).unwrap();
+    assert!(flowchart_sweep(&dir.0, false).unwrap_err().contains("a.in"));
+}
+
+#[test]
+fn a_case_without_an_svg_is_reported() {
+    let dir = TempDir::new("flowchart-sweep-missing");
+    std::fs::write(dir.0.join("a.gloss"), "").unwrap();
+    let err = flowchart_sweep(&dir.0, false).unwrap_err();
+    assert!(err.contains("no .svg"), "{err}");
+}
+
+#[test]
+fn blessing_accepts_a_program_without_an_svg() {
+    let dir = TempDir::new("flowchart-sweep-bless");
+    std::fs::write(dir.0.join("a.gloss"), "").unwrap();
+    assert_eq!(flowchart_sweep(&dir.0, true).unwrap().len(), 1);
+    std::fs::write(dir.0.join("x.out"), "").unwrap();
+    assert!(flowchart_sweep(&dir.0, true).unwrap_err().contains("x.out"));
+}
+
+#[test]
+fn the_comparison_names_the_first_differing_line() {
+    let msg = first_difference("f.svg", "a\nb\nc\n", "a\nx\nc\n").unwrap();
+    assert!(
+        msg.contains("line 2") && msg.contains("\"x\"") && msg.contains("\"b\""),
+        "{msg}"
+    );
+    assert!(first_difference("f.svg", "a\n", "a\n").is_none());
+}
+
+#[test]
+fn a_missing_or_unproduced_svg_is_a_problem() {
+    let dir = TempDir::new("flowchart-compare");
+    let case = dir.0.join("a.gloss");
+    std::fs::write(dir.0.join("a.start.svg"), "x\n").unwrap();
+    let produced = vec![("a.start.svg".to_string(), "x\n".to_string())];
+    assert!(compare(&dir.0, &case, &produced).is_empty());
+    std::fs::write(dir.0.join("a.gone.svg"), "x\n").unwrap();
+    let problems = compare(&dir.0, &case, &produced);
+    assert!(
+        problems.iter().any(|p| p.contains("a.gone.svg")),
+        "{problems:?}"
+    );
+    let more = vec![("a.new.svg".to_string(), "x\n".to_string())];
+    let problems = compare(&dir.0, &case, &more);
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("a.new.svg") && p.contains("no expected"))
     );
 }
 
