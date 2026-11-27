@@ -59,6 +59,9 @@ pub fn check_source(text: &str) -> Vec<Diagnostic> {
 pub struct Checked {
     program: Program,
     src: Source,
+    /// The source as written, for the flowcharts, which label a node with each line of a
+    /// statement continued over several lines.
+    written: Source,
     types: check::TypeInfo,
 }
 
@@ -127,7 +130,7 @@ impl Checked {
     /// The flowcharts `gloss flowchart` writes for the program, named `name`: a file name and
     /// the SVG for each feature, in source order.
     pub fn flowcharts(&self, name: &str) -> Vec<(String, String)> {
-        flowchart::charts(&self.program, &self.src, name)
+        flowchart::charts(&self.program, &self.written, name)
     }
 
     /// How many tests the program has.
@@ -138,7 +141,8 @@ impl Checked {
 
 /// Parses and checks a program once: the diagnostics, and the program when none is an error.
 pub fn check_program(text: &str) -> (Vec<Diagnostic>, Option<Checked>) {
-    let (program, src) = match front_end(&Source::new(text)) {
+    let written = Source::new(text);
+    let (program, src) = match front_end(&written) {
         Ok(parsed) => parsed,
         Err(d) => return (vec![d], None),
     };
@@ -147,6 +151,7 @@ pub fn check_program(text: &str) -> (Vec<Diagnostic>, Option<Checked>) {
     let built = checked.types.filter(|_| clean).map(|types| Checked {
         program,
         src,
+        written,
         types,
     });
     (checked.diagnostics, built)
@@ -182,6 +187,15 @@ pub fn build_test_executable(text: &str) -> Result<Vec<u8>, Vec<Diagnostic>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn flowcharts_label_a_continued_statement_on_two_lines() {
+        let text = "feature start\n  show 1,\n    2\n";
+        let (_, checked) = super::check_program(text);
+        let svg = &checked.unwrap().flowcharts("x.gloss")[0].1;
+        assert!(svg.contains(">show 1,</text>"), "{svg}");
+        assert!(svg.contains(">2</text>"), "{svg}");
+    }
+
     #[test]
     fn a_clean_program_has_no_diagnostics() {
         assert!(super::check_source("feature start\n  show 1\n").is_empty());
