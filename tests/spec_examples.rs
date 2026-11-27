@@ -5,18 +5,28 @@ mod run_support;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::LazyLock;
 
 use gloss::parser::parse_stmts_str;
 use gloss::source::Source;
 use gloss::{check_source, format_source, parse_source};
 use run_support::{DEADLINE, TempDir, run_limited, run_within, skip};
 
-const SPEC: &str = include_str!("../spec/v0.md");
+/// The spec as v0 builds it. Section 17 describes v0.1, which the compiler does not build yet,
+/// so its programs and messages are left out until it does.
+static SPEC: LazyLock<String> = LazyLock::new(|| v0_only(include_str!("../spec/v0.md")));
+
+fn v0_only(spec: &str) -> String {
+    let start = spec.find("\n## 17. ").expect("spec section 17");
+    let end = spec.find("\n## Appendix A.").expect("spec appendix A");
+    assert!(start < end, "section 17 comes before appendix A");
+    format!("{}{}", &spec[..start], &spec[end..])
+}
 
 /// The text of every block whose opening fence is ```gloss, possibly indented
 /// inside a list item; the fence's indent is stripped from each block line.
 fn gloss_blocks() -> Vec<String> {
-    blocks_in(SPEC)
+    blocks_in(&SPEC)
 }
 
 fn blocks_in(markdown: &str) -> Vec<String> {
@@ -532,7 +542,7 @@ fn table_failure_messages_match_the_design() {
         16,
         "the design's failure 6-8 table: {design:?}"
     );
-    let spec = table_messages(SPEC, false);
+    let spec = table_messages(&SPEC, false);
     assert_eq!(
         spec, design,
         "spec section 10 rows 6-8 and the design's table must hold the same messages"
@@ -709,5 +719,18 @@ fn the_spec_explain_example_is_an_explain_case() {
     assert!(
         listing.contains(&example),
         "the spec's example is not a run of lines of spec_explain.out"
+    );
+}
+
+#[test]
+fn section_17_is_left_out_of_the_v0_checks() {
+    let full = include_str!("../spec/v0.md");
+    assert!(full.contains("next as Cell or nothing"));
+    assert!(!SPEC.contains("next as Cell or nothing"));
+    assert!(!SPEC.contains("\n## 17. "));
+    assert!(SPEC.contains("\n## 16. ") && SPEC.contains("\n## Appendix A."));
+    assert_eq!(
+        v0_only("a\n## 17. x\ny\n## Appendix A. z"),
+        "a\n## Appendix A. z"
     );
 }
