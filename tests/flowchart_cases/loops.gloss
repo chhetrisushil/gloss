@@ -1,0 +1,8 @@
+feature start
+  set xs to list of 1, 2
+  for each x in xs
+    set n to x
+    repeat while n is less than 3
+      add 1 to n
+  for each i from 1 to 3
+    show i
