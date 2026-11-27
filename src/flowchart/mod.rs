@@ -6,6 +6,8 @@ mod graph;
 mod layout;
 mod route;
 mod svg;
+#[cfg(test)]
+mod test_support;
 
 use crate::ast::program::Program;
 use crate::check::TypeInfo;

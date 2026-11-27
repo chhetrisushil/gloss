@@ -314,7 +314,7 @@ fn indent(line: &str) -> usize {
 
 /// The source lines of the statement written from `line`, and the number of its last line:
 /// each trimmed and with invisible characters spelled, and the next line too while one ends
-/// in a comma (F3). Blank lines are ignored (spec §3), so they are not part of a label.
+/// in a comma. Blank lines are ignored (spec §3), so they are not part of a label.
 fn label_at(src: &Source, line: u32) -> (Vec<String>, u32) {
     let mut label = Vec::new();
     let mut n = line;
@@ -340,17 +340,10 @@ fn has_call(e: &Expr, types: &TypeInfo) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::{CHAIN, graph_of};
     use super::*;
     use ArrowKind::*;
     use Shape::*;
-
-    fn graph_of(text: &str) -> Graph {
-        super::super::check::program(text);
-        let (_, checked) = crate::check_program(text);
-        let checked = checked.expect("the program checks");
-        let feature = checked.program().features().next().expect("a feature");
-        graph(feature, &Source::new(text), &checked.types)
-    }
 
     fn firsts(g: &Graph) -> Vec<&str> {
         g.nodes.iter().map(|n| n.label[0].as_str()).collect()
@@ -578,9 +571,8 @@ mod tests {
 
     #[test]
     fn an_if_chain_joins_below() {
-        let text = "feature start\n  set n to 1\n  if n is 1\n    set n to 2\n  otherwise if n is 2\n    set n to 5\n  otherwise\n    set n to 4\n  show n\n";
         assert_eq!(
-            arrows_of(text),
+            arrows_of(CHAIN),
             [
                 (0, 1, Next),
                 (1, 2, Next),

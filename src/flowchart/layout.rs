@@ -59,7 +59,7 @@ fn size(node: &Node) -> (i32, i32) {
 
 /// Stacks rows of the given heights from the top margin; `tracks[i]` arrows run in the gap
 /// below row `i`. Returns each row's y, each gap's top y (0 for row 0), and the chart height.
-pub(crate) fn stack(heights: &[i32], tracks: &[usize]) -> (Vec<i32>, Vec<i32>, i32) {
+fn stack(heights: &[i32], tracks: &[usize]) -> (Vec<i32>, Vec<i32>, i32) {
     let (mut ys, mut gaps, mut y) = (vec![], vec![], MARGIN);
     for (i, &h) in heights.iter().enumerate() {
         gaps.push(if i > 0 { y } else { 0 });
@@ -188,16 +188,8 @@ pub(crate) fn layout(g: &Graph) -> Layout {
 #[cfg(test)]
 mod tests {
     use super::super::graph::Region;
+    use super::super::test_support::{CHAIN, graph_of};
     use super::*;
-    use crate::source::Source;
-
-    fn graph_of(text: &str) -> Graph {
-        super::super::check::program(text);
-        let (_, checked) = crate::check_program(text);
-        let checked = checked.expect("the program checks");
-        let feature = checked.program().features().next().expect("a feature");
-        super::super::graph::graph(feature, &Source::new(text), &checked.types)
-    }
 
     fn node(shape: Shape, label: &[&str]) -> Node {
         let label = label.iter().map(|s| s.to_string()).collect();
@@ -244,8 +236,7 @@ mod tests {
         }
     }
 
-    const CHAIN: &str = "feature start\n  set n to 1\n  if n is 1\n    set n to 2\n  otherwise if n is 2\n    set n to 5\n  otherwise\n    set n to 4\n  show n\n";
-    const NESTED: &str = "feature start\n  for each i from 1 to 3\n    if i is 2\n      show i\n    otherwise\n      show 0\n    for each j from 1 to 3\n      show j\n  show 9\n";
+    const LOOP_WITH_IF_AND_LOOP: &str = "feature start\n  for each i from 1 to 3\n    if i is 2\n      show i\n    otherwise\n      show 0\n    for each j from 1 to 3\n      show j\n  show 9\n";
 
     #[test]
     fn an_if_chain_steps_right() {
@@ -262,7 +253,7 @@ mod tests {
 
     #[test]
     fn boxes_never_overlap_in_x_across_columns() {
-        for text in [CHAIN, NESTED] {
+        for text in [CHAIN, LOOP_WITH_IF_AND_LOOP] {
             let l = layout(&graph_of(text));
             for (a, ba) in l.boxes.iter().enumerate() {
                 for (b, bb) in l.boxes.iter().enumerate() {
@@ -276,7 +267,7 @@ mod tests {
 
     #[test]
     fn loop_lanes_bracket_the_loop() {
-        let g = graph_of(NESTED);
+        let g = graph_of(LOOP_WITH_IF_AND_LOOP);
         let l = layout(&g);
         for r in &g.regions {
             if let Region::Loop(span) = r {
@@ -316,7 +307,7 @@ mod tests {
             // Two loops that end in the same column: their done lanes nest.
             "feature start\n  for each i from 1 to 3\n    for each j from 1 to 3\n      show j\n  show 1\n",
             CHAIN,
-            NESTED,
+            LOOP_WITH_IF_AND_LOOP,
         ];
         for text in corpus {
             let g = graph_of(&text.replace("WIDE", &wide));
