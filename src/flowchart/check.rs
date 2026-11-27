@@ -190,6 +190,27 @@ fn routes(g: &Graph, l: &Layout) -> Result<(), String> {
     Ok(())
 }
 
+/// R20: no segment of any route crosses the inside of an arrow label (8 per character wide, 12
+/// high, from 4 right of the route's first point).
+fn labels(g: &Graph, l: &Layout) -> Result<(), String> {
+    for (a, r) in g.arrows.iter().zip(&l.routes) {
+        let Some(word) = a.kind.label() else { continue };
+        let (x0, y0) = r[0];
+        let label = ((x0 + 4, x0 + 4 + 8 * word.len() as i32), (y0, y0 + 12));
+        for (i, other) in l.routes.iter().enumerate() {
+            for seg in segs(other) {
+                let (sx, sy) = span(seg);
+                if overlap_1d(sx, label.0) && overlap_1d(sy, label.1) {
+                    return Err(format!(
+                        "rule 6: arrow {i} crosses the label {word:?} at {x0},{y0}"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Every rule, naming the first one broken. Rule numbers follow the Task 5 brief; the gap rule
 /// is R1 and R17.
 pub(super) fn invariants(f: &FeatureDecl, g: &Graph, l: &Layout) -> Result<(), String> {
@@ -240,6 +261,7 @@ pub(super) fn invariants(f: &FeatureDecl, g: &Graph, l: &Layout) -> Result<(), S
             return Err(format!("gap height: gap {k} is {h}px for {n} tracks"));
         }
     }
+    labels(g, l)?;
     geometry(g, l)
 }
 
@@ -476,6 +498,30 @@ mod tests {
                 e,
             ];
         });
+    }
+
+    #[test]
+    fn a_route_through_a_label_breaks_rule_6() {
+        let (_, checked) = crate::check_program(TEXT);
+        let f = checked
+            .unwrap()
+            .program()
+            .features()
+            .next()
+            .unwrap()
+            .clone();
+        let g = super::super::graph::graph(&f, &crate::source::Source::new(TEXT));
+        let mut l = layout(&g);
+        assert_eq!(labels(&g, &l), Ok(()));
+        let n = g
+            .arrows
+            .iter()
+            .position(|a| a.kind.label().is_some())
+            .unwrap();
+        let (x, y) = l.routes[n][0];
+        // A vertical run straight through the label's first letters.
+        l.routes.push(vec![(x + 8, y - 10), (x + 8, y + 20)]);
+        assert!(labels(&g, &l).unwrap_err().starts_with("rule 6"));
     }
 
     #[test]
