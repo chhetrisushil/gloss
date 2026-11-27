@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="312" height="308" viewBox="0 0 312 308" font-family="monospace" font-size="15">
+<title>calls.gloss: feature start</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>
+<rect width="100%" height="100%" fill="white"/>
+<rect x="66" y="16" width="141" height="36" rx="12" fill="white" stroke="black"/>
+<text x="78" y="39">feature start</text>
+<rect x="52" y="76" width="168" height="36" fill="white" stroke="black"/>
+<line x1="58" y1="76" x2="58" y2="112" stroke="black"/>
+<line x1="214" y1="76" x2="214" y2="112" stroke="black"/>
+<text x="64" y="99">run greet with 3</text>
+<rect x="16" y="136" width="240" height="36" fill="white" stroke="black"/>
+<line x1="22" y1="136" x2="22" y2="172" stroke="black"/>
+<line x1="250" y1="136" x2="250" y2="172" stroke="black"/>
+<text x="28" y="159">set n to (double with 4)</text>
+<rect x="97" y="196" width="78" height="36" fill="white" stroke="black"/>
+<text x="109" y="219">show n</text>
+<rect x="111" y="256" width="51" height="36" rx="12" fill="white" stroke="black"/>
+<text x="123" y="279">end</text>
+<polyline points="136,52 136,76" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="136,112 136,136" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="136,172 136,196" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="136,232 136,256" fill="none" stroke="black" marker-end="url(#arrow)"/>
+</svg>
