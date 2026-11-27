@@ -34,19 +34,27 @@ fn gap(g: &Graph, a: &Arrow, column: &[usize], no_cols: &BTreeMap<usize, usize>)
     Some(if a.is_back() { end? } else { a.to })
 }
 
-/// For each gap, the target rows of the arrows with a track in it: one track per target.
+/// For each gap, the target rows of the arrows with a track in it, top track first: one track
+/// per target. Back tracks come first, the innermost loop's (the later decision row) on top, so
+/// an inner back arrow never has to cross an outer one; the forward track is last (R14, R29).
 pub(super) fn tracks(
     g: &Graph,
     column: &[usize],
     no_cols: &BTreeMap<usize, usize>,
-) -> BTreeMap<usize, BTreeSet<usize>> {
+) -> BTreeMap<usize, Vec<usize>> {
     let mut sets = BTreeMap::<usize, BTreeSet<usize>>::new();
     for a in &g.arrows {
         if let Some(gap) = gap(g, a, column, no_cols) {
             sets.entry(gap).or_default().insert(a.to);
         }
     }
-    sets
+    sets.into_iter()
+        .map(|(gap, targets)| {
+            let mut order: Vec<usize> = targets.into_iter().collect();
+            order.sort_by_key(|&t| if t < gap { (0, gap - t) } else { (1, t) });
+            (gap, order)
+        })
+        .collect()
 }
 
 /// The decision of the innermost loop around node `n`.
@@ -82,7 +90,7 @@ pub(super) fn route(g: &Graph, l: &Layout) -> Vec<Vec<Point>> {
                 .iter()
                 .position(|&t| t == a.to)
                 .expect("its track");
-            l.gaps[gap] + 12 + 10 * t as i32
+            l.gaps[gap] + 16 + 10 * t as i32
         });
         let mut points = vec![start, (down, start.1)];
         points.extend(track.map(|y| (down, y)));
@@ -191,13 +199,13 @@ mod tests {
     fn a_back_arrow_uses_the_back_lane() {
         let (g, l) = laid(BACK);
         let (b3, b1) = (l.boxes[3], l.boxes[1]);
-        let (x, lane, y) = (l.centres[0], l.loops[&1].0, l.gaps[4] + 12);
+        let (x, lane, y) = (l.centres[0], l.loops[&1].0, l.gaps[4] + 16);
         let into = (b1.x, b1.y + b1.h / 2);
         let want = [(x, b3.y + b3.h), (x, y), (lane, y), (lane, into.1), into];
         assert_eq!(l.routes[arrow(&g, 3, 1)], want);
         // An empty body gives the self arrow, which leaves from the decision's bottom centre.
         let (g, l) = laid(EMPTY);
-        let (b, lane, y) = (l.boxes[1], l.loops[&1].0, l.gaps[2] + 12);
+        let (b, lane, y) = (l.boxes[1], l.loops[&1].0, l.gaps[2] + 16);
         let mid = b.y + b.h / 2;
         let want = [(x, b.y + b.h), (x, y), (lane, y), (lane, mid), (b.x, mid)];
         assert_eq!(l.routes[arrow(&g, 1, 1)], want);
@@ -235,8 +243,8 @@ mod tests {
         // The back arrows (Next and No, to the loop) and Done (past it) cross the gap above row 4.
         let (back, no, done) = (arrow(&g, 3, 1), arrow(&g, 2, 1), arrow(&g, 1, 4));
         let track = |i: usize| l.routes[i][2].1;
-        assert_eq!((track(back), track(no)), (l.gaps[4] + 12, l.gaps[4] + 12));
-        assert_eq!(track(done), l.gaps[4] + 22);
+        assert_eq!((track(back), track(no)), (l.gaps[4] + 16, l.gaps[4] + 16));
+        assert_eq!(track(done), l.gaps[4] + 26);
         let above = l.boxes[3].y + l.boxes[3].h;
         assert_eq!(l.boxes[4].y - above, 34);
     }
@@ -307,7 +315,7 @@ mod tests {
             .filter(|&&i| l.routes[i].len() > 2)
             .map(|&i| l.routes[i][l.routes[i].len() - 2].1)
             .collect();
-        assert!(!tracks.is_empty() && tracks.iter().all(|&y| y == l.gaps[7] + 12));
+        assert!(!tracks.is_empty() && tracks.iter().all(|&y| y == l.gaps[7] + 16));
     }
 
     #[test]
@@ -330,15 +338,16 @@ mod tests {
     fn nested_loops_ending_together_get_separate_back_tracks() {
         let (g, l) = laid(NESTED);
         let track = |i: usize| l.routes[i][l.routes[i].len() - 3].1;
-        // The outer loop's back arrow sits above the inner one's (R14), 10px apart.
+        // The inner loop's back arrow sits above the outer one's (R29), 10px apart, so the
+        // inner arrow never has to cross the outer track.
         let (outer, inner) = (arrow(&g, 2, 1), arrow(&g, 3, 2));
         assert_eq!(
-            (track(outer), track(inner)),
-            (l.gaps[4] + 12, l.gaps[4] + 22)
+            (track(inner), track(outer)),
+            (l.gaps[4] + 16, l.gaps[4] + 26)
         );
         // The outer `Done` past both loops runs forward below them: three targets, 44px.
         let past = &l.routes[arrow(&g, 1, 4)];
-        assert_eq!(past[past.len() - 2].1, l.gaps[4] + 32);
+        assert_eq!(past[past.len() - 2].1, l.gaps[4] + 36);
         assert_eq!(gap_above(&l, 4), 44);
     }
 

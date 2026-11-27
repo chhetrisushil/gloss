@@ -169,7 +169,7 @@ mod tests {
 <polyline points=\"86,112 86,136\" fill=\"none\" stroke=\"black\" marker-end=\"url(#arrow)\"/>
 <text x=\"90\" y=\"124\" font-size=\"12\">yes</text>
 <polyline points=\"86,172 86,196\" fill=\"none\" stroke=\"black\" marker-end=\"url(#arrow)\"/>
-<polyline points=\"157,94 197,94 197,184 86,184 86,196\" fill=\"none\" stroke=\"black\" marker-end=\"url(#arrow)\"/>
+<polyline points=\"157,94 197,94 197,188 86,188 86,196\" fill=\"none\" stroke=\"black\" marker-end=\"url(#arrow)\"/>
 <text x=\"161\" y=\"106\" font-size=\"12\">no</text>
 </svg>
 ";

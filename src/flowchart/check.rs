@@ -190,13 +190,13 @@ fn routes(g: &Graph, l: &Layout) -> Result<(), String> {
     Ok(())
 }
 
-/// R20: no segment of any route crosses the inside of an arrow label (8 per character wide, 12
-/// high, from 4 right of the route's first point).
+/// R20: no segment of any route crosses the inside of an arrow label (8 per character wide, from 4
+/// right of the route's first point, and from 1 to 15 below it: the glyphs of a 12px baseline).
 fn labels(g: &Graph, l: &Layout) -> Result<(), String> {
     for (a, r) in g.arrows.iter().zip(&l.routes) {
         let Some(word) = a.kind.label() else { continue };
         let (x0, y0) = r[0];
-        let label = ((x0 + 4, x0 + 4 + 8 * word.len() as i32), (y0, y0 + 12));
+        let label = ((x0 + 4, x0 + 4 + 8 * word.len() as i32), (y0 + 1, y0 + 15));
         for (i, other) in l.routes.iter().enumerate() {
             for seg in segs(other) {
                 let (sx, sy) = span(seg);
@@ -499,6 +499,18 @@ mod tests {
                 e,
             ];
         });
+    }
+
+    #[test]
+    fn an_empty_branch_keeps_the_other_arrows_track_off_its_label() {
+        // The `yes` of an empty body leaves the decision's bottom, and the `no` arrow turns in the
+        // same gap: its track must run below the label, not through it.
+        for text in [
+            "feature start\n  if 1 is 1\n    note nothing\n  show 1\n",
+            "feature start\n  if 1 is 1\n    show 1\n  otherwise if 2 is 2\n    note nothing\n  show 2\n",
+        ] {
+            assert!(program(text) > 0);
+        }
     }
 
     #[test]
