@@ -101,18 +101,38 @@ fn the_golden_text_keeps_the_listing_and_names_the_routines() {
     );
 }
 
+/// Rewrites the `.out` of every case in `found`, then returns `Err`, so a bless run never passes.
+fn bless_cases(found: &[PathBuf]) -> Result<(), String> {
+    for case in found {
+        std::fs::write(case.with_extension("out"), explained(case)).unwrap();
+    }
+    Err(format!(
+        "blessed {} files, rerun without GLOSS_BLESS",
+        found.len()
+    ))
+}
+
+#[test]
+fn blessing_writes_the_outs_and_still_fails() {
+    let dir = TempDir::new("explain-bless-run");
+    let case = dir.0.join("a.gloss");
+    std::fs::write(&case, "feature start\n  show \"x\"\n").unwrap();
+    let err = bless_cases(std::slice::from_ref(&case)).unwrap_err();
+    assert!(err.contains("blessed 1 files"), "{err}");
+    let out = std::fs::read_to_string(case.with_extension("out")).unwrap();
+    assert!(out.contains("feature start"), "{out}");
+}
+
 #[test]
 fn every_explain_case_matches() {
     let found = cases();
     assert!(found.len() >= MIN_EXPLAIN_CASES, "too few explain cases");
-    let bless = blessing();
+    if blessing() {
+        bless_cases(&found).unwrap();
+    }
     for case in &found {
         let got = explained(case);
         let out = case.with_extension("out");
-        if bless {
-            std::fs::write(&out, &got).unwrap();
-            continue;
-        }
         let want = std::fs::read_to_string(&out).unwrap();
         if got != want {
             let at = got
@@ -129,9 +149,4 @@ fn every_explain_case_matches() {
             );
         }
     }
-    assert!(
-        !bless,
-        "blessed {} files, rerun without GLOSS_BLESS",
-        found.len()
-    );
 }

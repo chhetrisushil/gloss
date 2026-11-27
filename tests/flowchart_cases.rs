@@ -20,12 +20,15 @@ fn case_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flowchart_cases")
 }
 
-fn charted(case: &Path) -> Vec<(String, String)> {
+/// The charts of the program `case`, or why it has none.
+fn charted(case: &Path) -> Result<Vec<(String, String)>, String> {
     let name = case.file_name().unwrap().to_str().unwrap();
-    let text = std::fs::read_to_string(case).unwrap();
+    let text = std::fs::read_to_string(case).map_err(|e| format!("{name}: {e}"))?;
     let (diagnostics, checked) = gloss::check_program(&text);
-    let checked = checked.unwrap_or_else(|| panic!("{name}: does not check: {diagnostics:?}"));
-    checked.flowcharts(name)
+    let first = diagnostics.first().map(|d| d.problem.clone());
+    let checked =
+        checked.ok_or_else(|| format!("{name} does not check: {}", first.unwrap_or_default()))?;
+    Ok(checked.flowcharts(name))
 }
 
 /// The first line where `got` and `want` differ, as a message, or `None` when they are equal.
@@ -33,17 +36,39 @@ fn first_difference(file: &str, got: &str, want: &str) -> Option<String> {
     if got == want {
         return None;
     }
+    if got.lines().eq(want.lines()) {
+        let how = if got.ends_with('\n') != want.ends_with('\n') {
+            "the final newline differs"
+        } else {
+            "the files differ only in line endings"
+        };
+        return Some(format!("{file}: {how}"));
+    }
     let at = got
         .lines()
         .zip(want.lines())
         .position(|(g, w)| g != w)
         .unwrap_or_else(|| got.lines().count().min(want.lines().count()));
+    let line = |t: &str| t.lines().nth(at).unwrap_or("<end of file>").to_string();
     Some(format!(
         "{file}: line {} differs\n  expected: {:?}\n  got:      {:?}",
         at + 1,
-        want.lines().nth(at),
-        got.lines().nth(at)
+        line(want),
+        line(got)
     ))
+}
+
+/// The `<case>.*.svg` files in `dir` that `produced` does not include.
+fn stale(dir: &Path, case: &Path, produced: &[(String, String)]) -> Vec<String> {
+    let prefix = format!("{}.", case.file_stem().unwrap().to_str().unwrap());
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| n.starts_with(&prefix) && n.ends_with(".svg"))
+        .filter(|n| !produced.iter().any(|(file, _)| file == n))
+        .collect();
+    names.sort();
+    names
 }
 
 /// What is wrong with the charts `produced` for the case in `dir`, one message per problem.
@@ -55,18 +80,10 @@ fn compare(dir: &Path, case: &Path, produced: &[(String, String)]) -> Vec<String
             Err(_) => problems.push(format!("{file}: produced, but there is no expected file")),
         }
     }
-    let stem = case.file_stem().unwrap().to_str().unwrap();
-    let prefix = format!("{stem}.");
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let name = entry.unwrap().file_name().into_string().unwrap();
-        if name.starts_with(&prefix)
-            && name.ends_with(".svg")
-            && !produced.iter().any(|(file, _)| *file == name)
-        {
-            problems.push(format!(
-                "{name}: expected, but the program does not produce it"
-            ));
-        }
+    for name in stale(dir, case, produced) {
+        problems.push(format!(
+            "{name}: expected, but the program does not produce it"
+        ));
     }
     problems
 }
@@ -147,6 +164,90 @@ fn a_missing_or_unproduced_svg_is_a_problem() {
     );
 }
 
+/// Checks every case in `found` against `dir`, reporting every failure together. When
+/// `bless` is set it rewrites the SVGs, deletes the stale ones, and returns `Err` naming
+/// what it did, so a bless run never passes.
+fn check_cases(dir: &Path, found: &[PathBuf], bless: bool) -> Result<(), String> {
+    let mut problems = Vec::new();
+    let mut deleted = Vec::new();
+    for case in found {
+        let produced = match charted(case) {
+            Ok(produced) => produced,
+            Err(problem) => {
+                problems.push(problem);
+                continue;
+            }
+        };
+        if bless {
+            for (file, svg) in &produced {
+                std::fs::write(dir.join(file), svg).unwrap();
+            }
+            for name in stale(dir, case, &produced) {
+                std::fs::remove_file(dir.join(&name)).unwrap();
+                deleted.push(name);
+            }
+        } else {
+            problems.extend(compare(dir, case, &produced));
+        }
+    }
+    if !problems.is_empty() {
+        return Err(problems.join("\n"));
+    }
+    if bless {
+        return Err(format!(
+            "blessed {} cases, deleted [{}], rerun without GLOSS_BLESS",
+            found.len(),
+            deleted.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+const GOOD: &str = "feature start\n  show \"x\"\n";
+
+#[test]
+fn blessing_writes_the_svgs_deletes_stale_ones_and_still_fails() {
+    let dir = TempDir::new("flowchart-bless-run");
+    std::fs::write(dir.0.join("a.gloss"), GOOD).unwrap();
+    std::fs::write(dir.0.join("a.gone.svg"), "old\n").unwrap();
+    let found = flowchart_sweep(&dir.0, true).unwrap();
+    let err = check_cases(&dir.0, &found, true).unwrap_err();
+    assert!(
+        err.starts_with("blessed 1 cases") && err.contains("a.gone.svg"),
+        "{err}"
+    );
+    assert!(dir.0.join("a.start.svg").is_file() && !dir.0.join("a.gone.svg").exists());
+    assert_eq!(check_cases(&dir.0, &found, false), Ok(()));
+}
+
+#[test]
+fn a_case_that_does_not_check_does_not_hide_the_others() {
+    let dir = TempDir::new("flowchart-bad-case");
+    std::fs::write(dir.0.join("a.gloss"), GOOD).unwrap();
+    std::fs::write(dir.0.join("b.gloss"), "feature start\n    show \"x\"\n").unwrap();
+    std::fs::write(dir.0.join("c.gloss"), GOOD).unwrap();
+    let found = flowchart_sweep(&dir.0, true).unwrap();
+    let err = check_cases(&dir.0, &found, false).unwrap_err();
+    assert!(err.contains("b.gloss does not check: "), "{err}");
+    assert!(
+        err.contains("a.start.svg") && err.contains("c.start.svg"),
+        "{err}"
+    );
+}
+
+#[test]
+fn line_ending_differences_are_named() {
+    let m = first_difference("f.svg", "a\nb", "a\nb\n").unwrap();
+    assert!(m.contains("final newline"), "{m}");
+    let m = first_difference("f.svg", "a\r\nb\n", "a\nb\n").unwrap();
+    assert!(m.contains("line endings"), "{m}");
+    let m = first_difference("f.svg", "a\n", "a\nb\n").unwrap();
+    assert!(
+        m.contains("line 2") && m.contains("<end of file>") && !m.contains("None"),
+        "{m}"
+    );
+}
+
 #[test]
 fn every_flowchart_case_matches() {
     let dir = case_dir();
@@ -155,22 +256,5 @@ fn every_flowchart_case_matches() {
         found.len() >= MIN_FLOWCHART_CASES,
         "too few flowchart cases"
     );
-    let bless = blessing();
-    let mut problems = Vec::new();
-    for case in &found {
-        let produced = charted(case);
-        if bless {
-            for (file, svg) in &produced {
-                std::fs::write(dir.join(file), svg).unwrap();
-            }
-            continue;
-        }
-        problems.extend(compare(&dir, case, &produced));
-    }
-    assert!(problems.is_empty(), "{}", problems.join("\n"));
-    assert!(
-        !bless,
-        "blessed {} cases, rerun without GLOSS_BLESS",
-        found.len()
-    );
+    check_cases(&dir, &found, blessing()).unwrap();
 }
