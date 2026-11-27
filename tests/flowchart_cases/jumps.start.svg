@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="321" height="248" viewBox="0 0 321 248" font-family="monospace" font-size="15">
+<title>jumps.gloss: feature start</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>
+<rect width="100%" height="100%" fill="white"/>
+<rect x="70" y="16" width="141" height="36" rx="12" fill="white" stroke="black"/>
+<text x="82" y="39">feature start</text>
+<rect x="16" y="76" width="249" height="36" fill="white" stroke="black"/>
+<text x="28" y="99">set xs to list of 1, 2, 3</text>
+<rect x="43" y="136" width="195" height="36" fill="white" stroke="black"/>
+<line x1="49" y1="136" x2="49" y2="172" stroke="black"/>
+<line x1="232" y1="136" x2="232" y2="172" stroke="black"/>
+<text x="55" y="159">show (find with xs)</text>
+<rect x="115" y="196" width="51" height="36" rx="12" fill="white" stroke="black"/>
+<text x="127" y="219">end</text>
+<polyline points="140,52 140,76" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="140,112 140,136" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="140,172 140,196" fill="none" stroke="black" marker-end="url(#arrow)"/>
+</svg>

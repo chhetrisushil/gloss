@@ -1,0 +1,14 @@
+feature find
+  needs xs as list of number
+  for each x in xs
+    if x is 1
+      skip
+    if x is 2
+      stop
+    if x is 3
+      give x
+  give 0
+
+feature start
+  set xs to list of 1, 2, 3
+  show (find with xs)
