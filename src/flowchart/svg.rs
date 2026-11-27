@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn a_one_statement_chart() {
         let want = "\
-<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"189\" height=\"188\" viewBox=\"0 0 189 188\" font-family=\"monospace\" font-size=\"15\">
+<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"213\" height=\"188\" viewBox=\"0 0 213 188\" font-family=\"monospace\" font-size=\"15\">
 <title>x.gloss: feature start</title>
 <defs><marker id=\"arrow\" viewBox=\"0 0 10 10\" refX=\"10\" refY=\"5\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto\"><path d=\"M0,0 L10,5 L0,10 z\"/></marker></defs>
 <rect width=\"100%\" height=\"100%\" fill=\"white\"/>
@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn a_decision_and_a_call_chart() {
         let want = "\
-<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"205\" height=\"248\" viewBox=\"0 0 205 248\" font-family=\"monospace\" font-size=\"15\">
+<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"253\" height=\"248\" viewBox=\"0 0 253 248\" font-family=\"monospace\" font-size=\"15\">
 <title>x.gloss: feature start</title>
 <defs><marker id=\"arrow\" viewBox=\"0 0 10 10\" refX=\"10\" refY=\"5\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto\"><path d=\"M0,0 L10,5 L0,10 z\"/></marker></defs>
 <rect width=\"100%\" height=\"100%\" fill=\"white\"/>
@@ -161,7 +161,7 @@ mod tests {
 <polyline points=\"86,112 86,136\" fill=\"none\" stroke=\"black\" marker-end=\"url(#arrow)\"/>
 <text x=\"90\" y=\"124\" font-size=\"12\">yes</text>
 <polyline points=\"86,172 86,196\" fill=\"none\" stroke=\"black\" marker-end=\"url(#arrow)\"/>
-<polyline points=\"157,94 173,94 173,184 86,184 86,196\" fill=\"none\" stroke=\"black\" marker-end=\"url(#arrow)\"/>
+<polyline points=\"157,94 197,94 197,184 86,184 86,196\" fill=\"none\" stroke=\"black\" marker-end=\"url(#arrow)\"/>
 <text x=\"161\" y=\"106\" font-size=\"12\">no</text>
 </svg>
 ";

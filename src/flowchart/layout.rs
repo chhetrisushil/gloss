@@ -5,6 +5,9 @@ use super::route;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) const MARGIN: i32 = 16;
+/// The first gap to the right of a column: wide enough for a `no` or `done` label to clear the
+/// turn of its own arrow (R20).
+pub(super) const LABEL_ROOM: i32 = 40;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Rect {
@@ -141,6 +144,9 @@ pub(crate) fn layout(g: &Graph) -> Layout {
     let (mut xs, mut loops, mut right) = (vec![], BTreeMap::<usize, (i32, i32)>::new(), 0);
     for k in 0..=count {
         let mut x = right;
+        if k > 0 {
+            x += LABEL_ROOM - MARGIN;
+        }
         for s in spans.iter().rev().filter(|s| s.2 + 1 == k) {
             x += MARGIN;
             loops.entry(s.0).or_default().1 = x;
@@ -249,8 +255,8 @@ mod tests {
             "feature start\n  if 1 is 1\n    show 1\n  show 2\n",
         ));
         assert_eq!(l.column, [0; 5]);
-        assert_eq!(l.centres, [86, 173]);
-        assert_eq!(l.give_lane, l.centres[1] + MARGIN);
+        assert_eq!(l.centres, [86, 197]);
+        assert_eq!(l.give_lane, l.centres[1] + LABEL_ROOM);
     }
 
     #[test]
@@ -324,9 +330,9 @@ mod tests {
         let l = layout(&graph_of(text));
         let xs: Vec<i32> = l.boxes.iter().map(|b| b.x).collect();
         assert_eq!(l.column, [0, 0, 0, 0, 2, 2, 2, 0]);
-        assert_eq!(xs, [16, 16, 16, 47, 219, 205, 295, 61]);
-        assert_eq!(l.centres, [86, 173, 334, 495]);
-        assert_eq!(l.loops[&5], (189, 479));
-        assert_eq!((l.give_lane, l.width), (511, 527));
+        assert_eq!(xs, [16, 16, 16, 47, 267, 253, 343, 61]);
+        assert_eq!(l.centres, [86, 197, 382, 567]);
+        assert_eq!(l.loops[&5], (237, 551));
+        assert_eq!((l.give_lane, l.width), (607, 623));
     }
 }
