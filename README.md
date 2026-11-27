@@ -256,7 +256,7 @@ Wrote spec_explain.start.svg
 A file is named `SOURCE.FEATURE.svg`, so two features never share a file. A chart shows:
 
 - A start box with the feature's line and its `needs` lines, and an end box. The end box receives the last statement and every `give`.
-- One box per statement, one to a row, in source order. A statement that calls a feature has double side bars. `if`, `otherwise if`, `for each` and `repeat while` are boxes with pointed ends; their arrows are labelled `yes` and `no`, or `next` and `done` for `for each`. Yes goes down and no goes right.
+- One box per statement, one to a row, in source order. A statement that calls a feature has double side bars (a decision that calls keeps its pointed ends and has the bars at its shoulders). `if`, `otherwise if`, `for each` and `repeat while` are boxes with pointed ends; their arrows are labelled `yes` and `no`, or `next` and `done` for `for each`. Yes goes down and no goes right.
 - `skip`, `stop` and `give` as boxes whose arrow goes to the loop's condition, past the loop, and to the end box.
 - The lines as written, continuation lines included. `note` lines and tests are not charted.
 
