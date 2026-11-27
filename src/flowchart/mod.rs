@@ -8,15 +8,24 @@ mod route;
 mod svg;
 
 use crate::ast::program::Program;
+use crate::check::TypeInfo;
 use crate::source::Source;
 
 /// One `(file name, svg)` pair per feature, in source order; the stem is `name` without `.gloss`.
-pub(crate) fn charts(program: &Program, src: &Source, name: &str) -> Vec<(String, String)> {
+pub(crate) fn charts(
+    program: &Program,
+    src: &Source,
+    types: &TypeInfo,
+    name: &str,
+) -> Vec<(String, String)> {
     let stem = name.strip_suffix(".gloss").unwrap_or(name);
     program
         .features()
         .map(|f| {
-            let (g, title) = (graph::graph(f, src), format!("{name}: feature {}", f.name));
+            let (g, title) = (
+                graph::graph(f, src, types),
+                format!("{name}: feature {}", f.name),
+            );
             let svg = svg::svg(&title, &g, &layout::layout(&g));
             (format!("{stem}.{}.svg", f.name), svg)
         })
@@ -31,7 +40,7 @@ mod tests {
         let (_, checked) = crate::check_program(text);
         let checked = checked.unwrap();
         let src = crate::source::Source::new(text);
-        let out = super::charts(checked.program(), &src, "x.gloss");
+        let out = super::charts(checked.program(), &src, &checked.types, "x.gloss");
         let names: Vec<&str> = out.iter().map(|c| c.0.as_str()).collect();
         assert_eq!(names, ["x.start.svg", "x.other.svg"]);
         assert!(out[1].1.contains("<title>x.gloss: feature other</title>\n"));
@@ -44,7 +53,7 @@ mod tests {
         let checked = checked.unwrap();
         let feature = checked.program().features().next().unwrap();
         let end = |src: &crate::source::Source| {
-            let g = super::graph::graph(feature, src);
+            let g = super::graph::graph(feature, src, &checked.types);
             g.nodes.last().unwrap().line
         };
         assert_eq!(end(&checked.written), 3);

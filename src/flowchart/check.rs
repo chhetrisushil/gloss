@@ -337,12 +337,12 @@ pub(super) fn program(text: &str) -> usize {
     let src = crate::source::Source::new(text);
     let mut features = 0;
     for f in checked.program().features() {
-        let g = super::graph::graph(f, &src);
+        let g = super::graph::graph(f, &src, &checked.types);
         let l = layout(&g);
         invariants(f, &g, &l).unwrap_or_else(|e| panic!("{e}\nfeature line {}:\n{text}", f.line));
         features += 1;
     }
-    for (file, svg) in super::charts(checked.program(), &src, "x.gloss") {
+    for (file, svg) in super::charts(checked.program(), &src, &checked.types, "x.gloss") {
         well_formed(&svg).unwrap_or_else(|e| panic!("{e}\n{file}:\n{svg}\n{text}"));
     }
     features
@@ -359,7 +359,8 @@ mod tests {
         let (_, checked) = crate::check_program(TEXT);
         let checked = checked.expect("the program checks");
         let f = checked.program().features().next().unwrap();
-        let mut g = super::super::graph::graph(f, &crate::source::Source::new(TEXT));
+        let mut g =
+            super::super::graph::graph(f, &crate::source::Source::new(TEXT), &checked.types);
         let mut l = layout(&g);
         invariants(f, &g, &l).expect("the layout starts sound");
         wreck(&mut g, &mut l);
@@ -503,14 +504,9 @@ mod tests {
     #[test]
     fn a_route_through_a_label_breaks_rule_6() {
         let (_, checked) = crate::check_program(TEXT);
-        let f = checked
-            .unwrap()
-            .program()
-            .features()
-            .next()
-            .unwrap()
-            .clone();
-        let g = super::super::graph::graph(&f, &crate::source::Source::new(TEXT));
+        let checked = checked.unwrap();
+        let f = checked.program().features().next().unwrap();
+        let g = super::super::graph::graph(f, &crate::source::Source::new(TEXT), &checked.types);
         let mut l = layout(&g);
         assert_eq!(labels(&g, &l), Ok(()));
         let n = g

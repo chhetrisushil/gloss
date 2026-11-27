@@ -3,6 +3,7 @@
 use crate::ast::program::FeatureDecl;
 use crate::ast::stmt::{Stmt, StmtKind};
 use crate::ast::{Expr, ExprKind, walk};
+use crate::check::{NameKind, TypeInfo};
 use crate::lower::spell_invisible;
 use crate::source::Source;
 use std::ops::Range;
@@ -12,7 +13,6 @@ pub(crate) enum Shape {
     Start,
     End,
     Step,
-    Call,
     Decision,
 }
 
@@ -21,6 +21,8 @@ pub(crate) struct Node {
     pub shape: Shape,
     pub label: Vec<String>,
     pub line: u32,
+    /// Whether the statement calls a feature: drawn with double side bars (D61).
+    pub calls: bool,
 }
 
 /// How an arrow leaves its node.
@@ -92,7 +94,7 @@ pub(crate) struct Graph {
     pub regions: Vec<Region>,
 }
 
-pub(crate) fn graph(feature: &FeatureDecl, src: &Source) -> Graph {
+pub(crate) fn graph(feature: &FeatureDecl, src: &Source, types: &TypeInfo) -> Graph {
     let (mut label, mut end) = label_at(src, feature.line);
     for input in &feature.needs {
         if input.line > end {
@@ -105,9 +107,11 @@ pub(crate) fn graph(feature: &FeatureDecl, src: &Source) -> Graph {
         shape: Shape::Start,
         label,
         line: feature.line,
+        calls: false,
     };
     let mut builder = Builder {
         src,
+        types,
         nodes: vec![start],
         end,
         arrows: vec![],
@@ -122,6 +126,7 @@ pub(crate) fn graph(feature: &FeatureDecl, src: &Source) -> Graph {
         shape: Shape::End,
         label: vec!["end".to_string()],
         line,
+        calls: false,
     });
     for from in std::mem::take(&mut builder.gives) {
         builder.arrow(from, end_node, ArrowKind::Give);
@@ -141,6 +146,7 @@ struct Loop {
 
 struct Builder<'a> {
     src: &'a Source,
+    types: &'a TypeInfo,
     nodes: Vec<Node>,
     /// The last line of the last node pushed.
     end: u32,
@@ -171,7 +177,8 @@ impl Builder<'_> {
                 let mut ranges = Vec::new();
                 for (i, (cond, body)) in branches.iter().enumerate() {
                     let first = self.nodes.len();
-                    let c = self.push(Shape::Decision, if i == 0 { stmt.line } else { cond.line });
+                    let line = if i == 0 { stmt.line } else { cond.line };
+                    let c = self.push(Shape::Decision, line, self.calls([cond]));
                     self.open = vec![(c, ArrowKind::Yes)];
                     self.block(body);
                     out.append(&mut self.open);
@@ -192,7 +199,9 @@ impl Builder<'_> {
             StmtKind::ForEachIn { body, .. }
             | StmtKind::ForEachRange { body, .. }
             | StmtKind::RepeatWhile { body, .. } => {
-                let d = self.push(Shape::Decision, stmt.line);
+                let mut header = Vec::new();
+                walk::parts(&stmt.kind, &mut header, &mut Vec::new());
+                let d = self.push(Shape::Decision, stmt.line, self.calls(header));
                 let repeat = matches!(stmt.kind, StmtKind::RepeatWhile { .. });
                 let (enter, leave) = if repeat {
                     (ArrowKind::Yes, ArrowKind::No)
@@ -205,7 +214,7 @@ impl Builder<'_> {
                     stops: vec![],
                 });
                 self.block(body);
-                // An empty body gives the arrow (d, d, Each): a back arrow that Task 4 routes.
+                // An empty body gives the arrow (d, d, Each): a back arrow, which the router draws.
                 for (from, kind) in std::mem::take(&mut self.open) {
                     self.arrow(from, d, kind);
                 }
@@ -217,8 +226,8 @@ impl Builder<'_> {
             kind => {
                 let mut exprs = Vec::new();
                 walk::parts(kind, &mut exprs, &mut Vec::new());
-                let calls = matches!(kind, StmtKind::Run { .. }) || exprs.into_iter().any(has_call);
-                let n = self.push(if calls { Shape::Call } else { Shape::Step }, stmt.line);
+                let calls = matches!(kind, StmtKind::Run { .. }) || self.calls(exprs);
+                let n = self.push(Shape::Step, stmt.line, calls);
                 match kind {
                     StmtKind::Skip => {
                         self.open.clear();
@@ -249,10 +258,21 @@ impl Builder<'_> {
     }
 
     /// Adds a node for the statement at `line`, takes the open exits, and returns its index.
-    fn push(&mut self, shape: Shape, line: u32) -> usize {
+    fn push(&mut self, shape: Shape, line: u32, calls: bool) -> usize {
         let (label, last) = label_at(self.src, line);
         self.end = last;
-        self.add(Node { shape, label, line })
+        self.add(Node {
+            shape,
+            label,
+            line,
+            calls,
+        })
+    }
+
+    /// Whether any of a statement's own expressions calls a feature: a call with inputs, or a
+    /// feature with no inputs used by its name, as the checker resolved it.
+    fn calls<'e>(&self, exprs: impl IntoIterator<Item = &'e Expr>) -> bool {
+        exprs.into_iter().any(|e| has_call(e, self.types))
     }
 
     fn add(&mut self, node: Node) -> usize {
@@ -310,8 +330,12 @@ fn label_at(src: &Source, line: u32) -> (Vec<String>, u32) {
     }
 }
 
-fn has_call(e: &Expr) -> bool {
-    matches!(e.kind, ExprKind::Call { .. }) || walk::children(e).into_iter().any(has_call)
+fn has_call(e: &Expr, types: &TypeInfo) -> bool {
+    let named = matches!(e.kind, ExprKind::Name(_))
+        && types.names.get(&e.id) == Some(&NameKind::FeatureCall);
+    matches!(e.kind, ExprKind::Call { .. })
+        || named
+        || walk::children(e).into_iter().any(|c| has_call(c, types))
 }
 
 #[cfg(test)]
@@ -325,7 +349,7 @@ mod tests {
         let (_, checked) = crate::check_program(text);
         let checked = checked.expect("the program checks");
         let feature = checked.program().features().next().expect("a feature");
-        graph(feature, &Source::new(text))
+        graph(feature, &Source::new(text), &checked.types)
     }
 
     fn firsts(g: &Graph) -> Vec<&str> {
@@ -490,22 +514,44 @@ mod tests {
         );
     }
 
+    fn calls(g: &Graph) -> Vec<bool> {
+        g.nodes.iter().map(|n| n.calls).collect()
+    }
+
     #[test]
     fn a_call_inside_an_expression_makes_the_statement_a_call() {
         let g = graph_of(
             "feature start\n  set xs to list of 1, 2\n  show 1 + (total_of with xs)\n\nfeature total_of\n  needs xs as list of number\n  give 1\n",
         );
-        assert_eq!(shapes(&g), [Start, Step, Call, End]);
+        assert_eq!(calls(&g), [false, false, true, false]);
     }
 
     #[test]
-    fn calls_have_their_own_shape() {
+    fn a_feature_with_no_inputs_used_by_its_name_is_a_call() {
         let g = graph_of(
-            "feature start\n  set n to 3\n  set xs to list of 1, 2\n  run report\n  set t to total_of with xs\n  if is_big with n\n    show n\n\nfeature report\n  show 1\n\nfeature is_big\n  needs n as number\n  give n is greater than 5\n\nfeature total_of\n  needs xs as list of number\n  give 1\n",
+            "feature start\n  show 1 + helper\n  set n to helper\n  set m to n\n\nfeature helper\n  give 42\n",
+        );
+        assert_eq!(calls(&g), [false, true, true, false, false]);
+    }
+
+    #[test]
+    fn every_statement_that_calls_is_marked_and_decisions_keep_their_shape() {
+        let g = graph_of(
+            "feature start\n  set n to 3\n  set xs to list of 1, 2\n  run report\n  set t to total_of with xs\n  if is_big with n\n    show n\n  otherwise if n is 1 + answer\n    show 1\n  for each x in xs\n    show x\n  repeat while is_big with n\n    set n to 1\n\nfeature report\n  show 1\n\nfeature answer\n  give 42\n\nfeature is_big\n  needs n as number\n  give n is greater than 5\n\nfeature total_of\n  needs xs as list of number\n  give 1\n",
         );
         assert_eq!(
             shapes(&g),
-            [Start, Step, Step, Call, Call, Decision, Step, End]
+            [
+                Start, Step, Step, Step, Step, Decision, Step, Decision, Step, Decision, Step,
+                Decision, Step, End
+            ]
+        );
+        assert_eq!(
+            calls(&g),
+            [
+                false, false, false, true, true, true, false, true, false, false, false, true,
+                false, false
+            ]
         );
     }
 

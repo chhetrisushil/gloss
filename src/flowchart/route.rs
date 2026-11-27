@@ -111,7 +111,7 @@ mod tests {
         let (_, checked) = crate::check_program(text);
         let checked = checked.expect("the program checks");
         let feature = checked.program().features().next().expect("a feature");
-        let g = graph(feature, &Source::new(text));
+        let g = graph(feature, &Source::new(text), &checked.types);
         let l = layout(&g);
         (g, l)
     }
