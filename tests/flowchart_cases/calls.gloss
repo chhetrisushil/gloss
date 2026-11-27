@@ -2,6 +2,9 @@ feature start
   run greet with 3
   set n to (double with 4)
   show n
+  show answer
+  if answer is 42
+    show "right"
 
 feature greet
   needs times as number
@@ -10,3 +13,6 @@ feature greet
 feature double
   needs x as number
   give x * 2
+
+feature answer
+  give 42

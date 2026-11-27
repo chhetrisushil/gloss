@@ -31,7 +31,7 @@
 <polyline points="428,274 529,274 529,376" fill="none" stroke="black" marker-end="url(#arrow)"/>
 <text x="432" y="286" font-size="12">no</text>
 <polyline points="86,232 86,436" fill="none" stroke="black" marker-end="url(#arrow)"/>
-<polyline points="312,352 312,424 86,424 86,436" fill="none" stroke="black" marker-end="url(#arrow)"/>
-<polyline points="529,412 529,424 86,424 86,436" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="312,352 312,428 86,428 86,436" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="529,412 529,428 86,428 86,436" fill="none" stroke="black" marker-end="url(#arrow)"/>
 <polyline points="86,472 86,496" fill="none" stroke="black" marker-end="url(#arrow)"/>
 </svg>

@@ -10,5 +10,5 @@
 <rect x="79" y="156" width="51" height="36" rx="12" fill="white" stroke="black"/>
 <text x="91" y="179">end</text>
 <polyline points="104,72 104,96" fill="none" stroke="black" marker-end="url(#arrow)"/>
-<polyline points="161,114 233,114 233,144 104,144 104,156" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="161,114 233,114 233,148 104,148 104,156" fill="none" stroke="black" marker-end="url(#arrow)"/>
 </svg>

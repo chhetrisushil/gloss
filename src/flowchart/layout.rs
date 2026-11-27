@@ -2,7 +2,7 @@
 
 use super::graph::{Graph, Node, Region, Shape};
 use super::route;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 pub(super) const MARGIN: i32 = 16;
 /// The first gap to the right of a column: wide enough for a `no` or `done` label to clear the
@@ -131,7 +131,7 @@ pub(crate) fn layout(g: &Graph) -> Layout {
     // Each gap is as tall as the tracks that cross it need.
     let sets = route::tracks(g, &column, &no_cols);
     let tracks: Vec<usize> = (1..sizes.len())
-        .map(|gap| sets.get(&gap).map_or(0, BTreeSet::len))
+        .map(|gap| sets.get(&gap).map_or(0, Vec::len))
         .collect();
     let (ys, gaps, height) = stack(&heights, &tracks);
     spans.sort();

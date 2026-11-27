@@ -27,14 +27,14 @@
 <polyline points="224,232 224,256" fill="none" stroke="black" marker-end="url(#arrow)"/>
 <polyline points="224,292 224,316" fill="none" stroke="black" marker-end="url(#arrow)"/>
 <text x="228" y="304" font-size="12">yes</text>
-<polyline points="224,352 224,374 32,374 32,274 64,274" fill="none" stroke="black" marker-end="url(#arrow)"/>
-<polyline points="385,274 441,274 441,364 16,364 16,154 122,154" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="224,352 224,368 32,368 32,274 64,274" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="385,274 441,274 441,378 16,378 16,154 122,154" fill="none" stroke="black" marker-end="url(#arrow)"/>
 <text x="389" y="286" font-size="12">no</text>
-<polyline points="326,154 457,154 457,384 224,384 224,396" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="326,154 457,154 457,388 224,388 224,396" fill="none" stroke="black" marker-end="url(#arrow)"/>
 <text x="330" y="166" font-size="12">done</text>
 <polyline points="224,432 224,456" fill="none" stroke="black" marker-end="url(#arrow)"/>
 <text x="228" y="444" font-size="12">next</text>
-<polyline points="224,492 224,504 48,504 48,414 95,414" fill="none" stroke="black" marker-end="url(#arrow)"/>
-<polyline points="353,414 425,414 425,514 224,514 224,526" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="224,492 224,508 48,508 48,414 95,414" fill="none" stroke="black" marker-end="url(#arrow)"/>
+<polyline points="353,414 425,414 425,518 224,518 224,526" fill="none" stroke="black" marker-end="url(#arrow)"/>
 <text x="357" y="426" font-size="12">done</text>
 </svg>
