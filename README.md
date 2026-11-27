@@ -41,7 +41,7 @@ Agents now write most code, and fewer people read it. Gloss aims to make program
 
 ## Status
 
-Milestones 1 to 6 are built. The compiler reads a Gloss program, reports every compile error and warning the spec defines, formats source into its one accepted form, and `gloss build` writes a static x86-64 Linux executable. Programs can declare tables, and `load` and `save` read and write CSV files, and `clear` empties a table. A program that touches files needs approval at build time (see [Tables and files](#tables-and-files)). Test blocks (`expect`, `input`) are left out of the built program; `gloss test` runs them (see [Tests](#tests)), `gloss trace` runs a program and narrates each step (see [Trace](#trace)), and `gloss explain` prints each source line beside the machine instructions it became (see [Explain](#explain)).
+Milestones 1 to 7 are built. The compiler reads a Gloss program, reports every compile error and warning the spec defines, formats source into its one accepted form, and `gloss build` writes a static x86-64 Linux executable. Programs can declare tables, and `load` and `save` read and write CSV files, and `clear` empties a table. A program that touches files needs approval at build time (see [Tables and files](#tables-and-files)). Test blocks (`expect`, `input`) are left out of the built program; `gloss test` runs them (see [Tests](#tests)), `gloss trace` runs a program and narrates each step (see [Trace](#trace)), and `gloss explain` prints each source line beside the machine instructions it became (see [Explain](#explain)), and `gloss flowchart` draws each feature as an SVG chart (see [Flowchart](#flowchart)).
 
 | Milestone | What it adds | State |
 |---|---|---|
@@ -51,7 +51,7 @@ Milestones 1 to 6 are built. The compiler reads a Gloss program, reports every c
 | 4 | `gloss test`: test blocks, `expect`, `input`, `shown`, pretend files | Done |
 | 5 | `gloss trace`: events from a trace build, narrated in plain words | Done |
 | 6 | `gloss explain`: the real instructions beside each source line, then the runtime | Done |
-| 7 | `gloss flowchart` | Planned |
+| 7 | `gloss flowchart`: one SVG chart per feature, drawn by the compiler | Done |
 
 ## Getting started
 
@@ -243,6 +243,25 @@ line 4: add price to total
 - After the program's features comes `runtime`, then every runtime routine the executable contains, as `routine NAME`. The listing is long: most of it is runtime.
 - Explain writes no file, asks for no approval and runs nothing, so it works on any host, not only x86-64 Linux.
 
+## Flowchart
+
+`gloss flowchart` writes one SVG chart for each feature, in source order, beside the source, and prints one line for each. For the program in [Explain](#explain):
+
+```console
+$ gloss flowchart spec_explain.gloss
+Wrote spec_explain.add_to_total.svg
+Wrote spec_explain.start.svg
+```
+
+A file is named `SOURCE.FEATURE.svg`, so two features never share a file. A chart shows:
+
+- A start box with the feature's line and its `needs` lines, and an end box. The end box receives the last statement and every `give`.
+- One box per statement, one to a row, in source order. A statement that calls a feature has double side bars. `if`, `otherwise if`, `for each` and `repeat while` are boxes with pointed ends; their arrows are labelled `yes` and `no`, or `next` and `done` for `for each`. Yes goes down and no goes right.
+- `skip`, `stop` and `give` as boxes whose arrow goes to the loop's condition, past the loop, and to the end box.
+- The lines as written, continuation lines included. `note` lines and tests are not charted.
+
+The charts are black on white, in monospace text, and the same program always gives the same bytes. The compiler draws them itself, with no drawing tool. The command asks for no approval, runs nothing and works on any host. A compile error is printed as `build` prints it, with status 3, and nothing is written. A file that cannot be written prints `NAME.FEATURE.svg cannot be written: REASON` and exits 3; the files before it stay. `--allow` is a usage error.
+
 ## Commands
 
 | Command | What it does | Available |
@@ -252,9 +271,9 @@ line 4: add price to total
 | `gloss test FILE` | Runs every test block and prints each title with `pass` or `fail`. x86-64 Linux only. | Now |
 | `gloss trace FILE [--allow F]...` | Runs the program, narrates each step in plain words and writes the events to `NAME.trace`. x86-64 Linux only. | Now |
 | `gloss explain FILE` | Prints each source line beside the machine instructions it became, then the runtime routines. Works on any host. | Now |
-| `gloss flowchart FILE` | Writes one SVG flowchart per feature | Milestone 7 |
+| `gloss flowchart FILE` | Writes one SVG flowchart per feature beside the source and prints `Wrote NAME.FEATURE.svg` for each. Works on any host. | Now |
 
-Exit status is **0** on success, **1** when a test failed, **2** on a run-time failure (also from `gloss trace`), **3** on a compile error, wrong usage, a test or trace run that could not be started or written, or an Explain listing that could not be written (`cannot write the explanation`), and **4** when file access was not approved. Warnings alone do not fail a build. The full set of statuses (including failed tests and run-time failures) is in section 11 of the spec.
+Exit status is **0** on success, **1** when a test failed, **2** on a run-time failure (also from `gloss trace`), **3** on a compile error, wrong usage, a test or trace run that could not be started or written, an Explain listing that could not be written (`cannot write the explanation`), or a flowchart file that could not be written, and **4** when file access was not approved. Warnings alone do not fail a build. The full set of statuses (including failed tests and run-time failures) is in section 11 of the spec.
 
 ## Working on the compiler
 
