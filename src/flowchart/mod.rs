@@ -36,4 +36,18 @@ mod tests {
         assert_eq!(names, ["x.start.svg", "x.other.svg"]);
         assert!(out[1].1.contains("<title>x.gloss: feature other</title>\n"));
     }
+
+    #[test]
+    fn a_feature_ending_in_a_continued_statement_ends_on_its_last_line() {
+        let text = "feature start\n  show 1,\n    2\n";
+        let (_, checked) = crate::check_program(text);
+        let checked = checked.unwrap();
+        let feature = checked.program().features().next().unwrap();
+        let end = |src: &crate::source::Source| {
+            let g = super::graph::graph(feature, src);
+            g.nodes.last().unwrap().line
+        };
+        assert_eq!(end(&checked.written), 3);
+        assert_eq!(end(&checked.src), 2, "the joined source ends it early");
+    }
 }
