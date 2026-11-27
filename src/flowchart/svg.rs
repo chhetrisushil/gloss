@@ -99,14 +99,11 @@ pub(crate) fn svg(title: &str, g: &Graph, l: &Layout) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::graph_of;
     use super::*;
 
     fn chart(text: &str) -> String {
-        super::super::check::program(text);
-        let (_, checked) = crate::check_program(text);
-        let checked = checked.expect("the program checks");
-        let f = checked.program().features().next().unwrap();
-        let g = super::super::graph::graph(f, &crate::source::Source::new(text), &checked.types);
+        let g = graph_of(text);
         svg(
             "x.gloss: feature start",
             &g,

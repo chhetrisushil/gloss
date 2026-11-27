@@ -110,21 +110,16 @@ pub(super) fn route(g: &Graph, l: &Layout) -> Vec<Vec<Point>> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::graph::{ArrowKind::*, Graph, graph};
+    use super::super::graph::{ArrowKind::*, Graph};
     use super::super::layout::{Layout, layout};
-    use crate::source::Source;
+    use super::super::test_support::{CHAIN, graph_of};
 
     fn laid(text: &str) -> (Graph, Layout) {
-        super::super::check::program(text);
-        let (_, checked) = crate::check_program(text);
-        let checked = checked.expect("the program checks");
-        let feature = checked.program().features().next().expect("a feature");
-        let g = graph(feature, &Source::new(text), &checked.types);
+        let g = graph_of(text);
         let l = layout(&g);
         (g, l)
     }
 
-    const CHAIN: &str = "feature start\n  set n to 1\n  if n is 1\n    set n to 2\n  otherwise if n is 2\n    set n to 5\n  otherwise\n    set n to 4\n  show n\n";
     const JUMPS: &str = "feature start\n  for each i from 1 to 5\n    if i is 1\n      show 1\n    if i is 2\n      stop\n    show i\n  show 9\n";
     const OPEN: &str = "feature start\n  if 1 is 1\n    show 1\n  show 2\n";
     const REPEAT: &str =
@@ -142,39 +137,6 @@ mod tests {
     const ALL: [&str; 10] = [
         CHAIN, JUMPS, OPEN, REPEAT, BACK, SKIP, GIVE, EMPTY, INNER, TAIL_IF,
     ];
-
-    /// The point where a route ends: a decision's left point if it goes back, else a top centre.
-    fn end_of(g: &Graph, l: &Layout, i: usize) -> super::Point {
-        let (a, to) = (g.arrows[i], l.boxes[g.arrows[i].to]);
-        if a.is_back() {
-            (to.x, to.y + to.h / 2)
-        } else {
-            (l.centres[l.column[a.to]], to.y)
-        }
-    }
-
-    #[test]
-    fn every_segment_is_straight() {
-        for text in ALL {
-            let (g, l) = laid(text);
-            assert_eq!(l.routes.len(), g.arrows.len());
-            for (i, r) in l.routes.iter().enumerate() {
-                assert!(r.len() >= 2, "arrow {i}: {r:?}");
-                let straight = |p: &[super::Point]| p[0].0 == p[1].0 || p[0].1 == p[1].1;
-                assert!(r.windows(2).all(|p| p[0] != p[1] && straight(p)), "{r:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn routes_end_on_their_target() {
-        for text in ALL {
-            let (g, l) = laid(text);
-            for (i, r) in l.routes.iter().enumerate() {
-                assert_eq!(r.last(), Some(&end_of(&g, &l, i)), "arrow {i}");
-            }
-        }
-    }
 
     #[test]
     fn a_next_arrow_in_its_column_drops_straight_down() {
@@ -249,14 +211,14 @@ mod tests {
         assert_eq!(l.boxes[4].y - above, 34);
     }
 
-    const NESTED: &str =
+    const TWO_LOOPS: &str =
         "feature start\n  for each i from 1 to 3\n    for each j from 1 to 3\n      show j\n";
     const STOP_LAST: &str = "feature start\n  for each i from 1 to 3\n    for each j from 1 to 3\n      stop\n  show 0\n";
     const STOP_AFTER: &str = "feature start\n  for each i from 1 to 3\n    for each j from 1 to 3\n      show j\n    stop\n  show 0\n";
     const LOOP_FIRST: &str = "feature start\n  if 1 is 1\n    for each i from 1 to 3\n      show i\n  otherwise\n    show 1\n  show 2\n";
     const PLAIN: &str = "feature start\n  show 1\n  show 2\n  show 3\n";
     const MORE: [&str; 6] = [
-        NESTED,
+        TWO_LOOPS,
         STOP_LAST,
         STOP_AFTER,
         LOOP_FIRST,
@@ -336,7 +298,7 @@ mod tests {
 
     #[test]
     fn nested_loops_ending_together_get_separate_back_tracks() {
-        let (g, l) = laid(NESTED);
+        let (g, l) = laid(TWO_LOOPS);
         let track = |i: usize| l.routes[i][l.routes[i].len() - 3].1;
         // The inner loop's back arrow sits above the outer one's (R29), 10px apart, so the
         // inner arrow never has to cross the outer track.
@@ -349,40 +311,6 @@ mod tests {
         let past = &l.routes[arrow(&g, 1, 4)];
         assert_eq!(past[past.len() - 2].1, l.gaps[4] + 36);
         assert_eq!(gap_above(&l, 4), 44);
-    }
-
-    fn span(s: (super::Point, super::Point)) -> (bool, i32, i32, i32) {
-        let (a, b) = s;
-        if a.1 == b.1 {
-            (true, a.1, a.0.min(b.0), a.0.max(b.0))
-        } else {
-            (false, a.0, a.1.min(b.1), a.1.max(b.1))
-        }
-    }
-
-    #[test]
-    fn arrows_with_different_targets_never_share_a_line() {
-        for text in ALL.into_iter().chain(MORE) {
-            let (g, l) = laid(text);
-            let segs: Vec<Vec<_>> = l
-                .routes
-                .iter()
-                .map(|r| r.windows(2).map(|w| span((w[0], w[1]))).collect())
-                .collect();
-            for (i, si) in segs.iter().enumerate() {
-                for (j, sj) in segs
-                    .iter()
-                    .enumerate()
-                    .skip(i + 1)
-                    .filter(|(j, _)| g.arrows[*j].to != g.arrows[i].to)
-                {
-                    for (a, b) in si.iter().flat_map(|a| sj.iter().map(move |b| (a, b))) {
-                        let shared = a.0 == b.0 && a.1 == b.1 && a.3.min(b.3) > a.2.max(b.2);
-                        assert!(!shared, "arrows {i} and {j} share {a:?} {b:?}");
-                    }
-                }
-            }
-        }
     }
 
     #[test]

@@ -211,8 +211,8 @@ fn labels(g: &Graph, l: &Layout) -> Result<(), String> {
     Ok(())
 }
 
-/// Every rule, naming the first one broken. Rule numbers follow the Task 5 brief; the gap rule
-/// is R1 and R17.
+/// Every rule, naming the first one broken. The rules are numbered in the order the tests
+/// below name them; the gap rule checks that each gap is as tall as its tracks need.
 pub(super) fn invariants(f: &FeatureDecl, g: &Graph, l: &Layout) -> Result<(), String> {
     let boxes = &l.boxes;
     for (n, a) in boxes.iter().enumerate() {
@@ -542,6 +542,11 @@ mod tests {
     #[test]
     fn a_route_that_starts_elsewhere_is_caught() {
         broken("route ends", |_, l| l.routes[0][0].1 -= 1);
+    }
+
+    #[test]
+    fn a_route_that_ends_elsewhere_is_caught() {
+        broken("route ends", |_, l| l.routes[0].last_mut().unwrap().1 -= 1);
     }
 
     #[test]
