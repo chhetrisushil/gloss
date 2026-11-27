@@ -97,17 +97,11 @@ fn a_table_program_builds() {
 }
 
 #[test]
-fn usage_and_unbuilt_commands_exit_3() {
+fn usage_and_unknown_commands_exit_3() {
     assert_eq!(gloss(&[]).0, 3);
-    assert_eq!(gloss(&["frobnicate", "x.gloss"]).0, 3);
-    let (code, _, err) = gloss(&["flowchart", "x.gloss"]);
-    assert_eq!(
-        (code, err.as_str()),
-        (
-            3,
-            "gloss flowchart is not built yet; it arrives in milestone 7\n"
-        )
-    );
+    let (code, out, err) = gloss(&["frobnicate", "x.gloss"]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert!(err.starts_with("usage: gloss <command>"), "{err}");
     let (code, _, err) = gloss(&["build", "/nonexistent/x.gloss"]);
     assert_eq!(code, 3);
     assert!(
@@ -768,4 +762,58 @@ fn explain_with_allow_is_a_usage_error() {
     let (code, out, err) = gloss(&["explain", p.to_str().unwrap(), "--allow", "a.csv"]);
     assert_eq!((code, out.as_str()), (3, ""));
     assert!(err.starts_with("usage: gloss"), "{err}");
+}
+
+const TWO_FEATURES: &str = "feature start\n  show 1\n\nfeature helper\n  show 2\n";
+
+fn beside(p: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<_> = std::fs::read_dir(p.parent().unwrap())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn flowchart_writes_one_svg_per_feature() {
+    use std::os::unix::fs::PermissionsExt;
+    let p = temp_named("flowtwo", "x.gloss", TWO_FEATURES);
+    let (code, out, err) = gloss(&["flowchart", p.to_str().unwrap()]);
+    assert_eq!((code, err.as_str()), (0, ""));
+    assert_eq!(out, "Wrote x.start.svg\nWrote x.helper.svg\n");
+    for name in ["x.start.svg", "x.helper.svg"] {
+        let svg = std::fs::read_to_string(p.with_file_name(name)).unwrap();
+        assert!(svg.starts_with("<svg "), "{svg}");
+        let mode = std::fs::metadata(p.with_file_name(name)).unwrap();
+        assert_eq!(mode.permissions().mode() & 0o777, 0o644);
+    }
+}
+
+#[test]
+fn flowchart_of_a_program_with_errors_writes_nothing() {
+    let p = temp_named("flowerr", "x.gloss", "feature start\n  show nope\n");
+    let (code, out, err) = gloss(&["flowchart", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert!(err.starts_with("line 2: show nope"), "{err}");
+    assert_eq!(beside(&p), ["x.gloss"]);
+}
+
+#[test]
+fn flowchart_with_allow_is_a_usage_error() {
+    let p = temp_named("flowallow", "x.gloss", TWO_FEATURES);
+    let (code, out, err) = gloss(&["flowchart", p.to_str().unwrap(), "--allow", "a.csv"]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert!(err.starts_with("usage: gloss"), "{err}");
+    assert_eq!(beside(&p), ["x.gloss"]);
+}
+
+#[test]
+fn flowchart_reports_a_file_it_cannot_write() {
+    let p = temp_named("flowfail", "x.gloss", TWO_FEATURES);
+    std::fs::create_dir(p.with_file_name("x.start.svg")).unwrap();
+    let (code, out, err) = gloss(&["flowchart", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str()), (3, ""));
+    assert!(err.starts_with("x.start.svg cannot be written: "), "{err}");
+    assert!(!p.with_file_name("x.helper.svg").exists());
 }

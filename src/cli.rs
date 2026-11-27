@@ -25,6 +25,9 @@ pub struct BuildOptions {
     pub command: &'static str,
 }
 
+/// Every command `run` dispatches (the USAGE text names the same six).
+const COMMANDS: [&str; 6] = ["build", "format", "test", "trace", "explain", "flowchart"];
+
 /// The commands that take `--allow` (the USAGE text names the same two).
 const ALLOW_COMMANDS: [&str; 2] = ["build", "trace"];
 
@@ -58,19 +61,8 @@ pub fn run(
         let _ = err.write_all(USAGE.as_bytes());
         return 3;
     };
-    let milestone = match command {
-        "build" | "format" | "test" | "trace" | "explain" => 0,
-        "flowchart" => 7,
-        _ => {
-            let _ = err.write_all(USAGE.as_bytes());
-            return 3;
-        }
-    };
-    if milestone != 0 {
-        let _ = writeln!(
-            err,
-            "gloss {command} is not built yet; it arrives in milestone {milestone}"
-        );
+    if !COMMANDS.contains(&command) {
+        let _ = err.write_all(USAGE.as_bytes());
         return 3;
     }
     let name = Path::new(file)
@@ -98,6 +90,7 @@ pub fn run(
         }
         "test" => test(&name, &text, out, err),
         "explain" => explain(&name, &text, out, err),
+        "flowchart" => flowchart(file, &name, &text, out, err),
         "trace" => {
             let options = BuildOptions {
                 allow,
@@ -105,20 +98,29 @@ pub fn run(
             };
             trace(Path::new(file), &name, &text, &options, prompt, out, err)
         }
-        _ => format(file, &name, &text, out, err),
+        "format" => format(file, &name, &text, out, err),
+        _ => unreachable!("checked against COMMANDS"),
     }
 }
 
-/// `gloss test`: check, then build and run the program's tests from a private folder.
-/// Nothing is written beside the source, and `.allow` is never read.
-fn test(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+/// Checks the program and prints its diagnostics, sorted, on `err`. `Err(3)` if any is an
+/// error; the program is checked without errors otherwise.
+fn checked_or_status(text: &str, err: &mut dyn Write) -> Result<crate::Checked, i32> {
     let (mut diagnostics, checked) = crate::check_program(text);
     crate::diag::sort(&mut diagnostics);
     for d in &diagnostics {
         let _ = writeln!(err, "{}", d.render());
     }
-    let Some(checked) = checked.filter(|_| !diagnostics.iter().any(|d| d.is_error())) else {
-        return 3;
+    // `check_program` gives no program when a diagnostic is an error.
+    checked.ok_or(3)
+}
+
+/// `gloss test`: check, then build and run the program's tests from a private folder.
+/// Nothing is written beside the source, and `.allow` is never read.
+fn test(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let checked = match checked_or_status(text, err) {
+        Ok(checked) => checked,
+        Err(status) => return status,
     };
     if checked.test_count() == 0 {
         let _ = writeln!(out, "No tests in {name}");
@@ -141,13 +143,9 @@ fn test(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32
 /// `gloss explain`: check, then write the listing of what the compiler made. Nothing is
 /// written beside the source and nothing is asked.
 fn explain(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let (mut diagnostics, checked) = crate::check_program(text);
-    crate::diag::sort(&mut diagnostics);
-    for d in &diagnostics {
-        let _ = writeln!(err, "{}", d.render());
-    }
-    let Some(checked) = checked.filter(|_| !diagnostics.iter().any(|d| d.is_error())) else {
-        return 3;
+    let checked = match checked_or_status(text, err) {
+        Ok(checked) => checked,
+        Err(status) => return status,
     };
     let listing = match checked.explanation(name) {
         Ok(listing) => listing,
@@ -163,6 +161,24 @@ fn explain(name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> 
     {
         let _ = writeln!(err, "cannot write the explanation");
         return 3;
+    }
+    0
+}
+
+/// `gloss flowchart`: check, then write one SVG per feature beside the source. Nothing is
+/// asked. A file that cannot be written stops the command; the files before it stay.
+fn flowchart(path: &str, name: &str, text: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let checked = match checked_or_status(text, err) {
+        Ok(checked) => checked,
+        Err(status) => return status,
+    };
+    for (svg_name, svg) in checked.flowcharts(name) {
+        let target = Path::new(path).with_file_name(&svg_name);
+        if let Err(e) = write_atomically(&target, svg.as_bytes(), Some(0o644)) {
+            let _ = writeln!(err, "{svg_name} cannot be written: {e}");
+            return 3;
+        }
+        let _ = writeln!(out, "Wrote {svg_name}");
     }
     0
 }
@@ -859,5 +875,30 @@ mod tests {
                 .unwrap()
                 .starts_with("Explain t.gloss")
         );
+    }
+
+    #[test]
+    fn flowchart_of_a_table_program_asks_nothing() {
+        let dir = std::env::temp_dir().join(format!("gloss-flow-table-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("t.gloss");
+        let text = "record Row\n  name as text\n\ntable rows of Row in \"rows.csv\"\n\nfeature start\n  load rows\n";
+        std::fs::write(&file, text).unwrap();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let args: Vec<String> = ["flowchart", file.to_str().unwrap()]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let code = run(
+            &args,
+            &mut out,
+            &mut err,
+            &mut FakePrompt { terminal: true },
+        );
+        let written = dir.join("t.start.svg").exists();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(code, 0, "{}", String::from_utf8_lossy(&err));
+        assert_eq!(String::from_utf8(out).unwrap(), "Wrote t.start.svg\n");
+        assert!(written);
     }
 }
