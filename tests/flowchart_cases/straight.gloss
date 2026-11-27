@@ -1,0 +1,7 @@
+feature start
+  set n to 1
+  show n
+  run greet
+
+feature greet
+  show "hello"
