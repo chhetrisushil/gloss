@@ -665,7 +665,7 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 
 The milestone ledger (every ruling, review record and carry) is kept in `.superpowers/sdd/2026-11-24-compiler-m3-tables-files/progress.md`.
 
-### Milestone 4 (`gloss test`), finished 2026-11-25, `main` @ 4469cc9 plus the open stack and this documentation
+### Milestone 4 (`gloss test`), finished 2026-11-25, merged to `main` @ 0abe6df
 
 **What shipped:**
 - **`gloss test FILE`.** It checks the program (tests included), builds a test executable with the Test backend, runs it from a private folder (mode 0700, deleted on every path) and passes on its status: 0 all passed, 1 a test failed, 3 a compile error (D37). A program with no tests prints `No tests in x.gloss` and builds nothing.
@@ -676,7 +676,7 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 - **Tests.** Cases in `tests/test_cases/` run as real executables and under `irsim`; the language spec's §13 program is a case; four examples carry tests that `tests/examples.rs` runs (D39).
 - **Docs.** `spec/v0.md` §9, §10 and §11 describe what the compiler does; the README has a Tests section.
 
-**Pull requests.** #410–#417 are merged (tasks 1 to 5). The rest are stacked branches, not yet opened; their PR numbers are added at merge. Plan #409.
+**Pull requests.** #409 (the plan), then #410 to #474, 65 branches (`m4/t01-fork-wait-ir` … `m4/final-d-absolute-private-dir`, each at most 200 changed lines and 10 files), rebase-merged in order, the last on 2026-11-25.
 
 | Task | What | PRs or branches |
 |---|---|---|
@@ -832,7 +832,7 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 
 The milestone ledger (every ruling, review record and carry) is kept in `.superpowers/sdd/2026-11-25-compiler-m5-trace/progress.md`.
 
-### Milestone 6 (`gloss explain`), finished 2026-11-26, branches stacked on `main` @ b952692, not yet merged
+### Milestone 6 (`gloss explain`), finished 2026-11-26, merged to `main` @ d479f81
 
 **What shipped:**
 - **The `assemble` split.** `program::executable` is now `assemble` (every function's instructions, then the arithmetic helpers) followed by the same encode and ELF steps. The bytes of every example executable are unchanged (sha256 checked by the controller at each step that touched lowering or the backend).
@@ -844,7 +844,7 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 - **The spec.** `spec/v0.md` §10 and §11 describe the listing and its messages; the README has an Explain section.
 - **The examples amendment (owner, mid-milestone).** Every example now has `test` blocks and a `.tests.out`, and a new example, `inventory`, covers a table with pretend files in its tests.
 
-**Pull requests.** #568 (the plan); the work is stacked branches `m6/t01-assemble` ... `m6/t13-as-built`, each at most 200 changed lines and 10 files; PRs: listed at merge.
+**Pull requests.** #568 (the plan), then #569 to #609, 41 branches (`m6/t01-assemble` … `m6/final-l-case-table-save`, each at most 200 changed lines and 10 files), rebase-merged in order on 2026-11-26.
 
 | Task | What |
 |---|---|
@@ -904,7 +904,7 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 
 The milestone ledger (every ruling, review record and carry) is kept in `.superpowers/sdd/2026-11-26-compiler-m6-explain/progress.md`.
 
-### Milestone 7 (`gloss flowchart`), finished 2026-11-27, branches stacked on `main` @ 8c9448d, not yet merged
+### Milestone 7 (`gloss flowchart`), finished 2026-11-27, merged to `main` @ 8a60e1f
 
 **What shipped:**
 - **The graph (`src/flowchart/graph.rs`).** `Graph { nodes, arrows, regions }`: nodes in source order (start first, end last), arrows of kind `Next`, `Yes`, `No`, `Each`, `Done`, `Skip`, `Stop`, `Give`, and `regions` (each loop and `if` chain as node ranges). Labels are the statement's source lines, continuation included, with invisible characters spelled.
@@ -916,7 +916,7 @@ The milestone ledger (every ruling, review record and carry) is kept in `.superp
 - **The golden cases.** `tests/flowchart_cases/` with `straight`, `if_chain`, `loops`, `jumps`, `calls`, `continued` (`MIN_FLOWCHART_CASES` is 6) and `GLOSS_BLESS=1`; a bless run deletes stale SVGs, names them, and fails so it is never left on (R25). The explain harness got the same bless fix.
 - **The spec.** `spec/v0.md` and the README describe `flowchart`; the README example is real output.
 
-**Pull requests.** #610 (the plan); the work is stacked branches `m7/t01a-...` to `m7/t11-as-built`, each at most 200 changed lines; PRs: listed at merge.
+**Pull requests.** #610 (the plan), then #611 to #644, 34 branches (`m7/t01a-graph-nodes` … `m7/final-e-docs`, each at most 200 changed lines and 10 files), rebase-merged in order on 2026-11-27. The merged tree equals the tested tip.
 
 **Deviations from D59 to D65 and §4.11** (rulings are written R1 ... R31 in the ledger; each correction is marked in §4.11):
 - **No `Back` arrow kind (P2).** A back arrow keeps its forward kind; `is_back` is `to <= from`, so an empty loop body's self-arrow (R8) is a back arrow.
