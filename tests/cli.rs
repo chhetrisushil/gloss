@@ -815,5 +815,55 @@ fn flowchart_reports_a_file_it_cannot_write() {
     let (code, out, err) = gloss(&["flowchart", p.to_str().unwrap()]);
     assert_eq!((code, out.as_str()), (3, ""));
     assert!(err.starts_with("x.start.svg cannot be written: "), "{err}");
+    assert!(
+        err.trim_end().len() > "x.start.svg cannot be written: ".len(),
+        "{err}"
+    );
     assert!(!p.with_file_name("x.helper.svg").exists());
+}
+
+#[test]
+fn flowchart_keeps_the_files_written_before_a_failure() {
+    let p = temp_named("flowsecond", "x.gloss", TWO_FEATURES);
+    std::fs::create_dir(p.with_file_name("x.helper.svg")).unwrap();
+    let (code, out, err) = gloss(&["flowchart", p.to_str().unwrap()]);
+    assert_eq!((code, out.as_str()), (3, "Wrote x.start.svg\n"));
+    let prefix = "x.helper.svg cannot be written: ";
+    assert!(err.starts_with(prefix), "{err}");
+    assert!(err.trim_end().len() > prefix.len(), "{err}");
+    assert!(p.with_file_name("x.start.svg").is_file());
+}
+
+#[test]
+fn flowchart_of_a_bare_file_name_writes_in_the_current_folder() {
+    let p = temp_named("flowbare", "x.gloss", TWO_FEATURES);
+    let o = Command::new(env!("CARGO_BIN_EXE_gloss"))
+        .args(["flowchart", "x.gloss"])
+        .current_dir(p.parent().unwrap())
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8(o.stdout).unwrap(),
+        "Wrote x.start.svg\nWrote x.helper.svg\n"
+    );
+    assert!(p.with_file_name("x.start.svg").is_file());
+    assert!(p.with_file_name("x.helper.svg").is_file());
+}
+
+#[test]
+fn flowchart_of_a_program_with_only_warnings_still_writes() {
+    let p = temp_named(
+        "flowwarn",
+        "x.gloss",
+        "feature helper\n  give 1\n  show 2\n\nfeature start\n  show 1\n",
+    );
+    let (code, out, err) = gloss(&["flowchart", p.to_str().unwrap()]);
+    assert_eq!(
+        (code, out.as_str()),
+        (0, "Wrote x.helper.svg\nWrote x.start.svg\n"),
+        "{err}"
+    );
+    assert!(err.contains("this line never runs"), "{err}");
+    assert!(p.with_file_name("x.start.svg").is_file());
 }
