@@ -1,7 +1,7 @@
 # Gloss v0 compiler - design spec
 
 - **Date:** 2026-11-22
-- **Status:** built (milestones 1 to 4, section 6); milestones 5–7 not started
+- **Status:** built (milestones 1 to 7, section 6); milestone 8 designed (section 4.12)
 - **Context:** Implements the language defined in `spec/v0.md` (the *language spec*). This document decides *how* the compiler is built. Where the two disagree about the language, the language spec wins. Where they disagree about the implementation, this document wins.
 - **Plans:** `docs/plans/2026-11-22-compiler-m1-front-end.md` (milestone 1). Milestone 2: `docs/plans/2026-11-23-compiler-m2-codegen.md`. Milestone 3: `docs/plans/2026-11-24-compiler-m3-tables-files.md`. Milestone 4: `docs/plans/2026-11-24-compiler-m4-tests.md`. Later milestones get their own plans.
 
@@ -87,6 +87,17 @@ Non-goals (and why):
 | D63 | How do loops and jumps route? | Every arrow is made of horizontal and vertical segments. Horizontal segments run in the gap between two rows, on one track per target in that gap (back tracks first, the innermost loop's on top, then the forward track; As built, M7-R29), or along a node's own row. Each loop has a **back lane** left of its span and a **done lane** right of it (As built, M7-R9: placed in the gaps between columns). The back arrow and every `skip` run up the back lane into the decision's left point. The `done` arrow and every `stop` run down the done lane to the gap above the node after the loop. The feature has one **give lane**, right of everything, which every `give` runs down to the end box (As built: it is right of everything, 16px right of the last done lane, or `LABEL_ROOM` (40px) right of the last column edge when no done lane ends there). A node that nothing reaches (after a jump; the checker warns about it) is drawn with no incoming arrow. | Spec §15: every arrow goes forward in an enclosing block or back to an enclosing loop's condition, so lanes nest with the blocks. |
 | D64 | How is the SVG written? | By `gloss` itself, with no crate (D3) and no drawing tool. Black lines on a white background, no colours. Monospace text at 15px, with each character assumed to be 9px wide (no font metrics). Every coordinate is a whole pixel, and the same program always gives the same bytes. The file has a `<title>` that names the source and the feature. | Spec §15's v0 limits: one fixed layout, no options. |
 | D65 | How is M7 tested? | `tests/flowchart_cases/<case>.gloss` with the expected `<case>.<feature>.svg` files, a sweep floor `MIN_FLOWCHART_CASES`, and `GLOSS_BLESS=1` as in M6. Unit tests on the graph (nodes, labels, arrows, targets) and the layout. Invariant tests over every case and every example: no two boxes overlap, no segment passes through a box, two arrows share a segment only when they have the same target, every statement other than `note` is exactly one node, and every SVG is well-formed XML (a small checker in the tests). The controller renders the examples' charts and looks at them before the final review. | Golden SVG alone would pass a chart that is drawn wrong; the invariants say what "drawn right" means. |
+| D66 | How is milestone 8 (spec §17, v0.1 nested values) split? | Two parts, one plan each. **M8a, the language:** nested types, `nothing`, checks over paths, deep changes, format, trace and test, with eager copies on the v0 allocator that never frees. **M8b, memory:** reference counts, copy-on-change and freeing, with no change a user can see. | M8a is correct on its own, and every M8a case guards M8b. The riskiest diffs (allocator, freeing) stay apart from the checker work. Owner, 2026-11-28. |
+| D67 | How are nested types held? | `ast::Type { item: ItemType, or_nothing: bool }` with `ItemType::{Plain, Record, List(Box<ItemType>)}`. The checker adds `Ty::Maybe(Box<Ty>)` for `T or nothing`; the bare `nothing` literal has its own type that fits only where a `Maybe` is expected. `T` fits where `Maybe(T)` is expected, never the reverse except under a check (D68). | `or nothing` is written once, at the end (spec §17), so one flag on the outer type says all of it. |
+| D68 | How are checks over names and paths (spec §17) found? | `check/narrow.rs` carries a set of checked path keys through each block. A key is a root name plus field and item steps; an item step keeps its position's printed form. The rules of spec §17 add keys; a key is dropped when its root, a prefix of it, a path that extends it, or a name used in one of its positions is set or changed. Calls drop nothing, since a feature cannot change its inputs. | Spec §17's rules, made mechanical. Dropping on any overlap is the safe direction. |
+| D69 | How is a value that may be nothing stored? | Still in 8 bytes. `nothing` is 0. A list, record or text is already an address. A `number or nothing` or `truth or nothing` is the address of a one-value block (boxed where a plain value is stored into it, read through where a checked path is read). `Desc` gains `Maybe(u32)`. | Numbers use the whole 64-bit range, so no bit pattern is free; boxing keeps the language unchanged. Owner, 2026-11-28. |
+| D70 | How do copy, equal and show work at any depth? | As loops over an explicit work list (a list block on the heap), never by recursion. Values form no cycles, so the list always empties. `show` writes nested open forms in parentheses and prints `nothing`. | Runtime routines never recurse (section 4.6): only feature calls check the stack limit. |
+| D71 | How is a deep change lowered? | The path gives the address of its slot: root, then each field and item, with the usual item-position failure at each step. The change reads and writes through that address. `append` takes the address of the list header, which never moves. A loop variable is the address of the current item's slot, so `append 0 to row` changes the walked list. | One lowering for every change form at every depth. In M8a nothing is shared, so writing in place is safe. |
+| D72 | How do trace and test show nested values? | Trace writes nested value forms, `nothing` as `{"nothing":"Cell"}`, and a change below the top level as `set` with `target`, the path as Gloss writes it (spec §17). The narrator says `line 6: item 2 of item 1 of grid becomes 9`. `expect` uses the deep `equal_values`. | Spec §17. |
+| D73 | How is memory counted and freed (M8b)? | Every heap block gets an 8-byte header: size class and reference count. Text constants carry an immortal count. Stores, call arguments and building take a reference; overwriting a slot, leaving a feature and dropping a temporary release one; a just-built value moves in without one. `release` to 0 frees the block and releases its children by descriptor through a work list (D70). No cycle collector: values form no cycles. | Spec §17: copies are cheap and memory is freed. Counting suits values without cycles. |
+| D74 | How do copies stay cheap (M8b)? | `set b to a` retains. Before a change through a path, each block along it whose count is above 1 is replaced by a one-level copy that retains its children, so the changed spot has one owner along the whole path. A list walked by `for each` is made unique before the walk when the body changes it through the loop variable. | Copy-on-change keeps every value its own copy (spec §4) while sharing until a change. |
+| D75 | Which allocator (M8b)? | Size classes in powers of two from 16 bytes to 4 KiB, with a free list each; larger blocks on one first-fit free list. Memory still comes from the OS in 64 MiB pieces and is never returned to it. | Simple, no recursion, and enough for programs that rebuild trees. |
+| D76 | How is M8 tested and reviewed? | The spec guard drops its section 17 cut, so section 17's programs run as cases. New run, test, trace, explain and flowchart cases with raised sweep floors; every section 17 message as an exact-string unit test; each task names the wrong implementation its negative test catches. M8b adds an `irsim` heap check (live blocks at exit equal what the values hold) and memory-limit cases that fail on M8a's allocator. The first reviews of narrowing, the work-list routines, the allocator and the counting and copy-on-change lowering are on the top tier, as is each part's final review. | M8a's cases are M8b's guard (D66). |
 
 ## 3. Rejected alternatives
 
@@ -116,6 +127,10 @@ Non-goals (and why):
 | Charting test blocks | Spec §15 charts features | Owner asks |
 | Merging straight-line statements into one box | Spec §15: statements are boxes | n/a |
 | Real font metrics for text width | Needs font files or a crate (D3); a fixed monospace width is exact enough for monospace text (D64) | Wide characters (CJK) prove common in labels |
+| Shared references for records | Owner: a value changes only through a line that names it (spec §17) | Never without new reasons |
+| Reserving the lowest number to mean nothing | Changes the language's number range (D69) | n/a |
+| Copy, equal, show and free by recursion | Runtime routines never recurse (D70) | The stack limit is checked inside runtime routines |
+| A tracing collector | Values form no cycles, so counts free everything (D73) | Cycles enter the language |
 
 ## 4. Design
 
@@ -429,6 +444,20 @@ Every sentence is indented 2 spaces per open call below `start`; `start` has no 
 **Testing (D65).** Unit tests in `src/flowchart/` for each node kind, label rule, arrow kind and lane (As built, M7-R26: also one through `Checked`, because tests built on `Source::new` missed a bug). `tests/flowchart_cases/` with a sweep, run on any host. The layout invariants are checked in a unit test over every case and every example. `tests/cli.rs` covers statuses, messages and file names.
 
 **Reviews.** All tasks are reviewed on the default tier. The layout and routing tasks (the core of the milestone) get their first review on the top tier.
+
+### 4.12 Milestone 8: nested values (spec §17)
+
+**Scope.** Everything in spec §17, in two parts (D66). M8a gives the language with eager copies; M8b gives counted, shared, freed memory with no visible change.
+
+**M8a front end.** The parser reads recursive types, `or nothing`, `nothing` and `nothing as T`, and `append value to target` (D67). The checker infers `Maybe` results from `give` lines and refuses `give nothing` alone. `check/narrow.rs` finds checks over names and paths (D68). A graph walk over record field types refuses a record that holds itself except through `or nothing` or a list. Tables keep flat records. The loop and input rules compare path prefixes at any depth. Format puts nested open forms in parentheses under the comma rule.
+
+**M8a back end.** Descriptors gain `Maybe`; `nothing` is 0 and plain values that may be nothing are boxed (D69). `copy_value`, `equal_values` and `show_value` walk a work list (D70). A path lowers to the address of its slot, and every change works through it (D71). Trace and test follow D72. The allocator still never frees.
+
+**M8b.** Block headers with counts, the size-class allocator, `retain` and `release`, freeing through the work list (D73, D75); lowering inserts the counts and makes each path unique before a change (D74).
+
+**Order.** M8a: parser and types; checker types and `Maybe`; narrowing; structural rules; format; path lowering and descriptors; work-list routines; boxing; trace and test; spec guard. M8b: headers and allocator; retain, release and freeing; counts in lowering; copy-on-change; loops; heap check and memory-limit cases.
+
+**Testing and reviews (D76).** Each part ends with every earlier case passing unchanged.
 
 ## 5. Open questions for the owner
 
