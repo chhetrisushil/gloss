@@ -449,3 +449,151 @@
 
 **Review:** opus first, then sonnet. **Estimate:** ~190 lines (×1.4 = 266). Split it in two: 15a covers `place` and `set`; 15b covers the four verbs and removing the old helpers.
 
+### Task 16: Appends at any depth, loop variables, and building with nested values (`m8/t16-append-loops`) - risky
+
+**Files:** `src/lower/{list,record,stmt,expr,copy}.rs`, `tests/explain_cases/*.out` (re-blessed where loops change).
+
+**Interfaces:**
+- `append value to target`: `place(target)`, load the list header, then `list_push(header, store_value(value))`. A bare name and a table behave as today.
+- A loop variable that walks a list holds the **address of the current item's slot** (D71). Reading it loads through that address. Changes through it (`append 0 to row`, `set qty of line to 2`) use the address as their place. The walked list must not move during the loop, and the checker's walking rule (Task 10) guarantees that.
+- A record build stores each field through `store_value`, so a list variable put into a record is copied.
+- `give` and call inputs stay as they are: inputs cannot change, and the receiving `set` copies.
+- Explain goldens with a `for each` change only in how the loop variable is loaded. They are re-blessed with `GLOSS_BLESS=1`, and the reviewer reads the diff.
+
+- [ ] **Step 1: failing tests** (`irsim::run_source`):
+  - `the_grid_program` (spec §17's grid: `list of (list of 1, 9, 3, 0), (list of 4, 5, 6, 7, 0)`)
+  - `append_deep` (`append line to lines of order`)
+  - `a_built_record_owns_its_list` (`set r to Order with lines ls`, `append x to ls`, `show r` unchanged)
+  - `loop_variable_changes_reach_the_item` (`for each line in lines` / `add 1 to qty of line`, then `show lines`)
+- [ ] **Step 2-5.** Commit `Append at any depth and let loop variables change their items`.
+
+**Fail-proof:**
+- A loop variable that copies the item passes every read test. `loop_variable_changes_reach_the_item` catches it.
+- A record build that does not copy passes the grid test. `a_built_record_owns_its_list` catches it.
+
+**Review:** opus first, then sonnet. **Estimate:** ~170 lines plus re-blessed goldens (×1.4 = 238). Split it in two: 16a covers append and builds; 16b covers loop variables and the goldens.
+
+### Task 17: `nothing`, boxes and checked reads (`m8/t17-nothing-lowering`) - risky
+
+**Files:** `src/lower/{expr,cond,stmt,copy,list}.rs`, `src/runtime/core.rs` (or `values.rs`) for `box_value`.
+
+**Interfaces:**
+- `nothing` and `nothing as T` lower to `Const 0`.
+- `box_value(v) -> address`: a one-word block holding `v`. Every expression in `TypeInfo.boxed` is boxed right after it is computed.
+- Every expression in `TypeInfo.narrowed` whose recorded type is `Number` or `Truth` is unboxed after it is read (one load).
+- `x is nothing` and `x is not nothing` compare with 0, with no routine call. `is` between two `Maybe` values, after boxing, calls `equal_values` with the `Maybe` descriptor.
+- `show` of a `Maybe` calls `show_value` with its descriptor. Text at the top level stays unquoted.
+- A `set` of a `Maybe` variable, field or item is accepted by the statement guards (stmt.rs:47-51) and copies through `copy_value` with the `Maybe` descriptor.
+
+- [ ] **Step 1: failing tests** (`irsim::run_source`, the spec programs with their printed output):
+  - `the_linked_list` (1, 2, 3)
+  - `find_gives_nothing_or_a_student` (67)
+  - `the_search_tree` (1, 2, 5, 8, 9)
+  - `number_or_nothing_boxes` (field `score as number or nothing`: shows `R with score 5`, then `R with score nothing`; under a check, `score of r + 1` prints 6)
+  - `two_nothings_are_equal`
+- [ ] **Step 2-5.** Commit `Build nothing, boxes and checked reads`.
+
+**Fail-proof:**
+- Unboxing every number passes the plain tests but reads garbage from a plain `score`. `number_or_nothing_boxes` also shows a plain number field.
+- A `Maybe` compared by address passes `two_nothings_are_equal`. The test also compares two separately boxed 5s.
+
+**Review:** opus first, then sonnet. **Estimate:** ~170 lines (×1.4 = 238). Split it in two: 17a covers `nothing`, `is nothing` and `show`; 17b covers boxes.
+
+### Task 18: Build and test nested programs (`m8/t18-lift-build`)
+
+**Files:** `src/lower/gate.rs` (the gate now applies only to trace mode), `tests/spec_examples.rs`, `tests/run/*`, `tests/run_sweep.inc`, `tests/test_cases/*`, `tests/test_sweep.inc`.
+
+**Interfaces:**
+- The gate refuses only `lower_trace` programs, with the same message.
+- The spec guard drops `v0_only` and `section_17_is_left_out_of_the_v0_checks`. Block classes become `[1, 8, 4, 1]`, the `"line ` count becomes 15, and the four §17 quoted messages join `QUOTED_MESSAGES`. The four §17 programs join `PRINTS`: `1\n2\n3\n`, `67\n`, `1\n2\n5\n8\n9\n`, and the grid line.
+- Run cases:
+  - `nested_linked_list`, `nested_find`, `nested_tree`, `nested_grid`
+  - `nested_copies` (deep copy independence, for lists and records)
+  - `nested_maybe_number`
+  - `nested_failure_deep` (failure 2 at depth, with `.status` and `.err`)
+  - `nested_append_paths`
+- Test cases: `nested_expect_pass` (expect on nested lists and records, and `is nothing`) and `nested_expect_fail` (a failing expect on a grid, with its report).
+- Floors: `MIN_CASES` goes to 161 and `MIN_TEST_CASES` to 20.
+
+- [ ] **Step 1-4.** Add the cases and the guard change, run the sweeps under `irsim` and on Linux, then run the verify gate.
+- [ ] **Step 5.** Commit `Build and test nested programs`.
+
+**Fail-proof:** a sweep that skips a case passes with fewer cases. The raised floors catch that. Each case's `.out` is written by hand from the spec, not blessed from the compiler.
+**Review:** sonnet. **Estimate:** ~240 lines across about 22 files. Split it in three: 18a covers the gate, the spec guard and the linked-list and find cases; 18b covers the tree, grid, copies, maybe-number, failure and append cases; 18c covers the test cases.
+
+### Task 19: Trace events for nested values (`m8/t19-trace-events`)
+
+**Files:** `src/runtime/json.rs`, `src/runtime/mod.rs` (JSON pieces), `src/lower/trace.rs`, `src/runtime/trace_backend_tests.rs`.
+
+**Interfaces:**
+- `json_value`:
+  - A `Maybe` holding 0 writes `{"nothing":"<name>"}`, using the descriptor's name text (Task 11).
+  - Any other `Maybe` writes its inner value, unboxed for number and truth.
+  - Nested lists and records are written inside one another, using a work list (D70). `json_value` must not call itself; `no_runtime_routine_recurses` holds.
+- A `set` whose target is one of the v0 shapes (`x`, `field of x`, `item p of x`, `field of item p of x`) writes the same keys as today. Any other target writes `"name":"<root>","target":"<path as print writes it>"` in place of `item` and `field`, followed by `from` and `to` as usual. Example: `{"line":3,"event":"set","name":"grid","target":"item 2 of item 1 of grid","from":2,"to":9}`.
+- An append to a path that is not a bare name writes `"name"`, `"target"` (the list's path), `"item"` (the new count) and `"to"`.
+- The `check` event leaves out of `values` every read whose expression holds an expression in `TypeInfo.narrowed`, and every field or item read of a `Maybe`. This prevents a load through 0 (F6).
+
+- Until Task 20 these tests lower with `lower_ungated(…, Mode::Trace)`.
+
+- [ ] **Step 1: failing tests:**
+  - `a_deep_set_names_its_target` (the exact line above)
+  - `nothing_is_written_with_its_type` (`{"nothing":"Cell"}`)
+  - `nested_values_are_written_whole`
+  - `a_check_does_not_read_through_nothing` (`if c is not nothing and value of c is 3` with `c` nothing: the run finishes, and `values` holds `c` only)
+- [ ] **Step 2-5.** Commit `Write trace events for nested values`.
+
+**Fail-proof:** a trace that writes `target` for v0 shapes too passes the nested tests. The existing 47 trace cases catch it.
+**Review:** sonnet. **Estimate:** ~180 lines (×1.4 = 252). Split it in two: 19a covers `json_value`; 19b covers set, append and check.
+
+### Task 20: Reading and narrating nested traces (`m8/t20-trace-narrate`)
+
+**Files:** `src/trace/{event,narrate,value}.rs`, `src/lower/gate.rs` (deleted), `src/lower/mod.rs`, `tests/trace_cases/*`, `tests/trace_sweep.inc`.
+
+**Interfaces:**
+- Decoding:
+  - `Value::Nothing(String)` decodes `{"nothing":"Cell"}`.
+  - Records hold any value. The error `field "{field}" of a record must be a number, text or truth` is removed, together with its test.
+  - `Event::Set` gets `target: Option<String>`.
+- Narration (spec §17):
+  - `line 6: item 2 of item 1 of grid becomes 9`
+  - an append to a path: `{v} is appended to {target} (now N item[s])`
+  - `nothing` is said as `nothing`
+  - nested values are said as `show` writes them, with D47's three-item cut applied only at the top level
+  - the first set of a variable to nothing: `best is nothing`
+- The gate is deleted (`gate.rs`, `first_nested`, `lower_ungated`). `irsim::run_source` now calls `lower`.
+- Trace cases: `nested_grid`, `nested_linked_list` and `nested_find`, each with `.trace` and `.out`. `MIN_TRACE_CASES` goes to 50.
+
+- [ ] **Step 1: failing tests:**
+  - `deep_sets_are_narrated`
+  - `nothing_is_said`
+  - `nested_values_are_said_in_source_form`
+  - `appends_to_paths_are_narrated`
+  - the three cases
+- [ ] **Step 2-5.** Commit `Narrate nested values and lift the last refusal`.
+
+**Fail-proof:** a narrator that drops `target` and falls back to `name` says `grid becomes 9`. The exact sentence catches it.
+**Review:** sonnet. **Estimate:** ~200 lines across about 12 files. Split it in two: 20a covers decoding and narration; 20b removes the gate and adds the cases.
+
+### Task 21: Explain and flowchart cases (`m8/t21-explain-flowchart`)
+
+**Files:** `tests/explain_cases/nested_linked_list.{gloss,out}`, `tests/explain_sweep.inc`, `tests/flowchart_cases/nested_linked_list.{gloss,start.svg}`, `tests/flowchart_sweep.inc`.
+
+**Interfaces:**
+- The explain case lists `head: Cell or nothing` among the variables, and the new routines (`work_pop`, `box_value` if reached) in its runtime part.
+- The flowchart case draws `repeat while c is not nothing` as an ordinary decision.
+- `MIN_EXPLAIN_CASES` goes to 14, and `MIN_FLOWCHART_CASES` to 7.
+
+- [ ] **Steps:** bless the goldens with `GLOSS_BLESS=1`, read them, then run the verify gate. Commit `Add explain and flowchart cases for nested values`.
+
+**Fail-proof:** a blessed golden proves only that the output stays stable. The reviewer checks the variable line and the decision by eye against this task's text.
+**Review:** sonnet. **Estimate:** ~120 lines.
+
+---
+
+## After the last task
+
+- **Wave.** The deferred minors are fixed in one dispatch.
+- **Final review:** `opus`, over the whole milestone diff against D66 to D72 and §17. One fix dispatch, then a scoped `sonnet` re-review.
+- **As built.** The controller writes the design spec's "Milestone 8a" As-built entry and moves `spec/v0.md` §17's opening sentence into the present tense. Both are in their own PR.
+- **Then** comes the M8b plan (D73 to D75), whose guard is every case above.
