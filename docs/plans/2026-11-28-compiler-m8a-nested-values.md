@@ -335,3 +335,117 @@
 **Fail-proof:** without the reservation, the Cell test overflows the stack instead of failing cleanly. The test therefore runs the build in a thread with a small stack and asserts that it finishes.
 **Review:** sonnet. **Estimate:** ~120 lines.
 
+### Task 12: The work list, and copies at any depth (`m8/t12-copy-deep`) - risky
+
+**Files:** `src/runtime/work.rs` (new), `src/runtime/copy.rs`, `src/runtime/mod.rs`, `src/runtime/heap_tests.rs` (or a new `copy_tests.rs`).
+
+**Interfaces:**
+- The work list is an ordinary list block (`list_new`, `list_push`), used as a stack of words. The new routine is `work_pop(list) -> word`: it lowers the count by one and gives the last word. The caller checks the count before popping. These routines are not reachable from v0 programs unless the program copies something.
+- `copy_value(value, desc, line)` keeps its signature. It copies at any depth:
+  1. Push `(source, desc, address of the destination word)` for the root.
+  2. Loop until the list is empty:
+     - Pop a triple.
+     - A `Maybe` holding 0 stores 0. Any other `Maybe` continues with its inner descriptor.
+     - A record gets a new block, and pushes one triple for each field.
+     - A list gets a new header with room for at least 4 items, plus an items block, and pushes one triple for each item.
+     - Number, text and truth are stored as they are. Text and boxes are never changed, so sharing them is safe.
+  3. The result is the root's destination word.
+- `copy_record` and `copy_list` either go, or become helpers that never call back into `copy_value`.
+- **Guard for every later task:** a unit test `no_runtime_routine_recurses` builds the call graph of `runtime::routines()` (each `Inst::Call` target) and asserts it has no cycle.
+
+- [ ] **Step 1: failing tests:**
+  - `no_runtime_routine_recurses`
+  - `a_copied_list_of_lists_is_its_own` (copy `[[1,2],[3]]`, poke the copy's inner list, and the original reads the same)
+  - `a_record_with_a_list_field_is_copied_deep`
+  - `a_chain_of_cells_is_copied` (10,000 cells deep: it finishes and the copy's last cell is a new block)
+  - `nothing_copies_as_nothing`
+- [ ] **Step 2-5.** Commit `Copy values at any depth with a work list`.
+
+**Fail-proof:**
+- A copy that shares inner lists passes a flat test. `a_copied_list_of_lists_is_its_own` pokes the inner list to catch that.
+- A recursive copy passes every value test. `no_runtime_routine_recurses` catches it, and the 10,000-deep chain would also fault the stack.
+
+**Review:** opus first, then sonnet. **Estimate:** ~190 lines (×1.4 = 266). Split it in two: 12a covers the work list, the guard and records; 12b covers lists and `Maybe`.
+
+### Task 13: `is` at any depth (`m8/t13-equal-deep`) - risky
+
+**Files:** `src/runtime/equal.rs`, its tests.
+
+**Interfaces:**
+- `equal_values(a, b, desc)` keeps its signature. It compares at any depth with a work list of `(a, b, desc)` triples:
+  - A `Maybe`: both 0 are equal, only one 0 is unequal, otherwise compare the inner values.
+  - Records compare field by field; lists compare counts, then items.
+  - Text compares with `text_equal`, numbers and truths by word.
+  - The first difference ends the walk with 0. An empty list ends it with 1.
+
+- [ ] **Step 1: failing tests:**
+  - `nested_lists_compare_deep` (equal, and unequal in the last inner item)
+  - `records_with_list_fields_compare`
+  - `nothing_equals_only_nothing`
+  - `boxed_numbers_compare_by_value` (two boxes holding 5 are equal)
+- [ ] **Step 2-5.** Commit `Compare values at any depth`.
+
+**Fail-proof:**
+- A compare that checks only counts passes the equal case. The unequal-last-item case catches it.
+- A compare that compares box addresses passes when both sides share one box. The test builds two separate boxes.
+
+**Review:** opus first, then sonnet. **Estimate:** ~150 lines.
+
+### Task 14: `show` at any depth (`m8/t14-show-deep`) - risky
+
+**Files:** `src/runtime/values.rs`, `src/runtime/mod.rs` (the text `nothing` in `TEXTS`), their tests.
+
+**Interfaces:**
+- `show_value(value, desc)` keeps its signature. The work list holds two kinds of entries, told apart by a tag word: *show `(value, desc, nested)`* and *write fixed text n*. Entries are pushed in reverse order so they come out in order.
+- Forms:
+  - Text at the top level is unquoted; nested text is quoted.
+  - A nested record, or a nested non-empty list, is in parentheses. An empty list is never in parentheses.
+  - `nothing` is written `nothing`, and a boxed number or truth shows its value.
+
+  So `Cell with value 1, next (Cell with value 2, next nothing)` and `list of (list of 1, 2), (list of 3, 4)`.
+- v0 forms are unchanged: a record in a list is in parentheses, as today.
+
+- [ ] **Step 1: failing tests** (exact output):
+  - `cells_show_their_source_form` (the spec string)
+  - `a_grid_shows_in_parentheses` (`list of (list of 1, 9, 3, 0), (list of 4, 5, 6, 7, 0)`)
+  - `an_empty_inner_list` (`list of (list of 1), empty list of number`)
+  - `text_is_quoted_inside`
+  - `a_lone_nothing`
+- [ ] **Step 2-5.** Commit `Show values at any depth in their source form`.
+
+**Fail-proof:**
+- Pushing entries in order instead of in reverse prints items backwards. Every test has at least two items to catch that.
+- Putting parentheses around empty lists passes the grid test. `an_empty_inner_list` catches it.
+
+**Review:** opus first, then sonnet. **Estimate:** ~180 lines (×1.4 = 252). Split it in two: 14a covers the tagged work list and records; 14b covers lists, `nothing` and boxes.
+
+### Task 15: Paths: the address of any slot (`m8/t15-paths`) - risky
+
+**Files:** `src/lower/path.rs` (new), `src/lower/{stmt,list,record}.rs`.
+
+**Interfaces:**
+- ```rust
+  enum Place { Slot(u32), Table(String), Memory } // Memory: the slot's address is in `a`
+  fn place(&mut self, target: &Target) -> Result<Place, Diagnostic>
+  ```
+  - A `Var` is its frame slot, or a table.
+  - A longer path loads the root, then follows each step but the last. A field step loads at its offset. An item step goes through `item_address` (failures 2 and 3, with the list named as `print::expr` writes it) and then loads.
+  - The last step leaves the slot's address in `a`. A checked step needs no test here: the checker has proved it is not nothing.
+- `set`, `add`, `subtract`, `multiply` and `divide` on any target go through `place`. `set` stores `store_value(value)`, so a list or record that already has an owner is copied, at every depth.
+- The new value is computed before the address (D44 order), so a call inside the value runs first.
+- `item_target`, `item_field` and the old `place` in record.rs (F4) are replaced. A v0 program behaves the same, though its instructions may differ.
+
+- [ ] **Step 1: failing tests** (through `irsim::run_source`):
+  - `set_deep_in_a_grid` (`set item 2 of item 1 of grid to 9`, then `show grid` prints the spec line without the appends)
+  - `add_deep_in_records` (`add 1 to marks of item 2 of students of class`)
+  - `a_deep_position_fails_with_its_list` (failure 2 names `item 1 of grid`)
+  - `set_copies_at_depth` (`set b to a`, `set item 1 of item 1 of b to 0`, `show a` is unchanged)
+  - every v0 run case passes, under `irsim` and as executables
+- [ ] **Step 2-5.** Commit `Change values through paths of any depth`.
+
+**Fail-proof:**
+- A path that loads the last step instead of taking its address changes a copy. `set_deep_in_a_grid` shows the original.
+- Computing the address before the value lets a call in the value see a half-done change. An IR-order test pins the order.
+
+**Review:** opus first, then sonnet. **Estimate:** ~190 lines (×1.4 = 266). Split it in two: 15a covers `place` and `set`; 15b covers the four verbs and removing the old helpers.
+
